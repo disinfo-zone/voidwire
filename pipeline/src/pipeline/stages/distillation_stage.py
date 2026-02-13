@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.models import CulturalSignal, LLMConfig
 from voidwire.services.llm_client import LLMClient, LLMSlotConfig, generate_with_validation
+from voidwire.services.pipeline_settings import DistillationSettings
 from pipeline.prompts.distillation import build_distillation_prompt
 
 logger = logging.getLogger(__name__)
@@ -33,10 +34,22 @@ async def _get_llm_client(session: AsyncSession, slot: str) -> LLMClient:
     ))
     return client
 
-async def run_distillation_stage(articles: list[dict], run_id: uuid.UUID, date_context: date, session: AsyncSession) -> list[dict]:
+async def run_distillation_stage(
+    articles: list[dict],
+    run_id: uuid.UUID,
+    date_context: date,
+    session: AsyncSession,
+    settings: DistillationSettings | None = None,
+) -> list[dict]:
     if not articles:
         return []
-    prompt = build_distillation_prompt(articles)
+    ds = settings or DistillationSettings()
+    prompt = build_distillation_prompt(
+        articles,
+        content_truncation=ds.content_truncation,
+        target_signals_min=ds.target_signals_min,
+        target_signals_max=ds.target_signals_max,
+    )
     try:
         client = await _get_llm_client(session, "distillation")
         signals = await generate_with_validation(client, "distillation", [{"role":"user","content":prompt}], _validate_signals)

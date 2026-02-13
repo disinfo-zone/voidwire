@@ -13,6 +13,7 @@ from voidwire.config import get_settings
 from voidwire.database import get_session
 from voidwire.models import PipelineRun, Reading
 from voidwire.schemas.pipeline import RegenerationMode
+from voidwire.services.pipeline_settings import load_pipeline_settings
 from pipeline.stages.ephemeris_stage import run_ephemeris_stage
 from pipeline.stages.ingestion_stage import run_ingestion_stage
 from pipeline.stages.distillation_stage import run_distillation_stage
@@ -72,6 +73,9 @@ async def run_pipeline(
     seed = _generate_seed(date_context, run_id)
 
     async with get_session() as session:
+        # Load pipeline settings from DB (merged with defaults)
+        ps = await load_pipeline_settings(session)
+
         # Acquire advisory lock keyed by date_context
         lock_key = int(hashlib.sha256(date_context.isoformat().encode()).hexdigest()[:15], 16) % (2**31)
         result = await session.execute(sa_text("SELECT pg_try_advisory_lock(:key)"), {"key": lock_key})
@@ -89,7 +93,7 @@ async def run_pipeline(
                 id=run_id, date_context=date_context, run_number=run_number,
                 started_at=datetime.now(timezone.utc), status="running",
                 code_version=_get_code_version(), seed=seed,
-                template_versions={}, model_config_json={},
+                template_versions={}, model_config_json=ps.model_dump(),
                 regeneration_mode=regeneration_mode.value if regeneration_mode else None,
                 parent_run_id=parent_run_id,
                 ephemeris_json={}, distilled_signals={}, selected_signals={},
@@ -107,13 +111,15 @@ async def run_pipeline(
             # Stage 2: Ingestion
             sky_only = False
             try:
-                raw_articles = await run_ingestion_stage(date_context, session)
+                raw_articles = await run_ingestion_stage(date_context, session, settings=ps.ingestion)
                 if not raw_articles:
                     sky_only = True
                     distilled = []
                 else:
                     # Stage 3: Distillation
-                    distilled = await run_distillation_stage(raw_articles, run_id, date_context, session)
+                    distilled = await run_distillation_stage(
+                        raw_articles, run_id, date_context, session, settings=ps.distillation,
+                    )
             except Exception as e:
                 logger.error("Ingestion/distillation failed: %s", e)
                 sky_only = True
@@ -130,13 +136,13 @@ async def run_pipeline(
                     logger.warning("Embedding failed: %s", e)
 
             # Stage 5: Selection
-            selected = await run_selection_stage(distilled, seed) if distilled and not sky_only else []
+            selected = await run_selection_stage(distilled, seed, settings=ps.selection) if distilled and not sky_only else []
             run.selected_signals = selected if isinstance(selected, list) else []
             run.selection_hash = _content_hash({"selected": selected, "seed": seed})
 
             # Stage 6: Thread tracking (with fallback to previous snapshot)
             try:
-                thread_snapshot = await run_thread_stage(distilled, date_context, session)
+                thread_snapshot = await run_thread_stage(distilled, date_context, session, settings=ps.threads)
             except Exception as e:
                 logger.warning("Thread tracking failed, using previous snapshot: %s", e)
                 thread_snapshot = await _get_previous_thread_snapshot(session, date_context)
@@ -146,6 +152,7 @@ async def run_pipeline(
             try:
                 synthesis_result = await run_synthesis_stage(
                     ephemeris_data, selected, thread_snapshot, date_context, sky_only, session,
+                    settings=ps.synthesis,
                 )
                 run.interpretive_plan = synthesis_result.get("interpretive_plan")
                 run.generated_output = synthesis_result.get("generated_output")

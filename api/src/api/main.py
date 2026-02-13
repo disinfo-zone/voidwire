@@ -5,7 +5,12 @@ from collections.abc import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from voidwire.database import close_engine
-from api.routers import public, health, setup_wizard, admin_readings, admin_sources, admin_templates, admin_dictionary, admin_settings, admin_pipeline, admin_events, admin_backup, admin_audit, admin_analytics
+from api.routers import (
+    public, health, setup_wizard,
+    admin_readings, admin_sources, admin_templates, admin_dictionary,
+    admin_settings, admin_pipeline, admin_events, admin_backup,
+    admin_audit, admin_analytics, admin_llm, admin_threads, admin_signals,
+)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -28,6 +33,9 @@ def create_app() -> FastAPI:
     app.include_router(admin_backup.router, prefix="/admin/backup", tags=["admin"])
     app.include_router(admin_audit.router, prefix="/admin/audit", tags=["admin"])
     app.include_router(admin_analytics.router, prefix="/admin/analytics", tags=["admin"])
+    app.include_router(admin_llm.router, prefix="/admin/llm", tags=["admin"])
+    app.include_router(admin_threads.router, prefix="/admin/threads", tags=["admin"])
+    app.include_router(admin_signals.router, prefix="/admin/signals", tags=["admin"])
     return app
 
 app = create_app()

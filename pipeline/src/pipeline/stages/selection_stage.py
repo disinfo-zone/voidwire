@@ -5,33 +5,46 @@ import math
 import random
 from typing import Any
 
+from voidwire.services.pipeline_settings import SelectionSettings
+
 logger = logging.getLogger(__name__)
-INTENSITY_SCORES = {"major": 3.0, "moderate": 2.0, "minor": 1.0}
-WILD_CARD_EXCLUDED_DOMAINS = {"anomalous", "health"}
 
 
-async def run_selection_stage(signals: list[dict], seed: int, n_select: int = 9, n_wild: int = 1) -> list[dict]:
+async def run_selection_stage(
+    signals: list[dict],
+    seed: int,
+    settings: SelectionSettings | None = None,
+) -> list[dict]:
     if not signals:
         return []
+    s = settings or SelectionSettings()
+    n_select = s.n_select
+    n_wild = s.n_wild
+    intensity_scores = s.intensity_scores
+    wild_card_excluded = set(s.wild_card_excluded_domains)
+    diversity_bonus = s.diversity_bonus
+    quality_floor = s.quality_floor
+    min_text_length = s.min_text_length
+
     rng = random.Random(seed)
-    major = [s for s in signals if s.get("intensity") == "major"]
-    non_major = [s for s in signals if s.get("intensity") != "major"]
+    major = [sig for sig in signals if sig.get("intensity") == "major"]
+    non_major = [sig for sig in signals if sig.get("intensity") != "major"]
     selected = list(major)
-    for s in selected:
-        s["was_selected"] = True
-        s["selection_weight"] = 1.0
+    for sig in selected:
+        sig["was_selected"] = True
+        sig["selection_weight"] = 1.0
     remaining = max(0, n_select - len(selected) - n_wild)
     if remaining > 0 and non_major:
         domain_counts: dict[str, int] = {}
-        for s in selected:
-            d = s.get("domain", "")
+        for sig in selected:
+            d = sig.get("domain", "")
             domain_counts[d] = domain_counts.get(d, 0) + 1
         weighted = []
-        for s in non_major:
-            w = INTENSITY_SCORES.get(s.get("intensity", "minor"), 1.0) * s.get("weight", 0.5)
-            if domain_counts.get(s.get("domain", ""), 0) == 0:
-                w *= 1.5
-            weighted.append((s, w))
+        for sig in non_major:
+            w = intensity_scores.get(sig.get("intensity", "minor"), 1.0) * sig.get("weight", 0.5)
+            if domain_counts.get(sig.get("domain", ""), 0) == 0:
+                w *= diversity_bonus
+            weighted.append((sig, w))
         for _ in range(min(remaining, len(weighted))):
             if not weighted:
                 break
@@ -53,16 +66,16 @@ async def run_selection_stage(signals: list[dict], seed: int, n_select: int = 9,
             domain_counts[chosen.get("domain", "")] = domain_counts.get(chosen.get("domain", ""), 0) + 1
     # Wild card: select signal with maximum cosine distance from major centroid
     if n_wild > 0 and non_major:
-        wild_cands = [s for s in non_major if not s.get("was_selected")]
-        # Quality floor: moderate+ intensity or source weight >= 0.5
-        wild_cands = [s for s in wild_cands
-                      if s.get("intensity") in ("major", "moderate") or s.get("weight", 0) >= 0.5]
-        # Domain exclusion: anomalous/health excluded from wild card
-        wild_cands = [s for s in wild_cands
-                      if s.get("domain") not in WILD_CARD_EXCLUDED_DOMAINS]
+        wild_cands = [sig for sig in non_major if not sig.get("was_selected")]
+        # Quality floor: moderate+ intensity or source weight >= quality_floor
+        wild_cands = [sig for sig in wild_cands
+                      if sig.get("intensity") in ("major", "moderate") or sig.get("weight", 0) >= quality_floor]
+        # Domain exclusion
+        wild_cands = [sig for sig in wild_cands
+                      if sig.get("domain") not in wild_card_excluded]
         # Minimum text length check
-        wild_cands = [s for s in wild_cands
-                      if len(s.get("summary", "")) >= 20]
+        wild_cands = [sig for sig in wild_cands
+                      if len(sig.get("summary", "")) >= min_text_length]
         if wild_cands:
             wild = _select_wild_card_by_distance(wild_cands, major, rng)
             wild["was_selected"] = True

@@ -5,6 +5,7 @@ from datetime import date
 from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.services.llm_client import generate_with_validation
+from voidwire.services.pipeline_settings import SynthesisSettings
 from pipeline.prompts.synthesis_plan import build_plan_prompt
 from pipeline.prompts.synthesis_prose import build_prose_prompt
 
@@ -24,7 +25,9 @@ async def run_synthesis_stage(
     date_context: date,
     sky_only: bool,
     session: AsyncSession,
+    settings: SynthesisSettings | None = None,
 ) -> dict:
+    ss = settings or SynthesisSettings()
     from pipeline.stages.distillation_stage import _get_llm_client
     client = await _get_llm_client(session, "synthesis")
 
@@ -35,9 +38,9 @@ async def run_synthesis_stage(
     prompt_payloads["pass_a"] = plan_prompt
 
     interpretive_plan = None
-    for attempt in range(2):
+    for attempt in range(ss.plan_retries):
         try:
-            temp = 0.7 + (attempt * 0.15)
+            temp = ss.plan_temp_start + (attempt * ss.plan_temp_step)
             interpretive_plan = await generate_with_validation(
                 client, "synthesis",
                 [{"role": "user", "content": plan_prompt}],
@@ -48,21 +51,24 @@ async def run_synthesis_stage(
         except Exception as e:
             logger.warning("Pass A attempt %d failed: %s", attempt + 1, e)
 
-    # Pass B: Prose generation (3 attempts, decreasing temperature)
+    # Pass B: Prose generation (retries with decreasing temperature)
     prose_prompt = build_prose_prompt(
         ephemeris_data, selected_signals, thread_snapshot,
         date_context, interpretive_plan, sky_only,
+        standard_word_range=ss.standard_word_range,
+        extended_word_range=ss.extended_word_range,
+        banned_phrases=ss.banned_phrases,
     )
     prompt_payloads["pass_b"] = prose_prompt
 
     result = None
-    for attempt in range(3):
+    for attempt in range(ss.prose_retries):
         try:
             result = await generate_with_validation(
                 client, "synthesis",
                 [{"role": "user", "content": prose_prompt}],
                 _validate_prose,
-                temperature=max(0.5, 0.7 - attempt * 0.1),
+                temperature=max(ss.prose_temp_min, ss.prose_temp_start - attempt * ss.prose_temp_step),
             )
             break
         except Exception as e:
@@ -74,6 +80,9 @@ async def run_synthesis_stage(
         sky_prompt = build_prose_prompt(
             ephemeris_data, [], thread_snapshot,
             date_context, interpretive_plan, sky_only=True,
+            standard_word_range=ss.standard_word_range,
+            extended_word_range=ss.extended_word_range,
+            banned_phrases=ss.banned_phrases,
         )
         prompt_payloads["pass_b_fallback"] = sky_prompt
         try:
@@ -81,7 +90,7 @@ async def run_synthesis_stage(
                 client, "synthesis",
                 [{"role": "user", "content": sky_prompt}],
                 _validate_prose,
-                temperature=0.6,
+                temperature=ss.fallback_temp,
             )
         except Exception as e:
             logger.warning("Sky-only fallback failed: %s", e)

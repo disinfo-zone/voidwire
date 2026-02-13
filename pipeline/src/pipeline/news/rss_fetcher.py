@@ -5,7 +5,6 @@ from typing import Any
 import httpx
 
 logger = logging.getLogger(__name__)
-FULLTEXT_TIMEOUT = 5.0
 
 
 async def fetch_rss(
@@ -15,10 +14,12 @@ async def fetch_rss(
     domain: str = "anomalous",
     weight: float = 0.5,
     allow_fulltext: bool = False,
+    fulltext_timeout: float = 5.0,
+    rss_timeout: float = 15.0,
 ) -> list[dict[str, Any]]:
     import feedparser
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(timeout=rss_timeout) as client:
         response = await client.get(url)
         response.raise_for_status()
     feed = feedparser.parse(response.text)
@@ -28,7 +29,7 @@ async def fetch_rss(
         link = getattr(entry, "link", "")
 
         if allow_fulltext and link:
-            full_text = await _extract_fulltext(link)
+            full_text = await _extract_fulltext(link, fulltext_timeout)
 
         articles.append({
             "source_id": source_id,
@@ -43,12 +44,12 @@ async def fetch_rss(
     return articles
 
 
-async def _extract_fulltext(url: str) -> str | None:
+async def _extract_fulltext(url: str, timeout: float = 5.0) -> str | None:
     """Extract full article text via trafilatura with timeout."""
     try:
         import trafilatura
 
-        async with httpx.AsyncClient(timeout=FULLTEXT_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.get(url)
             response.raise_for_status()
         text = trafilatura.extract(response.text, include_comments=False, include_tables=False)

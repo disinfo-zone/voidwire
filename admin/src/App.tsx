@@ -10,6 +10,9 @@ import SettingsPage from './pages/SettingsPage';
 import PipelinePage from './pages/PipelinePage';
 import EventsPage from './pages/EventsPage';
 import AuditPage from './pages/AuditPage';
+import LLMConfigPage from './pages/LLMConfigPage';
+import ThreadsPage from './pages/ThreadsPage';
+import SignalsPage from './pages/SignalsPage';
 import SetupWizardPage from './pages/SetupWizardPage';
 import { useAuth } from './hooks/useAuth';
 
@@ -40,6 +43,9 @@ export default function App() {
           <Route path="dictionary" element={<DictionaryPage />} />
           <Route path="pipeline" element={<PipelinePage />} />
           <Route path="events" element={<EventsPage />} />
+          <Route path="threads" element={<ThreadsPage />} />
+          <Route path="signals" element={<SignalsPage />} />
+          <Route path="llm" element={<LLMConfigPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="audit" element={<AuditPage />} />
         </Route>

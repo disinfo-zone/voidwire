@@ -12,7 +12,13 @@ def build_prose_prompt(
     date_context: date,
     interpretive_plan: dict | None = None,
     sky_only: bool = False,
+    standard_word_range: list[int] | None = None,
+    extended_word_range: list[int] | None = None,
+    banned_phrases: list[str] | None = None,
 ) -> str:
+    std_range = standard_word_range or [400, 600]
+    ext_range = extended_word_range or [1200, 1800]
+    banned = banned_phrases or ["buckle up", "wild ride", "cosmic", "universe has plans", "energy", "vibe"]
     plan_str = json.dumps(interpretive_plan, indent=2) if interpretive_plan else "(no plan)"
     titles = ephemeris_data.get("recent_titles", [])
     titles_str = ", ".join(f'"{t}"' for t in titles) if titles else "(none)"
@@ -47,9 +53,9 @@ HARD CONSTRAINTS (violation = rejection):
 - Do NOT address the reader as "you." Do not give advice or prescriptions.
 - No emojis, ever.
 - Use proper em-dashes (\u2014) for parenthetical asides, never hyphens or en-dashes.
-- Standard reading body: 400\u2013600 words. Extended reading: 1200\u20131800 words.
+- Standard reading body: {std_range[0]}\u2013{std_range[1]} words. Extended reading: {ext_range[0]}\u2013{ext_range[1]} words.
 - Title must not resemble any of: {titles_str}
-- Do not use the words: "buckle up", "wild ride", "cosmic", "universe has plans", "energy", "vibe"
+- Do not use the words: {', '.join(f'"{p}"' for p in banned)}
 - Every transit annotation must reference a specific aspect from the transit data.
 
 STRUCTURE:

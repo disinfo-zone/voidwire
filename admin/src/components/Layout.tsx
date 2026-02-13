@@ -9,6 +9,9 @@ const navItems = [
   { to: '/dictionary', label: 'Dictionary' },
   { to: '/pipeline', label: 'Pipeline' },
   { to: '/events', label: 'Events' },
+  { to: '/threads', label: 'Threads' },
+  { to: '/signals', label: 'Signals' },
+  { to: '/llm', label: 'LLM Config' },
   { to: '/settings', label: 'Settings' },
   { to: '/audit', label: 'Audit Log' },
 ];
