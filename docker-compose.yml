@@ -1,0 +1,146 @@
+services:
+  # === Database ===
+  voidwire-db:
+    image: pgvector/pgvector:pg16
+    container_name: voidwire-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-voidwire}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-voidwire}
+      POSTGRES_DB: ${POSTGRES_DB:-voidwire}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U voidwire"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # === Redis ===
+  voidwire-redis:
+    image: redis:7-alpine
+    container_name: voidwire-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # === API ===
+  voidwire-api:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.api
+    container_name: voidwire-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-voidwire}:${POSTGRES_PASSWORD:-voidwire}@voidwire-db:5432/${POSTGRES_DB:-voidwire}
+      REDIS_URL: redis://voidwire-redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      voidwire-db:
+        condition: service_healthy
+      voidwire-redis:
+        condition: service_healthy
+
+  # === Pipeline ===
+  voidwire-pipeline:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.pipeline
+    container_name: voidwire-pipeline
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-voidwire}:${POSTGRES_PASSWORD:-voidwire}@voidwire-db:5432/${POSTGRES_DB:-voidwire}
+      REDIS_URL: redis://voidwire-redis:6379/0
+    depends_on:
+      voidwire-db:
+        condition: service_healthy
+
+  # === Public Site ===
+  voidwire-web:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.web
+    container_name: voidwire-web
+    restart: unless-stopped
+    environment:
+      API_URL: http://voidwire-api:8000
+    ports:
+      - "4321:4321"
+    depends_on:
+      - voidwire-api
+
+  # === Admin UI ===
+  voidwire-admin:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.admin
+    container_name: voidwire-admin
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: http://voidwire-api:8000
+    ports:
+      - "5173:80"
+    depends_on:
+      - voidwire-api
+
+  # === Minio (S3-compatible storage) ===
+  voidwire-minio:
+    image: minio/minio:latest
+    container_name: voidwire-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-voidwire}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-voidwire-minio-secret}
+    volumes:
+      - miniodata:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  # === Caddy (reverse proxy) ===
+  voidwire-caddy:
+    image: caddy:2-alpine
+    container_name: voidwire-caddy
+    restart: unless-stopped
+    volumes:
+      - ./infra/Caddyfile:/etc/caddy/Caddyfile
+      - caddydata:/data
+      - caddyconfig:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - voidwire-api
+      - voidwire-web
+      - voidwire-admin
+
+  # === Cloudflare Tunnel ===
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: voidwire-cloudflared
+    restart: unless-stopped
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - voidwire-caddy
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  caddydata:
+  caddyconfig:

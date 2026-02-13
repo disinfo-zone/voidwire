@@ -1,0 +1,29 @@
+# Voidwire Caddy Configuration
+# Internal reverse proxy - Cloudflare Tunnel handles external TLS
+
+:80 {
+    # Public site
+    handle /api/* {
+        reverse_proxy voidwire-api:8000
+    }
+
+    handle /v1/* {
+        reverse_proxy voidwire-api:8000
+    }
+
+    handle /health* {
+        reverse_proxy voidwire-api:8000
+    }
+
+    handle /setup* {
+        reverse_proxy voidwire-api:8000
+    }
+
+    handle /admin/* {
+        reverse_proxy voidwire-admin:80
+    }
+
+    handle {
+        reverse_proxy voidwire-web:4321
+    }
+}

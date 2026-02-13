@@ -1,0 +1,77 @@
+---
+import Base from '../../layouts/Base.astro';
+
+const API_URL = import.meta.env.API_URL || 'http://api:8000';
+
+interface AstroEvent {
+  event_type: string;
+  body?: string;
+  sign?: string;
+  date: string;
+  description?: string;
+}
+
+let events: AstroEvent[] = [];
+let error = null;
+
+try {
+  const res = await fetch(`${API_URL}/v1/events?limit=20`);
+  if (res.ok) {
+    const data = await res.json();
+    events = data.items || data;
+  } else {
+    error = `Failed to load events (${res.status})`;
+  }
+} catch (e) {
+  error = e instanceof Error ? e.message : 'Unknown error';
+}
+
+function formatEventType(type: string): string {
+  return type.replace(/_/g, ' ');
+}
+---
+
+<Base title="Events">
+  <header class="site-header">
+    <h1 class="site-title"><a href="/">VOIDWIRE</a></h1>
+    <nav class="site-nav">
+      <a href="/archive">Archive</a>
+      <a href="/events">Events</a>
+      <a href="/about">About</a>
+    </nav>
+  </header>
+
+  <main class="page-container">
+    <h2 class="page-title">Upcoming Events</h2>
+
+    {error && (
+      <div class="status-message">
+        <p>Signal disrupted</p>
+        <p style="font-size: 0.9rem; margin-top: 0.5rem; opacity: 0.6;">{error}</p>
+      </div>
+    )}
+
+    {!error && events.length === 0 && (
+      <div class="status-message">
+        <p>No upcoming events detected</p>
+      </div>
+    )}
+
+    {events.length > 0 && (
+      <div>
+        {events.map((event) => (
+          <div class="event-item">
+            <div class="event-type">{formatEventType(event.event_type)}</div>
+            <div class="event-detail">
+              {event.body && <span>{event.body}</span>}
+              {event.body && event.sign && <span> in </span>}
+              {event.sign && <span>{event.sign}</span>}
+              {event.description && <span> &mdash; {event.description}</span>}
+            </div>
+            <div class="event-date">{event.date}</div>
+          </div>
+        ))}
+      </div>
+    )}
+  </main>
+</Base>

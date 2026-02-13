@@ -1,0 +1,32 @@
+[project]
+name = "voidwire"
+version = "0.1.0"
+description = "Daily automated astrological reading system"
+requires-python = ">=3.12"
+
+[tool.uv.workspace]
+members = ["shared", "ephemeris", "pipeline", "api"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests", "ephemeris/tests", "pipeline/tests", "api/tests"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true

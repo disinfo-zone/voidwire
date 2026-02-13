@@ -1,0 +1,21 @@
+# Cloudflare Tunnel configuration
+# The tunnel token is set via environment variable
+
+tunnel: voidwire
+credentials-file: /etc/cloudflared/credentials.json
+
+ingress:
+  # Public site
+  - hostname: voidwire.disinfo.zone
+    service: http://voidwire-caddy:80
+
+  # Admin (behind Cloudflare Access)
+  - hostname: admin.voidwire.disinfo.zone
+    service: http://voidwire-caddy:80
+
+  # API
+  - hostname: api.voidwire.disinfo.zone
+    service: http://voidwire-api:8000
+
+  # Catch-all
+  - service: http_status:404

@@ -1,0 +1,38 @@
+---
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const { title, description } = Astro.props;
+const pageTitle = title ? `${title} | VOIDWIRE` : 'VOIDWIRE';
+const pageDescription = description || 'Daily transmissions from the celestial wire.';
+
+import '../styles/global.css';
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={pageDescription} />
+    <meta name="theme-color" content="#050505" />
+    <title>{pageTitle}</title>
+
+    <!-- Google Fonts preconnect -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Feeds -->
+    <link rel="alternate" type="application/rss+xml" title="VOIDWIRE RSS" href="/feed.xml" />
+    <link rel="alternate" type="application/atom+xml" title="VOIDWIRE Atom" href="/feed.atom" />
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>

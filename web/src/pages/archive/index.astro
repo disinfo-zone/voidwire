@@ -1,0 +1,61 @@
+---
+import Base from '../../layouts/Base.astro';
+
+const API_URL = import.meta.env.API_URL || 'http://api:8000';
+
+let readings: Array<{ date: string; title: string }> = [];
+let error = null;
+
+try {
+  const res = await fetch(`${API_URL}/v1/archive?per_page=50`);
+  if (res.ok) {
+    const data = await res.json();
+    readings = data.items || data;
+  } else {
+    error = `Failed to load archive (${res.status})`;
+  }
+} catch (e) {
+  error = e instanceof Error ? e.message : 'Unknown error';
+}
+---
+
+<Base title="Archive">
+  <header class="site-header">
+    <h1 class="site-title"><a href="/">VOIDWIRE</a></h1>
+    <nav class="site-nav">
+      <a href="/archive">Archive</a>
+      <a href="/events">Events</a>
+      <a href="/about">About</a>
+    </nav>
+  </header>
+
+  <main class="page-container">
+    <h2 class="page-title">Archive</h2>
+
+    {error && (
+      <div class="status-message">
+        <p>Signal disrupted</p>
+        <p style="font-size: 0.9rem; margin-top: 0.5rem; opacity: 0.6;">{error}</p>
+      </div>
+    )}
+
+    {!error && readings.length === 0 && (
+      <div class="status-message">
+        <p>No transmissions archived yet</p>
+      </div>
+    )}
+
+    {readings.length > 0 && (
+      <ul class="archive-list">
+        {readings.map((reading) => (
+          <li class="archive-item">
+            <a href={`/reading/${reading.date}`} class="archive-title">
+              {reading.title}
+            </a>
+            <span class="archive-date">{reading.date}</span>
+          </li>
+        ))}
+      </ul>
+    )}
+  </main>
+</Base>

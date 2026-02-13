@@ -1,0 +1,290 @@
+@import url('https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&display=swap');
+
+:root {
+  --void: #050505;
+  --surface: #0a0a0a;
+  --border: #1a1a1a;
+  --text: #d4d0c8;
+  --accent: #c8baa8;
+  --muted: #7a756d;
+  --highlight: #e8e0d4;
+}
+
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: var(--void);
+  color: var(--text);
+  font-family: 'EB Garamond', Georgia, 'Times New Roman', serif;
+  min-height: 100vh;
+  line-height: 1.6;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+a:hover {
+  color: var(--highlight);
+}
+
+/* Site Header */
+.site-header {
+  text-align: center;
+  padding: 3rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.site-title {
+  font-size: 1.5rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 500;
+  margin-bottom: 1rem;
+}
+
+.site-title a {
+  color: inherit;
+}
+
+.site-nav {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 2rem;
+  margin-top: 1rem;
+}
+
+.site-nav a {
+  color: var(--muted);
+  font-size: 0.85rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  transition: color 0.2s ease;
+}
+
+.site-nav a:hover {
+  color: var(--accent);
+}
+
+/* Reading Styles */
+.reading-title {
+  font-size: 2.5rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-align: center;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  line-height: 1.2;
+}
+
+.reading-subtitle {
+  font-size: 1.1rem;
+  color: var(--muted);
+  text-align: center;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 2.5rem;
+}
+
+.reading-body {
+  font-size: 1.25rem;
+  line-height: 1.8;
+  max-width: 42rem;
+  margin: 0 auto;
+  letter-spacing: 0.01em;
+  padding: 0 1.5rem;
+}
+
+.reading-body p {
+  margin-bottom: 1.5em;
+  text-indent: 1.5em;
+}
+
+.reading-body p:first-child {
+  text-indent: 0;
+}
+
+/* Page Container */
+.page-container {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+/* Archive List */
+.archive-list {
+  list-style: none;
+  padding: 0;
+}
+
+.archive-item {
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+}
+
+.archive-item:last-child {
+  border-bottom: none;
+}
+
+.archive-date {
+  color: var(--muted);
+  font-size: 0.9rem;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+
+.archive-title {
+  color: var(--text);
+  font-size: 1.1rem;
+}
+
+.archive-title:hover {
+  color: var(--highlight);
+}
+
+/* Events List */
+.event-item {
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.event-item:last-child {
+  border-bottom: none;
+}
+
+.event-type {
+  color: var(--accent);
+  font-size: 0.85rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.event-detail {
+  color: var(--text);
+  font-size: 1.05rem;
+  margin-top: 0.25rem;
+}
+
+.event-date {
+  color: var(--muted);
+  font-size: 0.9rem;
+  letter-spacing: 0.05em;
+}
+
+/* Status Messages */
+.status-message {
+  text-align: center;
+  padding: 6rem 2rem;
+  color: var(--muted);
+  font-size: 1.2rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.status-message .status-icon {
+  font-size: 2rem;
+  margin-bottom: 1rem;
+  opacity: 0.4;
+}
+
+/* Extended Button */
+.extend-btn {
+  display: block;
+  margin: 2rem auto;
+  padding: 0.75rem 2rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-family: 'EB Garamond', Georgia, serif;
+  font-size: 0.9rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.extend-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* About / Colophon */
+.colophon {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 3rem 1.5rem;
+}
+
+.colophon h2 {
+  font-size: 1.3rem;
+  color: var(--accent);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-top: 3rem;
+  margin-bottom: 1rem;
+  font-weight: 500;
+}
+
+.colophon p {
+  font-size: 1.1rem;
+  line-height: 1.8;
+  margin-bottom: 1.25em;
+  color: var(--text);
+}
+
+/* Page Title */
+.page-title {
+  font-size: 1.8rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-align: center;
+  font-weight: 500;
+  margin-bottom: 2rem;
+  padding-top: 2rem;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--void);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* Selection */
+::selection {
+  background: rgba(200, 186, 168, 0.2);
+  color: var(--highlight);
+}
