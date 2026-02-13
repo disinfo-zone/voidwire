@@ -52,9 +52,17 @@ class CulturalThread(Base):
         DateTime(timezone=True), nullable=False, server_default=text("NOW()")
     )
 
-    __table_args__ = (
+    _base_args = [
         Index("idx_threads_active", "active", "last_seen", postgresql_using="btree"),
-    )
+    ]
+    if Vector:
+        _base_args.append(Index(
+            "idx_threads_embedding", "centroid_embedding",
+            postgresql_using="hnsw",
+            postgresql_with={"m": 16, "ef_construction": 64},
+            postgresql_ops={"centroid_embedding": "vector_cosine_ops"},
+        ))
+    __table_args__ = tuple(_base_args)
 
 
 class ThreadSignal(Base):

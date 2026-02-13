@@ -56,7 +56,7 @@ class CulturalSignal(Base):
         DateTime(timezone=True), nullable=False, server_default=text("NOW()")
     )
 
-    __table_args__ = (
+    _base_args = [
         CheckConstraint(
             "domain IN ('conflict','diplomacy','economy','technology','culture',"
             "'environment','social','anomalous','legal','health')",
@@ -71,4 +71,12 @@ class CulturalSignal(Base):
             name="ck_signal_directionality",
         ),
         Index("idx_signals_date", "date_context", postgresql_using="btree"),
-    )
+    ]
+    if Vector:
+        _base_args.append(Index(
+            "idx_signals_embedding", "embedding",
+            postgresql_using="hnsw",
+            postgresql_with={"m": 16, "ef_construction": 64},
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ))
+    __table_args__ = tuple(_base_args)
