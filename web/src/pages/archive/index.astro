@@ -2,7 +2,7 @@
 import Base from '../../layouts/Base.astro';
 import Background from '../../components/Background.svelte';
 
-const API_URL = import.meta.env.API_URL || 'http://api:8000';
+const API_URL = process.env.API_URL || import.meta.env.API_URL || 'http://voidwire-api:8000';
 const currentPage = Number(Astro.url.searchParams.get('page') || '1');
 const perPage = 30;
 

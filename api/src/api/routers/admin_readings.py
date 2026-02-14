@@ -126,6 +126,7 @@ async def regenerate_reading(reading_id: UUID, req: RegenerateRequest, db: Async
         date_context=reading.date_context,
         regeneration_mode=mode,
         parent_run_id=reading.run_id,
+        trigger_source="manual_regenerate",
     )
     db.add(AuditLog(user_id=user.id, action=f"reading.regenerate.{req.mode}", target_type="reading", target_id=str(reading_id)))
     return {"status": "triggered", "run_id": str(run_id)}

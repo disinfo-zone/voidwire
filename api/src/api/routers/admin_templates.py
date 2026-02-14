@@ -1,12 +1,13 @@
 """Admin prompt template management."""
 from __future__ import annotations
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from voidwire.models import PromptTemplate, AdminUser
+from voidwire.models import PromptTemplate, AdminUser, AuditLog
 from api.dependencies import get_db, require_admin
+from api.services.template_defaults import ensure_starter_prompt_template
 
 router = APIRouter()
 
@@ -29,7 +30,12 @@ def _template_dict(t: PromptTemplate) -> dict:
 
 @router.get("/")
 async def list_templates(db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
-    result = await db.execute(select(PromptTemplate).where(PromptTemplate.is_active == True))
+    await ensure_starter_prompt_template(db)
+    result = await db.execute(
+        select(PromptTemplate)
+        .where(PromptTemplate.is_active == True)
+        .order_by(PromptTemplate.template_name.asc())
+    )
     return [_template_dict(t) for t in result.scalars().all()]
 
 @router.get("/{template_id}")
@@ -62,6 +68,19 @@ async def create_template(req: TemplateCreateRequest, db: AsyncSession = Depends
     )
     db.add(t)
     await db.flush()
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            action="template.create",
+            target_type="template",
+            target_id=str(t.id),
+            detail={
+                "template_name": t.template_name,
+                "version": t.version,
+                "is_active": t.is_active,
+            },
+        )
+    )
     return {"id": str(t.id), "version": next_ver}
 
 @router.post("/{template_id}/rollback")
@@ -79,4 +98,13 @@ async def rollback_template(template_id: UUID, db: AsyncSession = Depends(get_db
     for c in current:
         c.is_active = False
     target.is_active = True
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            action="template.rollback",
+            target_type="template",
+            target_id=str(template_id),
+            detail={"template_name": target.template_name, "activated_version": target.version},
+        )
+    )
     return {"status": "ok", "activated_version": target.version}

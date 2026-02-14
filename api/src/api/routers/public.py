@@ -9,6 +9,64 @@ from api.dependencies import get_db
 
 router = APIRouter()
 
+
+def _safe_int(value: object, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _normalize_extended_payload(reading: Reading) -> dict:
+    source = reading.published_extended
+    if not isinstance(source, dict) or not source:
+        source = reading.generated_extended if isinstance(reading.generated_extended, dict) else {}
+
+    sections_raw = source.get("sections") if isinstance(source, dict) else []
+    sections: list[dict] = []
+    if isinstance(sections_raw, list):
+        for item in sections_raw:
+            if not isinstance(item, dict):
+                continue
+            heading = str(item.get("heading", "")).strip()
+            body = str(item.get("body", "")).strip()
+            if heading or body:
+                sections.append({"heading": heading, "body": body})
+
+    return {
+        "title": str(source.get("title", "")).strip(),
+        "subtitle": str(source.get("subtitle", "")).strip(),
+        "sections": sections,
+        "word_count": max(_safe_int(source.get("word_count"), 0), 0),
+    }
+
+
+def _has_extended(extended: dict) -> bool:
+    if not isinstance(extended, dict):
+        return False
+    if extended.get("sections"):
+        return True
+    if str(extended.get("title", "")).strip():
+        return True
+    if str(extended.get("subtitle", "")).strip():
+        return True
+    return _safe_int(extended.get("word_count"), 0) > 0
+
+
+def _reading_payload(reading: Reading) -> dict:
+    content = reading.published_standard or reading.generated_standard or {}
+    extended = _normalize_extended_payload(reading)
+    return {
+        "date_context": reading.date_context.isoformat(),
+        "title": content.get("title", ""),
+        "body": content.get("body", ""),
+        "word_count": content.get("word_count", 0),
+        "published_at": reading.published_at.isoformat() if reading.published_at else None,
+        "has_extended": _has_extended(extended),
+        "extended": extended,
+        "annotations": reading.published_annotations or reading.generated_annotations or [],
+    }
+
 @router.get("/reading/today")
 async def get_today_reading(db: AsyncSession = Depends(get_db)):
     today = date.today()
@@ -16,8 +74,7 @@ async def get_today_reading(db: AsyncSession = Depends(get_db)):
     reading = result.scalars().first()
     if not reading:
         raise HTTPException(status_code=404, detail="No published reading for today")
-    content = reading.published_standard or reading.generated_standard
-    return {"date_context": reading.date_context.isoformat(), "title": content.get("title",""), "body": content.get("body",""), "word_count": content.get("word_count",0), "published_at": reading.published_at.isoformat() if reading.published_at else None, "has_extended": bool(reading.published_extended or reading.generated_extended), "annotations": reading.published_annotations or reading.generated_annotations or []}
+    return _reading_payload(reading)
 
 @router.get("/reading/today/extended")
 async def get_today_extended(db: AsyncSession = Depends(get_db)):
@@ -26,7 +83,11 @@ async def get_today_extended(db: AsyncSession = Depends(get_db)):
     reading = result.scalars().first()
     if not reading:
         raise HTTPException(status_code=404, detail="No published reading for today")
-    return {"date_context": reading.date_context.isoformat(), "extended": reading.published_extended or reading.generated_extended, "annotations": reading.published_annotations or reading.generated_annotations}
+    return {
+        "date_context": reading.date_context.isoformat(),
+        "extended": _normalize_extended_payload(reading),
+        "annotations": reading.published_annotations or reading.generated_annotations or [],
+    }
 
 @router.get("/reading/{date_str}")
 async def get_reading_by_date(date_str: str, db: AsyncSession = Depends(get_db)):
@@ -38,8 +99,7 @@ async def get_reading_by_date(date_str: str, db: AsyncSession = Depends(get_db))
     reading = result.scalars().first()
     if not reading:
         raise HTTPException(status_code=404, detail="No published reading")
-    content = reading.published_standard or reading.generated_standard
-    return {"date_context": reading.date_context.isoformat(), "title": content.get("title",""), "body": content.get("body",""), "word_count": content.get("word_count", 0), "published_at": reading.published_at.isoformat() if reading.published_at else None, "has_extended": bool(reading.published_extended or reading.generated_extended), "annotations": reading.published_annotations or reading.generated_annotations or []}
+    return _reading_payload(reading)
 
 @router.get("/ephemeris/today")
 async def get_today_ephemeris(db: AsyncSession = Depends(get_db)):

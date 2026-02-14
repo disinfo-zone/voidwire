@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro';
 
 const SITE_URL = 'https://voidwire.net';
-const API_URL = import.meta.env.API_URL || 'http://api:8000';
+const API_URL = process.env.API_URL || import.meta.env.API_URL || 'http://voidwire-api:8000';
 
 function escapeXml(str: string): string {
   return str

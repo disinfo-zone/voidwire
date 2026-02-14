@@ -5,9 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from voidwire.models import LLMConfig, AdminUser
+from voidwire.models import LLMConfig, AdminUser, AuditLog
 from voidwire.services.encryption import encrypt_value
 from api.dependencies import get_db, require_admin
+from api.services.llm_slots import ensure_default_llm_slots
 
 router = APIRouter()
 
@@ -20,6 +21,17 @@ class LLMSlotUpdateRequest(BaseModel):
     temperature: float | None = None
     extra_params: dict | None = None
     is_active: bool | None = None
+
+
+def _normalize_model_id(model_id: str | None, provider_name: str | None) -> str | None:
+    if model_id is None:
+        return None
+    normalized = model_id.strip()
+    provider = (provider_name or "").strip()
+    if normalized and "/" not in normalized and provider:
+        return f"{provider}/{normalized}"
+    return normalized
+
 
 def _slot_dict(c: LLMConfig) -> dict:
     masked_key = ""
@@ -45,8 +57,8 @@ def _slot_dict(c: LLMConfig) -> dict:
 
 @router.get("/")
 async def list_slots(db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
-    result = await db.execute(select(LLMConfig).order_by(LLMConfig.slot))
-    return [_slot_dict(c) for c in result.scalars().all()]
+    slots = await ensure_default_llm_slots(db)
+    return [_slot_dict(c) for c in slots]
 
 @router.get("/{slot}")
 async def get_slot(slot: str, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
@@ -67,7 +79,9 @@ async def update_slot(slot: str, req: LLMSlotUpdateRequest, db: AsyncSession = D
     if req.api_endpoint is not None:
         config.api_endpoint = req.api_endpoint
     if req.model_id is not None:
-        config.model_id = req.model_id
+        config.model_id = _normalize_model_id(
+            req.model_id, req.provider_name or config.provider_name
+        )
     if req.api_key is not None:
         config.api_key_encrypted = encrypt_value(req.api_key)
     if req.max_tokens is not None:
@@ -78,6 +92,23 @@ async def update_slot(slot: str, req: LLMSlotUpdateRequest, db: AsyncSession = D
         config.extra_params = req.extra_params
     if req.is_active is not None:
         config.is_active = req.is_active
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            action="llm.update_slot",
+            target_type="llm",
+            target_id=slot,
+            detail={
+                "provider_name": config.provider_name,
+                "api_endpoint": config.api_endpoint,
+                "model_id": config.model_id,
+                "max_tokens": config.max_tokens,
+                "temperature": config.temperature,
+                "is_active": config.is_active,
+                "api_key_updated": req.api_key is not None,
+            },
+        )
+    )
     return {"status": "ok"}
 
 @router.post("/{slot}/test")
@@ -98,13 +129,40 @@ async def test_slot(slot: str, db: AsyncSession = Depends(get_db), user: AdminUs
     ))
     start = time.monotonic()
     try:
-        response = await client.generate(
-            slot, [{"role": "user", "content": "Reply with exactly: OK"}],
-            max_tokens=10, temperature=0.0,
-        )
+        if slot == "embedding":
+            vectors = await client.generate_embeddings(
+                slot,
+                ["Voidwire embedding connectivity probe"],
+            )
+            dim = len(vectors[0]) if vectors and vectors[0] else 0
+            response = f"Embedding generated ({dim} dimensions)"
+        else:
+            response = await client.generate(
+                slot,
+                [{"role": "user", "content": "Reply with exactly: OK"}],
+            )
         latency_ms = round((time.monotonic() - start) * 1000)
+        db.add(
+            AuditLog(
+                user_id=user.id,
+                action="llm.test_slot",
+                target_type="llm",
+                target_id=slot,
+                detail={"result": "ok", "latency_ms": latency_ms},
+            )
+        )
         await client.close()
         return {"status": "ok", "response": response.strip(), "latency_ms": latency_ms}
     except Exception as e:
+        latency_ms = round((time.monotonic() - start) * 1000)
+        db.add(
+            AuditLog(
+                user_id=user.id,
+                action="llm.test_slot",
+                target_type="llm",
+                target_id=slot,
+                detail={"result": "error", "latency_ms": latency_ms, "error": str(e)},
+            )
+        )
         await client.close()
-        return {"status": "error", "error": str(e), "latency_ms": round((time.monotonic() - start) * 1000)}
+        return {"status": "error", "error": str(e), "latency_ms": latency_ms}

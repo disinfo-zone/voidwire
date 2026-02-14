@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { apiGet, apiPost, apiDelete } from '../api/client';
+import { API_BASE, apiGet, apiPost, apiDelete } from '../api/client';
 import { useToast } from '../components/ui/ToastProvider';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import Spinner from '../components/ui/Spinner';
@@ -66,15 +66,29 @@ export default function BackupPage() {
     setDeleteFile(null);
   }
 
-  function handleDownload(filename: string) {
+  async function handleDownload(filename: string) {
     const token = localStorage.getItem('voidwire_admin_token');
-    const base = (import.meta as any).env?.VITE_API_URL || '';
-    const url = `${base}/admin/backup/${encodeURIComponent(filename)}/download`;
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    // For auth, open in new tab (cookie-based) or use fetch+blob
-    window.open(`${url}?token=${token}`, '_blank');
+    if (!token) {
+      toast.error('Missing auth token');
+      return;
+    }
+
+    const url = `${API_BASE}/admin/backup/${encodeURIComponent(filename)}/download`;
+    try {
+      const resp = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) throw new Error(`API error: ${resp.status}`);
+      const blob = await resp.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch (e: any) {
+      toast.error(e.message);
+    }
   }
 
   function formatSize(bytes: number): string {
@@ -121,7 +135,7 @@ export default function BackupPage() {
                   <td className="py-2 px-3 text-text-secondary">{b.created_at ? new Date(b.created_at).toLocaleString() : '-'}</td>
                   <td className="py-2 px-3 text-right">
                     <div className="flex gap-2 justify-end">
-                      <button onClick={() => handleDownload(b.filename)} className="text-xs text-text-muted hover:text-accent">download</button>
+                      <button onClick={() => void handleDownload(b.filename)} className="text-xs text-text-muted hover:text-accent">download</button>
                       <button onClick={() => setRestoreFile(b.filename)} className="text-xs text-accent hover:underline">restore</button>
                       <button onClick={() => setDeleteFile(b.filename)} className="text-xs text-red-400 hover:text-red-300">delete</button>
                     </div>

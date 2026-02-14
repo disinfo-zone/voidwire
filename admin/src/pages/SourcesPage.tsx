@@ -6,6 +6,26 @@ import Spinner from '../components/ui/Spinner';
 
 const DOMAINS = ['conflict', 'diplomacy', 'economy', 'technology', 'culture', 'environment', 'social', 'anomalous', 'legal', 'health'];
 
+type StarterSource = {
+  name: string;
+  url: string;
+  domain: string;
+  note?: string;
+};
+
+const STARTER_SOURCES: StarterSource[] = [
+  { name: 'BBC World', url: 'https://feeds.bbci.co.uk/news/world/rss.xml', domain: 'diplomacy' },
+  { name: 'UN News (All)', url: 'https://news.un.org/feed/subscribe/en/news/all/rss.xml', domain: 'diplomacy' },
+  { name: 'BBC Business', url: 'https://feeds.bbci.co.uk/news/business/rss.xml', domain: 'economy' },
+  { name: 'TechCrunch', url: 'https://techcrunch.com/feed/', domain: 'technology' },
+  { name: 'The Verge', url: 'https://www.theverge.com/rss/index.xml', domain: 'technology' },
+  { name: 'Guardian Culture (US)', url: 'https://www.theguardian.com/us/culture/rss', domain: 'culture' },
+  { name: 'Guardian Environment (US)', url: 'https://www.theguardian.com/us/environment/rss', domain: 'environment' },
+  { name: 'WHO News', url: 'https://www.who.int/rss-feeds/news-english.xml', domain: 'health' },
+  { name: 'SCOTUSblog', url: 'https://www.scotusblog.com/feed/', domain: 'legal' },
+  { name: 'NASA News Releases', url: 'https://www.nasa.gov/news-release/feed/', domain: 'anomalous' },
+];
+
 export default function SourcesPage() {
   const [sources, setSources] = useState<any[]>([]);
   const [showAdd, setShowAdd] = useState(false);
@@ -17,6 +37,20 @@ export default function SourcesPage() {
   const { toast } = useToast();
 
   useEffect(() => { loadSources(); }, []);
+
+  function useStarterSource(starter: StarterSource) {
+    setShowAdd(true);
+    setForm({
+      name: starter.name,
+      url: starter.url,
+      domain: starter.domain,
+      source_type: 'rss',
+      weight: 0.6,
+      max_articles: 10,
+      allow_fulltext: false,
+      config: '{}',
+    });
+  }
 
   async function loadSources() {
     setLoading(true);
@@ -91,6 +125,51 @@ export default function SourcesPage() {
         <button onClick={() => setShowAdd(!showAdd)} className="text-xs px-3 py-1 bg-surface-raised border border-text-ghost rounded text-accent hover:border-accent">
           + Add Source
         </button>
+      </div>
+
+      <div className="bg-surface-raised border border-text-ghost rounded p-4 mb-4 space-y-3">
+        <h2 className="text-sm text-text-primary">Quick Guide</h2>
+        <p className="text-xs text-text-muted">
+          Start with RSS feeds and keep <span className="font-mono">Config JSON</span> as <span className="font-mono">{'{}'}</span>.
+          The domain dropdown is a broad tag used for balancing, not a strict classifier.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+          <div className="bg-surface border border-text-ghost rounded px-3 py-2">
+            <div className="text-text-secondary mb-1">URL</div>
+            <div className="text-text-muted">Use a direct feed URL ending in <span className="font-mono">.xml</span> or <span className="font-mono">/rss</span>.</div>
+          </div>
+          <div className="bg-surface border border-text-ghost rounded px-3 py-2">
+            <div className="text-text-secondary mb-1">Weight</div>
+            <div className="text-text-muted">Use <span className="font-mono">0.4</span> to <span className="font-mono">0.7</span> for most sources.</div>
+          </div>
+          <div className="bg-surface border border-text-ghost rounded px-3 py-2">
+            <div className="text-text-secondary mb-1">Max Articles</div>
+            <div className="text-text-muted">Use <span className="font-mono">5-15</span> while testing to keep runs fast.</div>
+          </div>
+        </div>
+        <div>
+          <h3 className="text-xs uppercase tracking-wider text-text-secondary mb-2">Starter Feeds (Tested)</h3>
+          <div className="space-y-2">
+            {STARTER_SOURCES.map((s) => (
+              <div key={s.url} className="bg-surface border border-text-ghost rounded px-3 py-2 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-sm text-text-primary flex items-center gap-2 flex-wrap">
+                    <span>{s.name}</span>
+                    <span className="text-[11px] px-2 py-0.5 rounded bg-surface-raised border border-text-ghost text-text-muted">{s.domain}</span>
+                  </div>
+                  <div className="text-xs text-text-muted break-all">{s.url}</div>
+                  {s.note && <div className="text-xs text-text-ghost mt-1">{s.note}</div>}
+                </div>
+                <button
+                  onClick={() => useStarterSource(s)}
+                  className="text-xs px-3 py-1 bg-accent/20 text-accent rounded hover:bg-accent/30 shrink-0"
+                >
+                  Use Preset
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       {showAdd && (

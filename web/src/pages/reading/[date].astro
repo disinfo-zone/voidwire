@@ -5,7 +5,7 @@ import TransitGrid from '../../components/TransitGrid.svelte';
 import Background from '../../components/Background.svelte';
 
 const { date: dateParam } = Astro.params;
-const API_URL = import.meta.env.API_URL || 'http://api:8000';
+const API_URL = process.env.API_URL || import.meta.env.API_URL || 'http://voidwire-api:8000';
 
 let reading: any = null;
 let ephemeris: any = null;
@@ -39,6 +39,9 @@ if (reading) {
 
 const aspects = ephemeris?.aspects || [];
 const pageTitle = reading ? reading.title : `Reading for ${dateParam}`;
+const extended = reading?.extended || null;
+const showExtended =
+  !!(reading?.has_extended || (extended && Array.isArray(extended.sections) && extended.sections.length > 0));
 ---
 
 <Base title={pageTitle}>
@@ -62,6 +65,35 @@ const pageTitle = reading ? reading.title : `Reading for ${dateParam}`;
         word_count={reading.word_count}
         has_extended={reading.has_extended}
       />
+    )}
+
+    {reading && showExtended && (
+      <section class="extended-section">
+        <h2 class="extended-kicker">Expanded Reading</h2>
+        {(extended.title || extended.subtitle || extended.word_count) && (
+          <header class="extended-header">
+            {extended.title && <h3 class="extended-title">{extended.title}</h3>}
+            {(extended.subtitle || extended.word_count) && (
+              <div class="extended-subtitle">
+                {extended.subtitle}
+                {extended.word_count ? <span>&nbsp;&middot;&nbsp;{extended.word_count} words</span> : null}
+              </div>
+            )}
+          </header>
+        )}
+        {extended.sections && extended.sections.length > 0 ? (
+          <div class="extended-list">
+            {extended.sections.map((section: any) => (
+              <article class="extended-block">
+                {section.heading && <h3 class="extended-heading">{section.heading}</h3>}
+                <p class="extended-body">{section.body}</p>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p class="extended-empty">Expanded content is not available for this date.</p>
+        )}
+      </section>
     )}
 
     {reading && aspects.length > 0 && (
@@ -131,6 +163,74 @@ const pageTitle = reading ? reading.title : `Reading for ${dateParam}`;
     max-width: 42rem;
     margin: 0 auto;
     padding: 0 1.5rem 3rem;
+  }
+
+  .extended-section {
+    max-width: 42rem;
+    margin: 0 auto;
+    padding: 0 1.5rem 2.5rem;
+  }
+
+  .extended-kicker {
+    font-size: 0.85rem;
+    color: var(--muted);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    text-align: center;
+    margin-bottom: 1rem;
+    font-weight: 500;
+  }
+
+  .extended-header {
+    text-align: center;
+    margin-bottom: 1.5rem;
+  }
+
+  .extended-title {
+    font-size: 1.4rem;
+    color: var(--accent);
+    margin: 0 0 0.4rem;
+    letter-spacing: 0.04em;
+  }
+
+  .extended-subtitle {
+    color: var(--muted);
+    font-size: 0.95rem;
+    letter-spacing: 0.06em;
+  }
+
+  .extended-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .extended-block {
+    border-left: 2px solid var(--border);
+    padding-left: 1rem;
+  }
+
+  .extended-heading {
+    color: var(--accent);
+    font-size: 1rem;
+    margin: 0 0 0.5rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .extended-body {
+    color: var(--text);
+    font-size: 1.02rem;
+    line-height: 1.7;
+    margin: 0;
+    white-space: pre-wrap;
+  }
+
+  .extended-empty {
+    color: var(--muted);
+    font-style: italic;
+    text-align: center;
+    margin: 0;
   }
 
   .annotations-heading {

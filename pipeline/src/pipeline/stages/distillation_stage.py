@@ -13,6 +13,44 @@ from pipeline.prompts.distillation import build_distillation_prompt
 
 logger = logging.getLogger(__name__)
 VALID_DOMAINS = {"conflict","diplomacy","economy","technology","culture","environment","social","anomalous","legal","health"}
+VALID_INTENSITIES = {"major", "moderate", "minor"}
+VALID_DIRECTIONS = {"escalating", "stable", "de-escalating", "erupting", "resolving"}
+
+
+def _to_string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, tuple):
+        return [str(item).strip() for item in value if str(item).strip()]
+    text = str(value).strip()
+    return [text] if text else []
+
+
+def _normalize_signal(raw: dict[str, Any]) -> dict[str, Any]:
+    summary = str(raw.get("summary", "")).strip()
+
+    domain_raw = str(raw.get("domain", "anomalous")).strip().lower()
+    domain = domain_raw if domain_raw in VALID_DOMAINS else "anomalous"
+
+    intensity_raw = str(raw.get("intensity", "minor")).strip().lower()
+    intensity = intensity_raw if intensity_raw in VALID_INTENSITIES else "minor"
+
+    direction_raw = str(raw.get("directionality", "stable")).strip().lower()
+    directionality = direction_raw if direction_raw in VALID_DIRECTIONS else "stable"
+
+    entities = _to_string_list(raw.get("entities", []))
+    source_refs = _to_string_list(raw.get("source_refs", []))
+
+    return {
+        "summary": summary,
+        "domain": domain,
+        "intensity": intensity,
+        "directionality": directionality,
+        "entities": entities,
+        "source_refs": source_refs,
+    }
 
 def _validate_signals(data: Any) -> None:
     if not isinstance(data, list):
@@ -59,11 +97,12 @@ async def run_distillation_stage(
         signals = [{"summary": a.get("title",""), "domain": a.get("domain","anomalous"), "intensity":"minor", "directionality":"stable", "entities":[], "source_refs":[]} for a in articles[:20]]
     stored = []
     for i, signal in enumerate(signals):
-        sid = f"sig_{date_context.strftime('%Y%m%d')}_{i+1:03d}"
+        normalized = _normalize_signal(signal if isinstance(signal, dict) else {"summary": str(signal)})
+        sid = f"sig_{date_context.strftime('%Y%m%d')}_{run_id.hex[:8]}_{i+1:03d}"
         db_signal = CulturalSignal(id=sid, date_context=date_context, run_id=run_id,
-            summary=signal.get("summary",""), domain=signal.get("domain","anomalous").lower(),
-            intensity=signal.get("intensity","minor").lower(), directionality=signal.get("directionality","stable").lower(),
-            entities=signal.get("entities",[]), source_refs=signal.get("source_refs",[]))
+            summary=normalized["summary"], domain=normalized["domain"],
+            intensity=normalized["intensity"], directionality=normalized["directionality"],
+            entities=normalized["entities"], source_refs=normalized["source_refs"])
         session.add(db_signal)
-        stored.append({"id": sid, **signal})
+        stored.append({"id": sid, **normalized})
     return stored

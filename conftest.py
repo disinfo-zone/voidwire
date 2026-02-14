@@ -1,0 +1,14 @@
+"""Repository-wide test bootstrap."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+
+for rel in ("shared/src", "ephemeris/src", "pipeline/src", "api/src"):
+    path = ROOT / rel
+    path_str = str(path)
+    if path.is_dir() and path_str not in sys.path:
+        sys.path.insert(0, path_str)

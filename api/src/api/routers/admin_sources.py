@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from voidwire.models import NewsSource, AdminUser
+from voidwire.models import NewsSource, AuditLog, AdminUser
 from api.dependencies import get_db, require_admin
 
 router = APIRouter()
@@ -62,6 +62,15 @@ async def create_source(req: SourceCreateRequest, db: AsyncSession = Depends(get
     )
     db.add(source)
     await db.flush()
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            action="source.create",
+            target_type="source",
+            target_id=str(source.id),
+            detail={"name": source.name, "domain": source.domain, "url": source.url},
+        )
+    )
     return {"id": str(source.id), "status": "created"}
 
 @router.patch("/{source_id}")
@@ -75,6 +84,15 @@ async def update_source(source_id: UUID, req: SourceUpdateRequest, db: AsyncSess
             setattr(source, field, val)
     if req.allow_fulltext is not None:
         source.allow_fulltext_extract = req.allow_fulltext
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            action="source.update",
+            target_type="source",
+            target_id=str(source_id),
+            detail=req.model_dump(exclude_none=True),
+        )
+    )
     return {"status": "ok"}
 
 @router.delete("/{source_id}")
@@ -83,6 +101,15 @@ async def delete_source(source_id: UUID, db: AsyncSession = Depends(get_db), use
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
     await db.delete(source)
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            action="source.delete",
+            target_type="source",
+            target_id=str(source_id),
+            detail={"name": source.name, "url": source.url},
+        )
+    )
     return {"status": "deleted"}
 
 @router.post("/{source_id}/test-fetch")
@@ -99,6 +126,24 @@ async def test_fetch(source_id: UUID, db: AsyncSession = Depends(get_db), user: 
             max_articles=3, domain=source.domain,
             weight=source.weight, allow_fulltext=source.allow_fulltext_extract,
         )
+        db.add(
+            AuditLog(
+                user_id=user.id,
+                action="source.test_fetch",
+                target_type="source",
+                target_id=str(source_id),
+                detail={"result": "ok", "article_count": len(articles)},
+            )
+        )
         return {"status": "ok", "count": len(articles), "articles": articles}
     except Exception as e:
+        db.add(
+            AuditLog(
+                user_id=user.id,
+                action="source.test_fetch",
+                target_type="source",
+                target_id=str(source_id),
+                detail={"result": "error", "error": str(e)},
+            )
+        )
         return {"status": "error", "error": str(e)}

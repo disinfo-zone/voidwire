@@ -93,10 +93,12 @@ function SlotPanel({ slot, onRefresh }: { slot: SlotConfig; onRefresh: () => voi
         <div>
           <label className="text-xs text-text-muted">Provider</label>
           <input value={draft.provider_name} onChange={(e) => setDraft({ ...draft, provider_name: e.target.value })} className="w-full bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary" />
+          <p className="text-[11px] text-text-ghost mt-1">Optional. Used to auto-prefix model IDs if needed.</p>
         </div>
         <div>
           <label className="text-xs text-text-muted">Model ID</label>
           <input value={draft.model_id} onChange={(e) => setDraft({ ...draft, model_id: e.target.value })} className="w-full bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary" />
+          <p className="text-[11px] text-text-ghost mt-1">Use full OpenRouter slug, e.g. `openai/gpt-4o-mini`.</p>
         </div>
       </div>
 
@@ -174,7 +176,7 @@ export default function LLMConfigPage() {
           <SlotPanel key={slot.slot} slot={slot} onRefresh={loadSlots} />
         ))}
         {slots.length === 0 && (
-          <p className="text-text-muted text-sm col-span-full">No LLM slots configured. Complete setup first.</p>
+          <p className="text-text-muted text-sm col-span-full">No LLM slots available.</p>
         )}
       </div>
     </div>

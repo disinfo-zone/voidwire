@@ -1,4 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import {
+  STARTER_TEMPLATE_DRAFT,
+  TEMPLATE_VARIABLE_LIBRARY,
+  variableToken,
+} from './templateLibrary';
 
 interface Props {
   template?: any;
@@ -7,15 +12,37 @@ interface Props {
 }
 
 export default function TemplateEditor({ template, onSave, onCancel }: Props) {
-  const [name, setName] = useState(template?.template_name || '');
-  const [content, setContent] = useState(template?.content || '');
-  const [variables, setVariables] = useState<string[]>(template?.variables_used || []);
-  const [toneParams, setToneParams] = useState(JSON.stringify(template?.tone_parameters || {}, null, 2));
-  const [notes, setNotes] = useState(template?.notes || '');
+  const initialTemplate = template ?? STARTER_TEMPLATE_DRAFT;
+  const [name, setName] = useState<string>(initialTemplate.template_name || '');
+  const [content, setContent] = useState<string>(initialTemplate.content || '');
+  const variables = template?.variables_used || [];
+  const [toneParams, setToneParams] = useState<string>(JSON.stringify(initialTemplate.tone_parameters || {}, null, 2));
+  const [notes, setNotes] = useState<string>(initialTemplate.notes || '');
   const [saving, setSaving] = useState(false);
+  const contentRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Highlight {{variable}} patterns
   const detectedVars = [...new Set([...(content.matchAll(/\{\{(\w+)\}\}/g))].map((m) => m[1]))];
+
+  function insertVariable(key: string) {
+    const token = variableToken(key);
+    const textarea = contentRef.current;
+    if (!textarea) {
+      setContent((prev) => (prev.endsWith('\n') ? `${prev}${token}` : `${prev}\n${token}`));
+      return;
+    }
+
+    const start = textarea.selectionStart ?? content.length;
+    const end = textarea.selectionEnd ?? content.length;
+    const nextValue = `${content.slice(0, start)}${token}${content.slice(end)}`;
+    setContent(nextValue);
+
+    const nextCursor = start + token.length;
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(nextCursor, nextCursor);
+    });
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -34,7 +61,37 @@ export default function TemplateEditor({ template, onSave, onCancel }: Props) {
   return (
     <div className="space-y-3">
       <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Template name" className="w-full bg-surface border border-text-ghost rounded px-3 py-2 text-sm text-text-primary" />
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <label className="text-xs text-text-muted">Variable Library</label>
+          <span className="text-[11px] text-text-muted">Click any variable to insert at cursor</span>
+        </div>
+        <div className="flex flex-wrap gap-2 rounded border border-text-ghost bg-surface px-2 py-2">
+          {TEMPLATE_VARIABLE_LIBRARY.map((variable) => {
+            const token = variableToken(variable.key);
+            const tooltip = `${variable.description}\nUsed in: ${variable.usedIn}\nExample: ${variable.example}`;
+            const isUsed = content.includes(token);
+            return (
+              <button
+                key={variable.key}
+                type="button"
+                onClick={() => insertVariable(variable.key)}
+                title={tooltip}
+                className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-mono ${
+                  isUsed
+                    ? 'border-accent bg-accent/20 text-accent'
+                    : 'border-text-ghost bg-surface-raised text-text-secondary hover:border-text-muted'
+                }`}
+              >
+                {token}
+                <span className="font-sans text-text-muted" title={tooltip}>i</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
       <textarea
+        ref={contentRef}
         value={content}
         onChange={(e) => setContent(e.target.value)}
         rows={16}

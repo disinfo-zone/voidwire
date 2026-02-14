@@ -50,6 +50,34 @@ class LLMClient:
             raise ValueError(f"LLM slot '{slot}' not configured")
         return self._slots[slot]
 
+    @staticmethod
+    def _raise_for_status_with_context(response: httpx.Response) -> None:
+        try:
+            response.raise_for_status()
+            return
+        except httpx.HTTPStatusError as exc:
+            detail = response.text.strip()
+            try:
+                body = response.json()
+                if isinstance(body, dict):
+                    if isinstance(body.get("error"), dict):
+                        detail = (
+                            body["error"].get("message")
+                            or body["error"].get("code")
+                            or detail
+                        )
+                    elif body.get("error"):
+                        detail = str(body["error"])
+                    elif body.get("message"):
+                        detail = str(body["message"])
+            except Exception:
+                pass
+            if len(detail) > 400:
+                detail = detail[:400]
+            raise RuntimeError(
+                f"LLM API request failed ({response.status_code}) at {response.request.url}: {detail}"
+            ) from exc
+
     async def generate(
         self,
         slot: str,
@@ -93,7 +121,7 @@ class LLMClient:
         logger.info("LLM request to %s slot=%s model=%s", url, slot, config.model_id)
 
         response = await self._client.post(url, json=payload, headers=headers)
-        response.raise_for_status()
+        self._raise_for_status_with_context(response)
 
         data = response.json()
         content = data["choices"][0]["message"]["content"]
@@ -127,7 +155,7 @@ class LLMClient:
         url = f"{endpoint}/embeddings"
 
         response = await self._client.post(url, json=payload, headers=headers)
-        response.raise_for_status()
+        self._raise_for_status_with_context(response)
 
         data = response.json()
         return [item["embedding"] for item in data["data"]]

@@ -3,16 +3,22 @@
 import asyncio
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 # Import all models so Alembic can detect them
+from voidwire.config import get_settings
 from voidwire.models import Base
+
+from alembic import context
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+settings = get_settings()
+database_url = settings.database_url.replace("%", "%%")
+config.set_main_option("sqlalchemy.url", database_url)
 
 target_metadata = Base.metadata
 

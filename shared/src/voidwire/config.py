@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from pydantic_settings import BaseSettings
+from functools import lru_cache
+
 from pydantic import Field
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -33,6 +35,7 @@ class Settings(BaseSettings):
 
     # Pipeline
     pipeline_schedule: str = Field(default="0 5 * * *", alias="PIPELINE_SCHEDULE")
+    pipeline_run_on_start: bool = Field(default=False, alias="PIPELINE_RUN_ON_START")
     artifact_retention_days: int = Field(default=90, alias="ARTIFACT_RETENTION_DAYS")
 
     # Backup
@@ -40,10 +43,18 @@ class Settings(BaseSettings):
 
     # Rate limiting
     rate_limit_per_hour: int = Field(default=60, alias="RATE_LIMIT_PER_HOUR")
+    setup_guard_recheck_seconds: int = Field(default=30, alias="SETUP_GUARD_RECHECK_SECONDS")
+    skip_setup_guard: bool = Field(default=False, alias="SKIP_SETUP_GUARD")
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
+@lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Get cached settings instance."""
     return Settings()
+
+
+def reset_settings_cache() -> None:
+    """Clear cached settings (useful in tests)."""
+    get_settings.cache_clear()

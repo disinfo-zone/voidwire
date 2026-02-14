@@ -4,6 +4,7 @@ import { useToast } from '../components/ui/ToastProvider';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import Spinner from '../components/ui/Spinner';
 import TemplateEditor from '../components/templates/TemplateEditor';
+import { TEMPLATE_VARIABLE_LIBRARY, variableToken } from '../components/templates/templateLibrary';
 
 export default function TemplatesPage() {
   const [templates, setTemplates] = useState<any[]>([]);
@@ -15,10 +16,20 @@ export default function TemplatesPage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    apiGet('/admin/templates/')
-      .then(setTemplates)
-      .catch((e: any) => toast.error(e.message))
-      .finally(() => setLoading(false));
+    async function loadTemplates() {
+      try {
+        const ts = await apiGet('/admin/templates/');
+        setTemplates(ts);
+        if (ts.length > 0) {
+          await selectTemplate(ts[0]);
+        }
+      } catch (e: any) {
+        toast.error(e.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadTemplates();
   }, []);
 
   async function selectTemplate(t: any) {
@@ -71,9 +82,72 @@ export default function TemplatesPage() {
         </button>
       </div>
 
+      <div className="bg-surface-raised border border-text-ghost rounded p-4 mb-4 space-y-3">
+        <h2 className="text-sm text-text-primary">How To Use This Page</h2>
+        <p className="text-xs text-text-muted">
+          This page is a versioned template library: each new save creates a new version and marks it active.
+          Rollback reactivates an older version.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+          <div className="bg-surface border border-text-ghost rounded px-3 py-2">
+            <div className="text-text-secondary mb-1">Current Runtime Status</div>
+            <div className="text-text-muted">
+              Pipeline prompt generation is currently code-defined in
+              <span className="font-mono"> pipeline/src/pipeline/prompts/*.py</span>.
+              Treat templates here as draft/version control for now.
+            </div>
+          </div>
+          <div className="bg-surface border border-text-ghost rounded px-3 py-2">
+            <div className="text-text-secondary mb-1">Variables</div>
+            <div className="text-text-muted">
+              Variables are auto-detected from braces like
+              <span className="font-mono"> {'{{date_context}}'} </span>
+              and
+              <span className="font-mono"> {'{{signals}}'} </span>.
+            </div>
+          </div>
+        </div>
+        <div className="text-xs text-text-muted">
+          Starter naming suggestions:
+          <span className="text-accent ml-1 font-mono">distillation_v1</span>,
+          <span className="text-accent ml-1 font-mono">synthesis_plan_v1</span>,
+          <span className="text-accent ml-1 font-mono">synthesis_prose_v1</span>.
+        </div>
+        <div className="text-xs text-text-muted">
+          Safe workflow: create a version, keep notes on intent and changes, compare active version output, then rollback if quality drops.
+        </div>
+        <div className="bg-surface border border-text-ghost rounded px-3 py-2">
+          <div className="text-xs text-text-secondary mb-2">Variable Library</div>
+          <div className="flex flex-wrap gap-2">
+            {TEMPLATE_VARIABLE_LIBRARY.map((variable) => {
+              const token = variableToken(variable.key);
+              const tooltip = `${variable.description}\nUsed in: ${variable.usedIn}\nExample: ${variable.example}`;
+              return (
+                <span
+                  key={variable.key}
+                  title={tooltip}
+                  className="text-[11px] font-mono bg-surface-raised border border-text-ghost rounded px-2 py-1 text-text-secondary"
+                >
+                  {token}
+                </span>
+              );
+            })}
+          </div>
+          <div className="text-[11px] text-text-muted mt-2">
+            Open
+            <span className="mx-1 text-text-secondary">New Version</span>
+            to use clickable insert buttons for these variables.
+          </div>
+        </div>
+      </div>
+
       {showCreate && (
         <div className="bg-surface-raised border border-text-ghost rounded p-4 mb-4">
-          <TemplateEditor onSave={handleCreate} onCancel={() => setShowCreate(false)} />
+          <TemplateEditor
+            template={selected ?? undefined}
+            onSave={handleCreate}
+            onCancel={() => setShowCreate(false)}
+          />
         </div>
       )}
 

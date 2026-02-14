@@ -2,21 +2,20 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies for pipeline/ephemeris runtime
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends git && \
+    apt-get install -y --no-install-recommends git gcc g++ && \
     rm -rf /var/lib/apt/lists/*
-
-# Install uv for fast dependency management
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Copy workspace files
 COPY pyproject.toml ./
 COPY shared/ shared/
+COPY ephemeris/ ephemeris/
+COPY pipeline/ pipeline/
 COPY api/ api/
 
 # Install dependencies
-RUN uv pip install --system -e shared/ -e api/
+RUN python -m pip install --no-cache-dir -e shared/ -e ephemeris/ -e pipeline/ -e api/
 
 # Run Alembic migrations on startup, then start uvicorn
 COPY alembic.ini ./

@@ -7,9 +7,6 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends git gcc g++ && \
     rm -rf /var/lib/apt/lists/*
 
-# Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-
 # Copy workspace files
 COPY pyproject.toml ./
 COPY shared/ shared/
@@ -17,17 +14,10 @@ COPY ephemeris/ ephemeris/
 COPY pipeline/ pipeline/
 
 # Install dependencies
-RUN uv pip install --system -e shared/ -e ephemeris/ -e pipeline/
+RUN python -m pip install --no-cache-dir -e shared/ -e ephemeris/ -e pipeline/
 
 # Copy alembic for migrations
 COPY alembic.ini ./
 COPY alembic/ alembic/
-
-# Install cron
-RUN apt-get update && apt-get install -y --no-install-recommends cron && rm -rf /var/lib/apt/lists/*
-
-# Cron job for daily pipeline
-COPY infra/docker/pipeline-cron /etc/cron.d/pipeline-cron
-RUN chmod 0644 /etc/cron.d/pipeline-cron 2>/dev/null || true
 
 CMD ["python", "-m", "pipeline"]

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { apiGet, apiPatch, apiDelete } from '../api/client';
+import { apiGet, apiPatch } from '../api/client';
 import { useToast } from '../components/ui/ToastProvider';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import Spinner from '../components/ui/Spinner';
@@ -63,17 +63,6 @@ export default function ThreadsPage() {
       setSelected(updated);
       setThreads(threads.map((t) => (t.id === selected.id ? updated : t)));
       toast.success('Thread updated');
-    } catch (e: any) {
-      toast.error(e.message);
-    }
-  }
-
-  async function handleDeactivate(id: string) {
-    try {
-      await apiDelete(`/admin/threads/${id}`);
-      setThreads(threads.map((t) => (t.id === id ? { ...t, active: false } : t)));
-      if (selected?.id === id) setSelected({ ...selected, active: false });
-      toast.success('Thread deactivated');
     } catch (e: any) {
       toast.error(e.message);
     }

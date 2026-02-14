@@ -1,11 +1,29 @@
 <script lang="ts">
-  export let aspects: Array<{
+  type AspectInput = {
+    body1?: string;
+    body2?: string;
+    aspect_type?: string;
+    type?: string;
+    orb?: number;
+    orb_degrees?: number;
+    applying?: boolean;
+    significance?: string;
+    core_meaning?: string;
+    perfects_at?: string | null;
+  };
+
+  type AspectNormalized = {
     body1: string;
     body2: string;
     aspect_type: string;
     orb: number;
     applying: boolean;
-  }> = [];
+    significance: string;
+    core_meaning: string;
+    perfects_at: string | null;
+  };
+
+  export let aspects: AspectInput[] = [];
 
   const PLANET_GLYPHS: Record<string, string> = {
     Sun: '\u2609',
@@ -33,8 +51,45 @@
   const LABEL_SIZE = 36;
   const GRID_SIZE = PLANETS.length * CELL_SIZE + LABEL_SIZE;
 
+  const PLANET_CASE: Record<string, string> = PLANETS.reduce((acc, planet) => {
+    acc[planet.toLowerCase()] = planet;
+    return acc;
+  }, {} as Record<string, string>);
+
+  function normalizePlanet(value: unknown): string {
+    const raw = String(value ?? '').trim();
+    if (!raw) return '';
+    return PLANET_CASE[raw.toLowerCase()] || raw;
+  }
+
+  function normalizeAspectType(value: unknown): string {
+    return String(value ?? '').trim().toLowerCase();
+  }
+
+  function normalizeOrb(value: unknown): number {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.abs(parsed);
+  }
+
+  let normalizedAspects: AspectNormalized[] = [];
+  $: normalizedAspects = (aspects || [])
+    .map(
+      (aspect): AspectNormalized => ({
+        body1: normalizePlanet(aspect.body1),
+        body2: normalizePlanet(aspect.body2),
+        aspect_type: normalizeAspectType(aspect.aspect_type ?? aspect.type),
+        orb: normalizeOrb(aspect.orb ?? aspect.orb_degrees),
+        applying: Boolean(aspect.applying),
+        significance: String(aspect.significance ?? '').trim(),
+        core_meaning: String(aspect.core_meaning ?? '').trim(),
+        perfects_at: aspect.perfects_at ?? null,
+      })
+    )
+    .filter((aspect) => aspect.body1 && aspect.body2 && aspect.aspect_type);
+
   function getAspect(p1: string, p2: string) {
-    return aspects.find(
+    return normalizedAspects.find(
       (a) =>
         (a.body1 === p1 && a.body2 === p2) ||
         (a.body1 === p2 && a.body2 === p1)
@@ -55,16 +110,34 @@
     return Math.max(0.2, 1 - aspect.orb / maxOrb);
   }
 
-  let tooltip = { visible: false, x: 0, y: 0, text: '' };
+  let wrapperEl: HTMLDivElement | null = null;
+  let tooltip = { visible: false, x: 0, y: 0, lines: [] as string[] };
 
   function showTooltip(event: MouseEvent, p1: string, p2: string) {
     const aspect = getAspect(p1, p2);
-    if (!aspect) return;
+    if (!aspect || !wrapperEl) return;
+    const rect = wrapperEl.getBoundingClientRect();
+    const lines = [
+      `${aspect.body1} ${aspect.aspect_type} ${aspect.body2}`,
+      `Orb: ${aspect.orb.toFixed(1)}\u00B0 (${aspect.applying ? 'applying' : 'separating'})`,
+    ];
+    if (aspect.significance) {
+      lines.push(`Significance: ${aspect.significance}`);
+    }
+    if (aspect.core_meaning) {
+      lines.push(aspect.core_meaning);
+    }
+    if (aspect.perfects_at) {
+      const perfecting = new Date(aspect.perfects_at);
+      if (!Number.isNaN(perfecting.getTime())) {
+        lines.push(`Perfects: ${perfecting.toLocaleString()}`);
+      }
+    }
     tooltip = {
       visible: true,
-      x: event.offsetX + 12,
-      y: event.offsetY - 8,
-      text: `${aspect.body1} ${aspect.aspect_type} ${aspect.body2} (${aspect.orb.toFixed(1)}\u00B0${aspect.applying ? ', applying' : ', separating'})`,
+      x: event.clientX - rect.left + 12,
+      y: event.clientY - rect.top + 12,
+      lines,
     };
   }
 
@@ -73,7 +146,7 @@
   }
 </script>
 
-<div class="transit-grid-wrapper">
+<div class="transit-grid-wrapper" bind:this={wrapperEl}>
   <svg
     width={GRID_SIZE}
     height={GRID_SIZE}
@@ -164,7 +237,9 @@
       class="tooltip"
       style="left: {tooltip.x}px; top: {tooltip.y}px;"
     >
-      {tooltip.text}
+      {#each tooltip.lines as line}
+        <div class="tooltip-line">{line}</div>
+      {/each}
     </div>
   {/if}
 </div>
@@ -192,8 +267,13 @@
     padding: 0.4rem 0.75rem;
     border-radius: 3px;
     pointer-events: none;
-    white-space: nowrap;
+    white-space: normal;
+    max-width: 20rem;
     z-index: 10;
     letter-spacing: 0.03em;
+  }
+
+  .tooltip-line + .tooltip-line {
+    margin-top: 0.2rem;
   }
 </style>

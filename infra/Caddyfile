@@ -3,7 +3,7 @@
 
 :80 {
     # Public site
-    handle /api/* {
+    handle_path /api/* {
         reverse_proxy voidwire-api:8000
     }
 

@@ -3,6 +3,7 @@ import uuid
 from datetime import date, datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import AsyncClient
+from fastapi import HTTPException
 
 
 # ──────────────────────────────────────────────
@@ -330,10 +331,11 @@ class TestSignalsAPI:
 # ──────────────────────────────────────────────
 
 class TestLLMConfigAPI:
-    async def test_list_empty(self, client: AsyncClient):
+    async def test_list_seeds_defaults(self, client: AsyncClient):
         resp = await client.get("/admin/llm/")
         assert resp.status_code == 200
-        assert resp.json() == []
+        slots = resp.json()
+        assert [s["slot"] for s in slots] == ["distillation", "embedding", "synthesis"]
 
     async def test_get_slot_not_found(self, client: AsyncClient):
         resp = await client.get("/admin/llm/synthesis")
@@ -350,16 +352,67 @@ class TestLLMConfigAPI:
         resp = await client.post("/admin/llm/synthesis/test")
         assert resp.status_code == 404
 
+    async def test_embedding_slot_test_uses_embedding_endpoint(self, client: AsyncClient, mock_db):
+        cfg = MagicMock()
+        cfg.slot = "embedding"
+        cfg.is_active = True
+        cfg.provider_name = "openrouter"
+        cfg.api_endpoint = "https://openrouter.ai/api/v1"
+        cfg.model_id = "openai/text-embedding-3-small"
+        cfg.api_key_encrypted = "encrypted-api-key"
+        cfg.max_tokens = None
+        cfg.temperature = 0.7
+
+        db_result = MagicMock()
+        db_result.scalars.return_value.first.return_value = cfg
+        mock_db.execute.return_value = db_result
+
+        with patch("voidwire.services.llm_client.LLMClient") as llm_client_cls:
+            llm = llm_client_cls.return_value
+            llm.generate_embeddings = AsyncMock(return_value=[[0.1, 0.2, 0.3]])
+            llm.generate = AsyncMock(return_value="OK")
+            llm.close = AsyncMock()
+
+            resp = await client.post("/admin/llm/embedding/test")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert "Embedding generated" in body["response"]
+        llm.generate_embeddings.assert_awaited_once()
+        llm.generate.assert_not_awaited()
+
 
 # ──────────────────────────────────────────────
 # Templates
 # ──────────────────────────────────────────────
 
 class TestTemplatesAPI:
-    async def test_list_empty(self, client: AsyncClient):
+    async def test_list_seeds_starter_template(self, client: AsyncClient, mock_db):
+        seeded_template: dict[str, object] = {}
+
+        def side_effect_add(obj):
+            obj.id = uuid.uuid4()
+            obj.created_at = datetime.now(timezone.utc)
+            seeded_template["obj"] = obj
+
+        mock_db.add = MagicMock(side_effect=side_effect_add)
+
+        empty_result = MagicMock()
+        empty_result.scalars.return_value.first.return_value = None
+
+        seeded_result = MagicMock()
+        seeded_result.scalars.return_value.all.side_effect = lambda: [seeded_template["obj"]]
+
+        mock_db.execute = AsyncMock(side_effect=[empty_result, seeded_result])
+
         resp = await client.get("/admin/templates/")
         assert resp.status_code == 200
-        assert resp.json() == []
+        body = resp.json()
+        assert len(body) == 1
+        assert body[0]["template_name"] == "starter_synthesis_prose"
+        assert body[0]["version"] == 1
+        assert body[0]["is_active"] is True
 
     async def test_get_not_found(self, client: AsyncClient):
         resp = await client.get(f"/admin/templates/{uuid.uuid4()}")
@@ -431,6 +484,70 @@ class TestPipelineAPI:
     async def test_artifacts_not_found(self, client: AsyncClient):
         resp = await client.get(f"/admin/pipeline/runs/{uuid.uuid4()}/artifacts")
         assert resp.status_code == 404
+
+    async def test_schedule_endpoint(self, client: AsyncClient):
+        resp = await client.get("/admin/pipeline/schedule")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "pipeline_schedule" in body
+        assert "timezone" in body
+        assert "edit_location" in body
+
+    async def test_schedule_update(self, client: AsyncClient):
+        resp = await client.put(
+            "/admin/pipeline/schedule",
+            json={
+                "pipeline_schedule": "15 6 * * *",
+                "timezone": "UTC",
+                "pipeline_run_on_start": False,
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+    async def test_trigger_pipeline_success(self, client: AsyncClient):
+        run_id = uuid.uuid4()
+        with patch("api.routers.admin_pipeline._load_pipeline_runner") as loader:
+            runner = AsyncMock(return_value=run_id)
+            loader.return_value = runner
+            resp = await client.post("/admin/pipeline/trigger", json={})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "triggered"
+        assert body["run_id"] == str(run_id)
+        assert runner.await_args.kwargs["trigger_source"] == "manual"
+
+    async def test_trigger_pipeline_background_mode(self, client: AsyncClient):
+        with patch("api.routers.admin_pipeline._load_pipeline_runner") as loader, patch(
+            "api.routers.admin_pipeline.asyncio.create_task"
+        ) as create_task:
+            loader.return_value = AsyncMock(return_value=uuid.uuid4())
+            create_task.side_effect = lambda coro: coro.close()  # consume coroutine in test
+            resp = await client.post(
+                "/admin/pipeline/trigger",
+                json={"wait_for_completion": False},
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "started"
+        assert body["mode"] == "background"
+        create_task.assert_called_once()
+
+    async def test_trigger_pipeline_dependency_missing_returns_503(self, client: AsyncClient):
+        with patch(
+            "api.routers.admin_pipeline._load_pipeline_runner",
+            side_effect=HTTPException(status_code=503, detail="Pipeline package is unavailable in API container. Rebuild API image."),
+        ):
+            resp = await client.post("/admin/pipeline/trigger", json={})
+        assert resp.status_code == 503
+        assert "Pipeline package is unavailable" in resp.json()["detail"]
+
+    async def test_trigger_pipeline_lock_conflict_returns_409(self, client: AsyncClient):
+        with patch("api.routers.admin_pipeline._load_pipeline_runner") as loader:
+            loader.return_value = AsyncMock(side_effect=RuntimeError("Could not acquire advisory lock for 2026-02-14"))
+            resp = await client.post("/admin/pipeline/trigger", json={})
+        assert resp.status_code == 409
+        assert "already in progress" in resp.json()["detail"]
 
 
 # ──────────────────────────────────────────────

@@ -3,17 +3,17 @@ from __future__ import annotations
 
 import asyncio
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from voidwire.config import get_settings
 from voidwire.models import AdminUser
+
 from api.dependencies import get_db, require_admin
 
 router = APIRouter()
@@ -45,7 +45,7 @@ def _backup_info(path: Path) -> dict:
     return {
         "filename": path.name,
         "size_bytes": stat.st_size,
-        "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+        "created_at": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
     }
 
 
@@ -62,7 +62,11 @@ async def list_backups(
     user: AdminUser = Depends(require_admin),
 ):
     backup_dir = _backup_dir()
-    files = sorted(backup_dir.glob("*.sql.gz"), key=lambda p: p.stat().st_mtime, reverse=True)
+    files = sorted(
+        [*backup_dir.glob("*.dump"), *backup_dir.glob("*.sql.gz")],
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
     return {"backups": [_backup_info(f) for f in files]}
 
 
@@ -72,15 +76,15 @@ async def create_backup(
 ):
     params = _db_params()
     backup_dir = _backup_dir()
-    timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
-    filename = f"voidwire_{timestamp}.sql.gz"
+    timestamp = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
+    filename = f"voidwire_{timestamp}.dump"
     filepath = backup_dir / filename
 
     env = os.environ.copy()
     if params["password"]:
         env["PGPASSWORD"] = params["password"]
 
-    # pg_dump piped through gzip
+    # PostgreSQL custom archive format compatible with pg_restore.
     pg_dump_cmd = [
         "pg_dump",
         "-h", params["host"],
@@ -174,17 +178,15 @@ async def delete_backup(
 async def download_backup(
     filename: str,
     request: Request,
-    token: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ):
-    """Download backup file. Accepts auth via header or ?token= query param."""
+    """Download backup file. Requires bearer token in Authorization header."""
     settings = get_settings()
 
-    # Try Authorization header first, then query param
     auth = request.headers.get("Authorization", "")
-    raw_token = auth[7:] if auth.startswith("Bearer ") else token
-    if not raw_token:
+    if not auth.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
+    raw_token = auth[7:]
 
     try:
         payload = jwt.decode(raw_token, settings.secret_key, algorithms=[settings.jwt_algorithm])
@@ -206,5 +208,5 @@ async def download_backup(
     return FileResponse(
         path=str(filepath),
         filename=safe,
-        media_type="application/gzip",
+        media_type="application/gzip" if safe.endswith(".gz") else "application/octet-stream",
     )

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { apiGet, apiPost } from '../api/client';
+import { apiGet, apiPost, apiPut } from '../api/client';
 import { useToast } from '../components/ui/ToastProvider';
 import Spinner from '../components/ui/Spinner';
 
@@ -7,6 +7,14 @@ export default function PipelinePage() {
   const [runs, setRuns] = useState<any[]>([]);
   const [selected, setSelected] = useState<any>(null);
   const [artifacts, setArtifacts] = useState<any>(null);
+  const [schedule, setSchedule] = useState<any>(null);
+  const [scheduleForm, setScheduleForm] = useState({
+    pipeline_schedule: '',
+    timezone: '',
+    pipeline_run_on_start: false,
+    auto_publish: false,
+  });
+  const [savingSchedule, setSavingSchedule] = useState(false);
   const [showTrigger, setShowTrigger] = useState(false);
   const [triggerForm, setTriggerForm] = useState({ regeneration_mode: '', date_context: '', parent_run_id: '' });
   const [triggering, setTriggering] = useState(false);
@@ -14,11 +22,47 @@ export default function PipelinePage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    apiGet('/admin/pipeline/runs')
-      .then(setRuns)
+    Promise.all([
+      apiGet('/admin/pipeline/runs'),
+      apiGet('/admin/pipeline/schedule').catch(() => null),
+    ])
+      .then(([runList, scheduleInfo]) => {
+        setRuns(runList);
+        setSchedule(scheduleInfo);
+        if (scheduleInfo) {
+          setScheduleForm({
+            pipeline_schedule: scheduleInfo.pipeline_schedule || '',
+            timezone: scheduleInfo.timezone || '',
+            pipeline_run_on_start: !!scheduleInfo.pipeline_run_on_start,
+            auto_publish: !!scheduleInfo.auto_publish,
+          });
+        }
+      })
       .catch((e: any) => toast.error(e.message))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    const hasRunning = runs.some((r) => r.status === 'running');
+    if (!hasRunning) return;
+
+    const timer = window.setInterval(async () => {
+      try {
+        const latestRuns = await apiGet('/admin/pipeline/runs');
+        setRuns(latestRuns);
+        if (selected?.id) {
+          const refreshed = latestRuns.find((r: any) => r.id === selected.id);
+          if (refreshed) {
+            setSelected((prev: any) => ({ ...prev, ...refreshed }));
+          }
+        }
+      } catch {
+        // Quiet retry loop while a run is active.
+      }
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, [runs, selected?.id]);
 
   async function triggerPipeline() {
     setTriggering(true);
@@ -27,14 +71,40 @@ export default function PipelinePage() {
       if (triggerForm.regeneration_mode) body.regeneration_mode = triggerForm.regeneration_mode;
       if (triggerForm.date_context) body.date_context = triggerForm.date_context;
       if (triggerForm.parent_run_id) body.parent_run_id = triggerForm.parent_run_id;
-      await apiPost('/admin/pipeline/trigger', body);
+      body.wait_for_completion = false;
+      const response = await apiPost('/admin/pipeline/trigger', body);
       setShowTrigger(false);
       setRuns(await apiGet('/admin/pipeline/runs'));
-      toast.success('Pipeline triggered');
+      if (response?.mode === 'background') {
+        toast.success(`Pipeline started for ${response.date_context}. Status will update automatically.`);
+      } else if (response?.run_id) {
+        toast.success(`Pipeline completed. Run ID: ${response.run_id}`);
+      } else {
+        toast.success('Pipeline finished');
+      }
     } catch (e: any) {
       toast.error(e.message);
     }
     setTriggering(false);
+  }
+
+  async function saveSchedule() {
+    setSavingSchedule(true);
+    try {
+      await apiPut('/admin/pipeline/schedule', scheduleForm);
+      const updated = await apiGet('/admin/pipeline/schedule');
+      setSchedule(updated);
+      setScheduleForm({
+        pipeline_schedule: updated.pipeline_schedule || '',
+        timezone: updated.timezone || '',
+        pipeline_run_on_start: !!updated.pipeline_run_on_start,
+        auto_publish: !!updated.auto_publish,
+      });
+      toast.success('Scheduler settings saved');
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+    setSavingSchedule(false);
   }
 
   async function selectRun(run: any) {
@@ -61,9 +131,72 @@ export default function PipelinePage() {
         </button>
       </div>
 
+      {schedule && (
+        <div className="bg-surface-raised border border-text-ghost rounded p-3 mb-4 text-xs space-y-2">
+          <div className="flex justify-between items-center">
+            <div className="text-text-secondary">Run Schedule</div>
+            <span className="text-[11px] text-text-muted">Source: {schedule.source}</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
+            <input
+              value={scheduleForm.pipeline_schedule}
+              onChange={(e) => setScheduleForm({ ...scheduleForm, pipeline_schedule: e.target.value })}
+              placeholder="0 5 * * *"
+              className="bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary font-mono"
+              title="Daily cron format only: M H * * *"
+            />
+            <input
+              value={scheduleForm.timezone}
+              onChange={(e) => setScheduleForm({ ...scheduleForm, timezone: e.target.value })}
+              placeholder="America/New_York"
+              className="bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary font-mono"
+            />
+            <label className="flex items-center gap-2 text-text-muted bg-surface border border-text-ghost rounded px-2 py-1">
+              <input
+                type="checkbox"
+                checked={scheduleForm.pipeline_run_on_start}
+                onChange={(e) => setScheduleForm({ ...scheduleForm, pipeline_run_on_start: e.target.checked })}
+              />
+              run once on pipeline container start
+            </label>
+            <label className="flex items-center gap-2 text-text-muted bg-surface border border-text-ghost rounded px-2 py-1">
+              <input
+                type="checkbox"
+                checked={scheduleForm.auto_publish}
+                onChange={(e) => setScheduleForm({ ...scheduleForm, auto_publish: e.target.checked })}
+              />
+              auto-publish scheduler runs
+            </label>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={saveSchedule}
+              disabled={savingSchedule}
+              className="text-xs px-3 py-1 bg-accent/20 text-accent rounded hover:bg-accent/30 disabled:opacity-50"
+            >
+              {savingSchedule ? 'Saving...' : 'Save Schedule'}
+            </button>
+            {schedule.next_run_at && (
+              <span className="text-text-muted">Next run: {new Date(schedule.next_run_at).toLocaleString()}</span>
+            )}
+          </div>
+          {schedule.parse_error && <div className="text-red-400">Schedule error: {schedule.parse_error}</div>}
+          <div className="text-text-muted">
+            UI values are stored in DB and override env defaults.
+            Env fallback remains in <span className="font-mono">.env</span> via <span className="font-mono">PIPELINE_SCHEDULE</span>/<span className="font-mono">TIMEZONE</span>.
+          </div>
+          <div className="text-text-muted">
+            Scheduler runs auto-publish only when enabled; manual/regeneration/event runs stay pending in the reading queue until published from Readings.
+          </div>
+        </div>
+      )}
+
       {/* Trigger modal */}
       {showTrigger && (
         <div className="bg-surface-raised border border-text-ghost rounded p-4 mb-4 space-y-3">
+          <div className="text-xs text-text-muted">
+            Manual runs start in background and this page auto-refreshes every 5 seconds while a run is active.
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="text-xs text-text-muted block mb-1">Regeneration Mode</label>
@@ -84,7 +217,7 @@ export default function PipelinePage() {
             </div>
           </div>
           <button onClick={triggerPipeline} disabled={triggering} className="text-xs px-3 py-1 bg-accent/20 text-accent rounded hover:bg-accent/30 disabled:opacity-50">
-            {triggering ? 'Running...' : 'Start Pipeline'}
+            {triggering ? 'Starting background run...' : 'Start Pipeline'}
           </button>
         </div>
       )}
@@ -109,6 +242,18 @@ export default function PipelinePage() {
                   Run #{r.run_number}
                   {r.regeneration_mode && <span className="ml-2 text-accent">{r.regeneration_mode}</span>}
                 </div>
+                <div className="text-[11px] text-text-ghost mt-1">Source: {r.trigger_source || 'scheduler'}</div>
+                {r.progress_hint && <div className="text-xs text-text-muted mt-1">{r.progress_hint}</div>}
+                {typeof r.elapsed_seconds === 'number' && (
+                  <div className="text-[11px] text-text-ghost mt-1">
+                    Elapsed: {Math.floor(r.elapsed_seconds / 60)}m {r.elapsed_seconds % 60}s
+                  </div>
+                )}
+                {r.reading_status && (
+                  <div className="text-[11px] text-text-muted mt-1">
+                    Reading: <span className={r.reading_status === 'published' ? 'text-green-400' : 'text-yellow-400'}>{r.reading_status}</span>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -119,9 +264,26 @@ export default function PipelinePage() {
               <h3 className="text-sm text-accent mb-3">Run Detail: {selected.date_context} #{selected.run_number}</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs mb-4">
                 <div><span className="text-text-muted">Status:</span> <span className="text-text-primary">{selected.status}</span></div>
+                {selected.progress_hint && <div><span className="text-text-muted">Progress:</span> <span className="text-text-secondary">{selected.progress_hint}</span></div>}
+                <div><span className="text-text-muted">Source:</span> <span className="text-text-primary">{selected.trigger_source || 'scheduler'}</span></div>
                 <div><span className="text-text-muted">Seed:</span> <span className="text-text-primary font-mono">{selected.seed}</span></div>
                 <div><span className="text-text-muted">Code:</span> <span className="text-text-primary font-mono">{selected.code_version}</span></div>
                 <div><span className="text-text-muted">Started:</span> <span className="text-text-primary">{selected.started_at ? new Date(selected.started_at).toLocaleString() : '-'}</span></div>
+                {typeof selected.elapsed_seconds === 'number' && <div><span className="text-text-muted">Elapsed:</span> <span className="text-text-primary">{Math.floor(selected.elapsed_seconds / 60)}m {selected.elapsed_seconds % 60}s</span></div>}
+                {selected.reading_status && (
+                  <div>
+                    <span className="text-text-muted">Reading:</span>{" "}
+                    <span className={selected.reading_status === 'published' ? 'text-green-400' : 'text-yellow-400'}>
+                      {selected.reading_status}
+                    </span>
+                  </div>
+                )}
+                {selected.reading_published_at && (
+                  <div>
+                    <span className="text-text-muted">Published:</span>{" "}
+                    <span className="text-text-primary">{new Date(selected.reading_published_at).toLocaleString()}</span>
+                  </div>
+                )}
                 {selected.error_detail && <div className="col-span-full text-red-400">Error: {selected.error_detail}</div>}
               </div>
 

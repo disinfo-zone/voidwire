@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from voidwire.models import SiteSetting, AdminUser
+from voidwire.models import SiteSetting, AdminUser, AuditLog
 from voidwire.services.pipeline_settings import pipeline_settings_schema, load_pipeline_settings
 from api.dependencies import get_db, require_admin
 
@@ -71,6 +71,15 @@ async def update_setting(
         setting.updated_at = datetime.now(timezone.utc)
     else:
         db.add(SiteSetting(key=req.key, value=req.value, category=req.category))
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            action="setting.update",
+            target_type="setting",
+            target_id=req.key,
+            detail={"category": req.category, "value": req.value},
+        )
+    )
     return {"status": "ok"}
 
 @router.delete("/{key:path}")
@@ -83,6 +92,14 @@ async def delete_setting(
     if not setting:
         raise HTTPException(status_code=404, detail="Setting not found")
     await db.delete(setting)
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            action="setting.delete",
+            target_type="setting",
+            target_id=key,
+        )
+    )
     return {"status": "deleted"}
 
 @router.post("/reset-category/{category}")
@@ -93,5 +110,14 @@ async def reset_category(
 ):
     result = await db.execute(
         delete(SiteSetting).where(SiteSetting.category == category)
+    )
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            action="setting.reset_category",
+            target_type="setting",
+            target_id=category,
+            detail={"deleted_count": result.rowcount},
+        )
     )
     return {"status": "ok", "deleted_count": result.rowcount}

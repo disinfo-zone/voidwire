@@ -60,6 +60,18 @@ async def create_event(req: EventCreateRequest, db: AsyncSession = Depends(get_d
     )
     db.add(e)
     await db.flush()
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            action="event.create",
+            target_type="event",
+            target_id=str(e.id),
+            detail={
+                "event_type": e.event_type,
+                "significance": e.significance,
+            },
+        )
+    )
     return {"id": str(e.id), "status": "created"}
 
 @router.patch("/{event_id}")
@@ -73,6 +85,15 @@ async def update_event(event_id: UUID, req: EventUpdateRequest, db: AsyncSession
             setattr(e, field, val)
     if req.at is not None:
         e.at = datetime.fromisoformat(req.at)
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            action="event.update",
+            target_type="event",
+            target_id=str(event_id),
+            detail=req.model_dump(exclude_none=True),
+        )
+    )
     return {"status": "ok"}
 
 @router.delete("/{event_id}")
@@ -81,6 +102,15 @@ async def delete_event(event_id: UUID, db: AsyncSession = Depends(get_db), user:
     if not e:
         raise HTTPException(status_code=404, detail="Event not found")
     await db.delete(e)
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            action="event.delete",
+            target_type="event",
+            target_id=str(event_id),
+            detail={"event_type": e.event_type, "at": e.at.isoformat()},
+        )
+    )
     return {"status": "deleted"}
 
 @router.post("/{event_id}/generate-reading")
@@ -89,7 +119,7 @@ async def generate_event_reading(event_id: UUID, db: AsyncSession = Depends(get_
     if not e:
         raise HTTPException(status_code=404, detail="Event not found")
     from pipeline.orchestrator import run_pipeline
-    run_id = await run_pipeline(date_context=e.at.date())
+    run_id = await run_pipeline(date_context=e.at.date(), trigger_source="manual_event")
     e.reading_status = "generated"
     e.run_id = run_id
     db.add(AuditLog(user_id=user.id, action="event.generate_reading", target_type="event", target_id=str(event_id)))

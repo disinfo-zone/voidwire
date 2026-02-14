@@ -7,7 +7,7 @@ The system calculates real planetary transits from Swiss Ephemeris data, ingests
 ## Architecture
 
 ```
-                   DAILY PIPELINE (cron, advisory-locked)
+                DAILY PIPELINE (scheduler, advisory-locked)
     +-----------+  +-----------+  +-----------+  +-----------+
     | Ephemeris |  | Ingestion |  | Distill   |  | Embedding |
     | (swisseph)|  | (RSS +    |  | (LLM      |  | (vector   |
@@ -23,7 +23,7 @@ The system calculates real planetary transits from Swiss Ephemeris data, ingests
 
   PostgreSQL 16 + pgvector    Redis 7    Minio (S3 backups)
   FastAPI (API)    Astro (public site)    React (admin panel)
-  Caddy (reverse proxy)    Cloudflare Tunnel (edge)
+  Caddy (reverse proxy)    Cloudflare Tunnel (optional edge)
 ```
 
 ### Packages
@@ -72,8 +72,8 @@ alembic upgrade head
 # Start the API
 uvicorn api.main:create_app --factory --reload --port 8000
 
-# In another terminal, run the pipeline manually
-python -m pipeline.orchestrator
+# In another terminal, run the pipeline once manually
+python -m pipeline --once
 ```
 
 ### Docker Compose (Production)
@@ -81,13 +81,26 @@ python -m pipeline.orchestrator
 ```bash
 cp .env.example .env
 # Fill in all values in .env, especially:
-#   ENCRYPTION_KEY, SECRET_KEY, CLOUDFLARE_TUNNEL_TOKEN
+#   ENCRYPTION_KEY, SECRET_KEY
 #   POSTGRES_PASSWORD, MINIO_ROOT_PASSWORD
 
 docker compose up -d
 ```
 
-This starts all 9 services: PostgreSQL + pgvector, Redis, API, pipeline, public site, admin panel, Minio, Caddy, and Cloudflare Tunnel. On first run, the setup wizard guides through admin account creation, LLM configuration, and news source seeding.
+This starts 8 services by default: PostgreSQL + pgvector, Redis, API, pipeline, public site, admin panel, Minio, and Caddy. On first run, the setup wizard guides through admin account creation, LLM configuration, and news source seeding.
+
+To include Cloudflare Tunnel in production:
+
+```bash
+docker compose --profile tunnel up -d
+```
+
+When accessing services through Caddy (`http://localhost`), use the `/api` prefix for API routes (example: `/api/health`, `/api/admin/auth/login`). Caddy strips `/api` before proxying to `voidwire-api`.
+
+Local URLs:
+- Public site: `http://localhost/`
+- Admin UI: `http://localhost/admin/` (or `http://localhost:5173/admin/`)
+- API health: `http://localhost/api/health`
 
 ## Services
 
@@ -100,11 +113,14 @@ This starts all 9 services: PostgreSQL + pgvector, Redis, API, pipeline, public 
 | `voidwire-admin` | 5173 | React admin panel |
 | `voidwire-minio` | 9000/9001 | S3-compatible backup storage |
 | `voidwire-caddy` | 80/443 | Reverse proxy with TLS |
-| `cloudflared` | -- | Cloudflare Tunnel (no open inbound ports) |
+| `cloudflared` | -- | Cloudflare Tunnel (optional via `--profile tunnel`) |
 
 ## Pipeline
 
-The daily pipeline runs at 05:00 UTC (configurable) and executes 8 stages:
+The pipeline scheduler runs continuously in the pipeline container and executes daily at `PIPELINE_SCHEDULE` (default `0 5 * * *`, configurable) across 8 stages:
+
+- Schedule source precedence: Admin UI scheduler override (stored in `site_settings`) -> `.env` defaults (`PIPELINE_SCHEDULE`, `TIMEZONE`, `PIPELINE_RUN_ON_START`)
+- Changes saved in Admin > Pipeline are picked up by the scheduler loop without restarting containers
 
 1. **Ephemeris** -- Calculates planetary positions, aspects, lunar phase, void-of-course, and 5-day forward ephemeris using Swiss Ephemeris (`pyswisseph`). Resolves archetypal meanings from a curated dictionary with compositional fallback.
 
@@ -120,7 +136,9 @@ The daily pipeline runs at 05:00 UTC (configurable) and executes 8 stages:
 
 7. **Synthesis** -- Two-pass LLM generation. Pass A: structured interpretive plan (aspect-by-aspect readings, tone notes, wild card integration). Pass B: prose generation (standard 400-600 words, extended 1200-1800 words, transit annotations). Fallback ladder: retry -> sky-only -> silence reading.
 
-8. **Publish** -- Stores reading with approval gate. Auto-publish mode available. Editorial overlay preserves diff between generated and published versions.
+8. **Publish** -- Stores reading with approval gate. Auto-publish applies to scheduler/default runs when enabled; manual/regeneration/event-triggered runs remain pending in the queue. Editorial overlay preserves diff between generated and published versions.
+
+Public API/site routes only return readings with `status='published'`. Publish queued manual runs from Admin > Readings.
 
 ### Reproducibility
 
@@ -174,10 +192,11 @@ React SPA behind Cloudflare Access (zero-trust). JWT + TOTP authentication at th
 
 - Reading queue with inline editing and diff tracking
 - News source management with health indicators
-- Prompt template editor with version history
+- Prompt template editor with starter template seeding, variable library tooltips, and version history
 - Archetypal dictionary CRUD
 - LLM configuration panel
 - Pipeline controls and run history
+- Scheduler editor (UI override + `.env` fallback), run progress hints, and reading publication status per run
 - Site settings, backup/restore, audit log
 
 ## Testing

@@ -10,6 +10,8 @@ from voidwire.models import AdminUser, LLMConfig, NewsSource, SetupState, SiteSe
 from voidwire.services.encryption import encrypt_value
 from api.dependencies import get_db
 from api.middleware.auth import hash_password, generate_totp_secret, get_totp_uri
+from api.services.llm_slots import ensure_default_llm_slots
+from api.services.template_defaults import ensure_starter_prompt_template
 
 router = APIRouter()
 
@@ -47,6 +49,8 @@ async def init_database(db: AsyncSession = Depends(get_db)):
     if "db_init" not in steps:
         steps.append("db_init")
         state.steps_completed = steps
+    await ensure_default_llm_slots(db)
+    await ensure_starter_prompt_template(db)
     return {"status": "ok", "step": "db_init"}
 
 @router.post("/create-admin")
@@ -104,6 +108,8 @@ async def complete_setup(db: AsyncSession = Depends(get_db)):
     state = await db.get(SetupState, 1)
     if not state:
         raise HTTPException(status_code=400, detail="Setup not initialized")
+    await ensure_default_llm_slots(db)
+    await ensure_starter_prompt_template(db)
     state.is_complete = True
     state.completed_at = datetime.now(timezone.utc)
     return {"status": "ok", "setup_complete": True}

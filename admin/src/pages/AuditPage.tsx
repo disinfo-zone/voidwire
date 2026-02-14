@@ -31,6 +31,16 @@ export default function AuditPage() {
   return (
     <div>
       <h1 className="text-xl mb-6 text-accent">Audit Log</h1>
+      <div className="bg-surface-raised border border-text-ghost rounded p-3 mb-4 text-xs space-y-1">
+        <div className="text-text-primary">Quick Guide</div>
+        <div className="text-text-muted">
+          This view shows the latest 50 admin/system actions (newest first).
+          Use filters to narrow by action (for example <span className="font-mono">pipeline.trigger</span>, <span className="font-mono">source.create</span>, <span className="font-mono">reading.published</span>).
+        </div>
+        <div className="text-text-muted">
+          If no entries appear, perform an admin action and click <span className="font-mono">Filter</span> to refresh.
+        </div>
+      </div>
 
       {/* Filters */}
       <div className="flex gap-2 mb-4 flex-wrap">
@@ -42,6 +52,10 @@ export default function AuditPage() {
           <option value="template">template</option>
           <option value="event">event</option>
           <option value="setting">setting</option>
+          <option value="llm">llm</option>
+          <option value="pipeline">pipeline</option>
+          <option value="auth">auth</option>
+          <option value="system">system</option>
         </select>
         <input type="date" value={filters.date_from} onChange={(e) => setFilters({ ...filters, date_from: e.target.value })} className="bg-surface border border-text-ghost rounded px-3 py-1 text-sm text-text-primary" />
         <input type="date" value={filters.date_to} onChange={(e) => setFilters({ ...filters, date_to: e.target.value })} className="bg-surface border border-text-ghost rounded px-3 py-1 text-sm text-text-primary" />

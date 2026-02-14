@@ -1,9 +1,12 @@
 """API test configuration."""
-import pytest
+
+import time
 from unittest.mock import AsyncMock, MagicMock
-from httpx import AsyncClient, ASGITransport
-from api.main import create_app
+
+import pytest
 from api.dependencies import get_db, require_admin
+from api.main import create_app
+from httpx import ASGITransport, AsyncClient
 
 
 class FakeAdminUser:
@@ -22,6 +25,8 @@ def _fake_admin():
 @pytest.fixture
 def app():
     a = create_app()
+    a.state._setup_complete = True
+    a.state._setup_checked_at = time.monotonic()
     a.dependency_overrides[require_admin] = _fake_admin
     return a
 
@@ -30,6 +35,8 @@ def app():
 def mock_db():
     """Creates a mock AsyncSession with common patterns pre-configured."""
     session = AsyncMock()
+    # AsyncSession.add() is synchronous; use MagicMock to avoid un-awaited coroutine warnings.
+    session.add = MagicMock()
     # Default: execute returns empty result set
     empty_result = MagicMock()
     empty_result.scalars.return_value.all.return_value = []
@@ -58,6 +65,8 @@ async def client(app, mock_db):
 async def unauthenticated_client():
     """Client with NO auth override -- tests that endpoints require auth."""
     a = create_app()
+    a.state._setup_complete = True
+    a.state._setup_checked_at = time.monotonic()
     transport = ASGITransport(app=a)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac

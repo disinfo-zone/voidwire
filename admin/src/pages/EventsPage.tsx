@@ -88,6 +88,40 @@ export default function EventsPage() {
         </button>
       </div>
 
+      <div className="bg-surface-raised border border-text-ghost rounded p-4 mb-4 space-y-2 text-xs">
+        <h2 className="text-sm text-text-primary">Quick Guide</h2>
+        <div className="text-text-muted">
+          Use this page to curate major sky events and optionally trigger a focused reading for that event date.
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          <div className="bg-surface border border-text-ghost rounded px-3 py-2">
+            <div className="text-text-secondary mb-1">When To Add</div>
+            <div className="text-text-muted">
+              Add eclipses, lunations, retrograde/direct stations, and major ingresses you want to highlight editorially.
+            </div>
+          </div>
+          <div className="bg-surface border border-text-ghost rounded px-3 py-2">
+            <div className="text-text-secondary mb-1">Field Tips</div>
+            <div className="text-text-muted">
+              <span className="font-mono">at</span> uses local datetime input.
+              <span className="ml-1 font-mono">significance</span> controls editorial priority (major/moderate/minor).
+            </div>
+          </div>
+          <div className="bg-surface border border-text-ghost rounded px-3 py-2">
+            <div className="text-text-secondary mb-1">Generate</div>
+            <div className="text-text-muted">
+              <span className="font-mono">generate</span> runs the pipeline for that event date. It does not auto-publish unless auto-publish is enabled.
+            </div>
+          </div>
+          <div className="bg-surface border border-text-ghost rounded px-3 py-2">
+            <div className="text-text-secondary mb-1">Publishing</div>
+            <div className="text-text-muted">
+              Public site endpoints only show readings with status <span className="font-mono">published</span>. Review and publish from Readings if auto-publish is off.
+            </div>
+          </div>
+        </div>
+      </div>
+
       {showAdd && (
         <div className="bg-surface-raised border border-text-ghost rounded p-4 mb-4 space-y-2">
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">

@@ -40,8 +40,8 @@ export default function DashboardPage() {
   async function triggerPipeline() {
     setTriggering(true);
     try {
-      await apiPost('/admin/pipeline/trigger', {});
-      toast.success('Pipeline triggered');
+      await apiPost('/admin/pipeline/trigger', { wait_for_completion: false });
+      toast.success('Pipeline started in background');
     } catch (e: any) {
       toast.error(e.message);
     }
@@ -59,7 +59,7 @@ export default function DashboardPage() {
           disabled={triggering}
           className="text-xs px-4 py-2 bg-accent/20 text-accent rounded hover:bg-accent/30 disabled:opacity-50"
         >
-          {triggering ? 'Triggering...' : 'Trigger Pipeline'}
+          {triggering ? 'Running pipeline... this can take a few minutes' : 'Trigger Pipeline'}
         </button>
       </div>
 
@@ -109,12 +109,12 @@ export default function DashboardPage() {
           <div key={slot.slot} className="bg-surface-raised border border-text-ghost rounded p-4">
             <div className="flex justify-between items-center mb-2">
               <span className="text-xs text-text-muted uppercase tracking-wider">{slot.slot}</span>
-              <span className={`w-2 h-2 rounded-full ${slot.active ? 'bg-green-400' : 'bg-text-ghost'}`} />
+              <span className={`w-2 h-2 rounded-full ${slot.is_active ? 'bg-green-400' : 'bg-text-ghost'}`} />
             </div>
-            <div className="text-sm text-text-primary">{slot.provider || 'Not configured'}</div>
+            <div className="text-sm text-text-primary">{slot.provider_name || 'Not configured'}</div>
             <div className="text-xs text-text-muted mt-1">{slot.model_id || '-'}</div>
-            {slot.api_key_set && <div className="text-xs text-green-400 mt-1">Key set</div>}
-            {!slot.api_key_set && slot.active && <div className="text-xs text-red-400 mt-1">No API key</div>}
+            {slot.api_key_masked && <div className="text-xs text-green-400 mt-1">Key set ({slot.api_key_masked})</div>}
+            {!slot.api_key_masked && slot.is_active && <div className="text-xs text-red-400 mt-1">No API key</div>}
           </div>
         ))}
         {llmSlots.length === 0 && (
