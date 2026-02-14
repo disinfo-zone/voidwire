@@ -34,7 +34,7 @@ async def run_synthesis_stage(
     prompt_payloads = {}
 
     # Pass A: Interpretive plan (with retry at tweaked temperature)
-    plan_prompt = build_plan_prompt(ephemeris_data, selected_signals, thread_snapshot, date_context, sky_only)
+    plan_prompt = build_plan_prompt(ephemeris_data, selected_signals, thread_snapshot, date_context, sky_only, thread_display_limit=ss.thread_display_limit)
     prompt_payloads["pass_a"] = plan_prompt
 
     interpretive_plan = None
@@ -58,6 +58,7 @@ async def run_synthesis_stage(
         standard_word_range=ss.standard_word_range,
         extended_word_range=ss.extended_word_range,
         banned_phrases=ss.banned_phrases,
+        thread_display_limit=ss.thread_display_limit,
     )
     prompt_payloads["pass_b"] = prose_prompt
 
@@ -83,6 +84,7 @@ async def run_synthesis_stage(
             standard_word_range=ss.standard_word_range,
             extended_word_range=ss.extended_word_range,
             banned_phrases=ss.banned_phrases,
+            thread_display_limit=ss.thread_display_limit,
         )
         prompt_payloads["pass_b_fallback"] = sky_prompt
         try:

@@ -1,17 +1,18 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
-        void: '#050505',
-        surface: '#0a0a09',
-        'surface-raised': '#141413',
-        accent: '#c8baa8',
-        'text-primary': '#c0b0a0',
-        'text-secondary': '#9a8a7a',
-        'text-muted': '#555550',
-        'text-ghost': '#302e2a',
+        void: 'var(--color-void)',
+        surface: 'var(--color-surface)',
+        'surface-raised': 'var(--color-surface-raised)',
+        accent: 'var(--color-accent)',
+        'text-primary': 'var(--color-text-primary)',
+        'text-secondary': 'var(--color-text-secondary)',
+        'text-muted': 'var(--color-text-muted)',
+        'text-ghost': 'var(--color-text-ghost)',
       },
     },
   },

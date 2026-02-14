@@ -15,6 +15,7 @@ def build_prose_prompt(
     standard_word_range: list[int] | None = None,
     extended_word_range: list[int] | None = None,
     banned_phrases: list[str] | None = None,
+    thread_display_limit: int = 10,
 ) -> str:
     std_range = standard_word_range or [400, 600]
     ext_range = extended_word_range or [1200, 1800]
@@ -30,7 +31,7 @@ def build_prose_prompt(
             signals_str += f"\n- [{s.get('id','?')}] ({s.get('domain','?')}/{s.get('intensity','?')}) {s.get('summary','')}{wild}"
 
     threads_str = ""
-    for t in (thread_snapshot or [])[:10]:
+    for t in (thread_snapshot or [])[:thread_display_limit]:
         threads_str += f"\n- {t.get('canonical_summary','')} ({t.get('domain','')}, {t.get('appearances',0)} appearances)"
 
     sky_note = "\nThe cultural signal is absent today. Read only the planetary weather.\n" if sky_only else ""

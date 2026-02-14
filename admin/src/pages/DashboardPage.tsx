@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { apiGet, apiPost } from '../api/client';
+import { useToast } from '../components/ui/ToastProvider';
+import Spinner from '../components/ui/Spinner';
 
 export default function DashboardPage() {
   const [health, setHealth] = useState<any>(null);
@@ -9,35 +11,44 @@ export default function DashboardPage() {
   const [threadCount, setThreadCount] = useState<number | null>(null);
   const [sourceHealth, setSourceHealth] = useState<{ total: number; active: number; errored: number } | null>(null);
   const [triggering, setTriggering] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
 
   useEffect(() => {
-    apiGet('/health').then(setHealth).catch(() => {});
-    apiGet('/admin/analytics/pipeline-health?days=7').then(setPipelineHealth).catch(() => {});
-    apiGet('/admin/readings/?limit=1').then((readings) => {
-      if (Array.isArray(readings) && readings.length > 0) setLatestReading(readings[0]);
-    }).catch(() => {});
-    apiGet('/admin/llm/').then(setLlmSlots).catch(() => {});
-    apiGet('/admin/threads/?active=true').then((threads) => {
-      setThreadCount(Array.isArray(threads) ? threads.length : 0);
-    }).catch(() => {});
-    apiGet('/admin/sources/').then((sources) => {
-      if (Array.isArray(sources)) {
-        setSourceHealth({
-          total: sources.length,
-          active: sources.filter((s: any) => s.status === 'active').length,
-          errored: sources.filter((s: any) => s.last_error).length,
-        });
-      }
-    }).catch(() => {});
+    Promise.all([
+      apiGet('/health').then(setHealth),
+      apiGet('/admin/analytics/pipeline-health?days=7').then(setPipelineHealth),
+      apiGet('/admin/readings/?limit=1').then((readings) => {
+        if (Array.isArray(readings) && readings.length > 0) setLatestReading(readings[0]);
+      }),
+      apiGet('/admin/llm/').then(setLlmSlots),
+      apiGet('/admin/threads/?active=true').then((threads) => {
+        setThreadCount(Array.isArray(threads) ? threads.length : 0);
+      }),
+      apiGet('/admin/sources/').then((sources) => {
+        if (Array.isArray(sources)) {
+          setSourceHealth({
+            total: sources.length,
+            active: sources.filter((s: any) => s.status === 'active').length,
+            errored: sources.filter((s: any) => s.last_error).length,
+          });
+        }
+      }),
+    ]).catch((e) => toast.error(e.message)).finally(() => setLoading(false));
   }, []);
 
   async function triggerPipeline() {
     setTriggering(true);
     try {
       await apiPost('/admin/pipeline/trigger', {});
-    } catch {}
+      toast.success('Pipeline triggered');
+    } catch (e: any) {
+      toast.error(e.message);
+    }
     setTriggering(false);
   }
+
+  if (loading) return <div className="flex justify-center py-12"><Spinner /></div>;
 
   return (
     <div>
@@ -53,7 +64,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Status cards */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div className="bg-surface-raised border border-text-ghost rounded p-4">
           <div className="text-xs text-text-muted uppercase tracking-wider mb-2">API Status</div>
           <div className={`text-sm ${health?.status === 'ok' ? 'text-green-400' : 'text-red-400'}`}>
@@ -93,7 +104,7 @@ export default function DashboardPage() {
       </div>
 
       {/* LLM Slot Health */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         {llmSlots.map((slot) => (
           <div key={slot.slot} className="bg-surface-raised border border-text-ghost rounded p-4">
             <div className="flex justify-between items-center mb-2">
@@ -107,7 +118,7 @@ export default function DashboardPage() {
           </div>
         ))}
         {llmSlots.length === 0 && (
-          <div className="col-span-3 bg-surface-raised border border-text-ghost rounded p-4 text-sm text-text-muted">
+          <div className="col-span-full bg-surface-raised border border-text-ghost rounded p-4 text-sm text-text-muted">
             No LLM slots configured.
           </div>
         )}

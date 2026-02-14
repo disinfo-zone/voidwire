@@ -45,6 +45,7 @@ class SynthesisSettings(BaseModel):
     prose_temp_step: float = 0.1
     prose_temp_min: float = 0.5
     fallback_temp: float = 0.6
+    thread_display_limit: int = 10
     standard_word_range: list[int] = Field(default=[400, 600])
     extended_word_range: list[int] = Field(default=[1200, 1800])
     banned_phrases: list[str] = Field(

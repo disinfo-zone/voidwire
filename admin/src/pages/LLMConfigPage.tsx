@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { apiGet, apiPut, apiPost } from '../api/client';
+import { useToast } from '../components/ui/ToastProvider';
+import Spinner from '../components/ui/Spinner';
 
 interface SlotConfig {
   id: string;
@@ -39,6 +41,7 @@ function SlotPanel({ slot, onRefresh }: { slot: SlotConfig; onRefresh: () => voi
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
   const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
 
   async function handleSave() {
     setSaving(true);
@@ -54,9 +57,10 @@ function SlotPanel({ slot, onRefresh }: { slot: SlotConfig; onRefresh: () => voi
       if (draft.api_key) body.api_key = draft.api_key;
       try { body.extra_params = JSON.parse(draft.extra_params); } catch { body.extra_params = {}; }
       await apiPut(`/admin/llm/${slot.slot}`, body);
+      toast.success(`${slot.slot} saved`);
       onRefresh();
-    } catch (err) {
-      console.error('Save failed:', err);
+    } catch (e: any) {
+      toast.error(e.message);
     }
     setSaving(false);
   }
@@ -85,7 +89,7 @@ function SlotPanel({ slot, onRefresh }: { slot: SlotConfig; onRefresh: () => voi
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <label className="text-xs text-text-muted">Provider</label>
           <input value={draft.provider_name} onChange={(e) => setDraft({ ...draft, provider_name: e.target.value })} className="w-full bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary" />
@@ -108,7 +112,7 @@ function SlotPanel({ slot, onRefresh }: { slot: SlotConfig; onRefresh: () => voi
         <input type="password" value={draft.api_key} onChange={(e) => setDraft({ ...draft, api_key: e.target.value })} placeholder="Leave blank to keep current" className="w-full bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary" />
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <label className="text-xs text-text-muted">Temperature</label>
           <input type="number" step="0.05" min="0" max="2" value={draft.temperature} onChange={(e) => setDraft({ ...draft, temperature: parseFloat(e.target.value) || 0 })} className="w-full bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary" />
@@ -147,12 +151,20 @@ function SlotPanel({ slot, onRefresh }: { slot: SlotConfig; onRefresh: () => voi
 
 export default function LLMConfigPage() {
   const [slots, setSlots] = useState<SlotConfig[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
 
   function loadSlots() {
-    apiGet('/admin/llm/').then(setSlots).catch(() => {});
+    setLoading(true);
+    apiGet('/admin/llm/')
+      .then(setSlots)
+      .catch((e: any) => toast.error(e.message))
+      .finally(() => setLoading(false));
   }
 
   useEffect(() => { loadSlots(); }, []);
+
+  if (loading) return <div><h1 className="text-xl mb-6 text-accent">LLM Configuration</h1><div className="flex justify-center py-12"><Spinner /></div></div>;
 
   return (
     <div>
@@ -162,7 +174,7 @@ export default function LLMConfigPage() {
           <SlotPanel key={slot.slot} slot={slot} onRefresh={loadSlots} />
         ))}
         {slots.length === 0 && (
-          <p className="text-text-muted text-sm col-span-3">No LLM slots configured. Complete setup first.</p>
+          <p className="text-text-muted text-sm col-span-full">No LLM slots configured. Complete setup first.</p>
         )}
       </div>
     </div>

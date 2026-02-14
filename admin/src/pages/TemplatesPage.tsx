@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
 import { apiGet, apiPost } from '../api/client';
+import { useToast } from '../components/ui/ToastProvider';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
+import Spinner from '../components/ui/Spinner';
 import TemplateEditor from '../components/templates/TemplateEditor';
 
 export default function TemplatesPage() {
@@ -7,9 +10,15 @@ export default function TemplatesPage() {
   const [selected, setSelected] = useState<any>(null);
   const [versions, setVersions] = useState<any[]>([]);
   const [showCreate, setShowCreate] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [rollbackId, setRollbackId] = useState<string | null>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
-    apiGet('/admin/templates/').then(setTemplates).catch(() => {});
+    apiGet('/admin/templates/')
+      .then(setTemplates)
+      .catch((e: any) => toast.error(e.message))
+      .finally(() => setLoading(false));
   }, []);
 
   async function selectTemplate(t: any) {
@@ -21,24 +30,37 @@ export default function TemplatesPage() {
   }
 
   async function handleCreate(data: any) {
-    await apiPost('/admin/templates/', data);
-    setShowCreate(false);
-    const ts = await apiGet('/admin/templates/');
-    setTemplates(ts);
-  }
-
-  async function handleRollback(templateId: string) {
-    await apiPost(`/admin/templates/${templateId}/rollback`, {});
-    const ts = await apiGet('/admin/templates/');
-    setTemplates(ts);
-    if (selected) {
-      const v = await apiGet(`/admin/templates/versions/${selected.template_name}`);
-      setVersions(v);
+    try {
+      await apiPost('/admin/templates/', data);
+      setShowCreate(false);
+      const ts = await apiGet('/admin/templates/');
+      setTemplates(ts);
+      toast.success('Template version created');
+    } catch (e: any) {
+      toast.error(e.message);
     }
   }
 
-  // Group templates by name
+  async function confirmRollback() {
+    if (!rollbackId) return;
+    try {
+      await apiPost(`/admin/templates/${rollbackId}/rollback`, {});
+      const ts = await apiGet('/admin/templates/');
+      setTemplates(ts);
+      if (selected) {
+        const v = await apiGet(`/admin/templates/versions/${selected.template_name}`);
+        setVersions(v);
+      }
+      toast.success('Rolled back');
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+    setRollbackId(null);
+  }
+
   const names = [...new Set(templates.map((t) => t.template_name))];
+
+  if (loading) return <div><h1 className="text-xl mb-6 text-accent">Prompt Templates</h1><div className="flex justify-center py-12"><Spinner /></div></div>;
 
   return (
     <div>
@@ -55,9 +77,9 @@ export default function TemplatesPage() {
         </div>
       )}
 
-      <div className="flex gap-4">
+      <div className="flex flex-col lg:flex-row gap-4">
         {/* Template list */}
-        <div className="w-64 shrink-0 space-y-1">
+        <div className="w-full lg:w-64 shrink-0 space-y-1">
           {names.map((name) => {
             const active = templates.find((t) => t.template_name === name);
             return (
@@ -108,7 +130,7 @@ export default function TemplatesPage() {
                       {v.is_active && <span className="ml-2 text-green-400">active</span>}
                     </div>
                     {!v.is_active && (
-                      <button onClick={() => handleRollback(v.id)} className="text-xs text-accent hover:underline">
+                      <button onClick={() => setRollbackId(v.id)} className="text-xs text-accent hover:underline">
                         Rollback
                       </button>
                     )}
@@ -119,6 +141,14 @@ export default function TemplatesPage() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={!!rollbackId}
+        title="Rollback Template"
+        message="Are you sure you want to rollback to this version?"
+        onConfirm={confirmRollback}
+        onCancel={() => setRollbackId(null)}
+      />
     </div>
   );
 }

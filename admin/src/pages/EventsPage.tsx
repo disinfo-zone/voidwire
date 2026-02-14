@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../api/client';
+import { useToast } from '../components/ui/ToastProvider';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
+import Spinner from '../components/ui/Spinner';
 
 const EVENT_TYPES = ['new_moon', 'full_moon', 'lunar_eclipse', 'solar_eclipse', 'retrograde_station', 'direct_station', 'ingress_major'];
 
@@ -8,39 +11,73 @@ export default function EventsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [form, setForm] = useState({ event_type: 'new_moon', body: '', sign: '', at: '', significance: 'moderate' });
+  const [loading, setLoading] = useState(true);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const { toast } = useToast();
 
   useEffect(() => { loadEvents(); }, []);
 
   async function loadEvents() {
-    apiGet('/admin/events/').then(setEvents).catch(() => {});
+    setLoading(true);
+    try {
+      const data = await apiGet('/admin/events/');
+      setEvents(data);
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+    setLoading(false);
   }
 
   async function handleAdd() {
-    await apiPost('/admin/events/', form);
-    setShowAdd(false);
-    loadEvents();
+    try {
+      await apiPost('/admin/events/', form);
+      setShowAdd(false);
+      loadEvents();
+      toast.success('Event created');
+    } catch (e: any) {
+      toast.error(e.message);
+    }
   }
 
   async function handleEdit(id: string) {
-    await apiPatch(`/admin/events/${id}`, form);
-    setEditing(null);
-    loadEvents();
+    try {
+      await apiPatch(`/admin/events/${id}`, form);
+      setEditing(null);
+      loadEvents();
+      toast.success('Event updated');
+    } catch (e: any) {
+      toast.error(e.message);
+    }
   }
 
-  async function handleDelete(id: string) {
-    await apiDelete(`/admin/events/${id}`);
-    setEvents(events.filter((e) => e.id !== id));
+  async function confirmDelete() {
+    if (!deleteId) return;
+    try {
+      await apiDelete(`/admin/events/${deleteId}`);
+      setEvents(events.filter((e) => e.id !== deleteId));
+      toast.success('Event deleted');
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+    setDeleteId(null);
   }
 
   async function handleGenerateReading(id: string) {
-    await apiPost(`/admin/events/${id}/generate-reading`, {});
-    loadEvents();
+    try {
+      await apiPost(`/admin/events/${id}/generate-reading`, {});
+      toast.success('Reading generation started');
+      loadEvents();
+    } catch (e: any) {
+      toast.error(e.message);
+    }
   }
 
   function startEdit(e: any) {
     setEditing(e.id);
     setForm({ event_type: e.event_type, body: e.body || '', sign: e.sign || '', at: e.at?.slice(0, 16) || '', significance: e.significance });
   }
+
+  if (loading) return <div><h1 className="text-xl mb-6 text-accent">Astronomical Events</h1><div className="flex justify-center py-12"><Spinner /></div></div>;
 
   return (
     <div>
@@ -53,7 +90,7 @@ export default function EventsPage() {
 
       {showAdd && (
         <div className="bg-surface-raised border border-text-ghost rounded p-4 mb-4 space-y-2">
-          <div className="grid grid-cols-5 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
             <select value={form.event_type} onChange={(e) => setForm({ ...form, event_type: e.target.value })} className="bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary">
               {EVENT_TYPES.map((t) => <option key={t}>{t.replace(/_/g, ' ')}</option>)}
             </select>
@@ -73,7 +110,7 @@ export default function EventsPage() {
           <div key={e.id} className="bg-surface-raised border border-text-ghost rounded p-3">
             {editing === e.id ? (
               <div className="space-y-2">
-                <div className="grid grid-cols-5 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                   <select value={form.event_type} onChange={(ev) => setForm({ ...form, event_type: ev.target.value })} className="bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary">
                     {EVENT_TYPES.map((t) => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
                   </select>
@@ -90,19 +127,19 @@ export default function EventsPage() {
                 </div>
               </div>
             ) : (
-              <div className="flex justify-between items-center">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                 <div>
                   <span className="text-sm text-text-primary">{e.event_type.replace(/_/g, ' ')}</span>
                   {e.body && <span className="text-xs text-text-secondary ml-2">{e.body}</span>}
                   {e.sign && <span className="text-xs text-text-muted ml-1">in {e.sign}</span>}
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   <span className="text-xs text-text-muted">{new Date(e.at).toLocaleDateString()}</span>
                   <span className={`text-xs ${e.significance === 'major' ? 'text-accent' : 'text-text-muted'}`}>{e.significance}</span>
                   <span className={`text-xs ${e.reading_status === 'generated' ? 'text-green-400' : 'text-text-muted'}`}>{e.reading_status}</span>
                   <button onClick={() => handleGenerateReading(e.id)} className="text-xs text-accent hover:underline">generate</button>
                   <button onClick={() => startEdit(e)} className="text-xs text-text-muted hover:text-accent">edit</button>
-                  <button onClick={() => handleDelete(e.id)} className="text-xs text-red-400 hover:text-red-300">delete</button>
+                  <button onClick={() => setDeleteId(e.id)} className="text-xs text-red-400 hover:text-red-300">delete</button>
                 </div>
               </div>
             )}
@@ -110,6 +147,15 @@ export default function EventsPage() {
         ))}
         {events.length === 0 && <p className="text-text-muted text-sm">No events.</p>}
       </div>
+
+      <ConfirmDialog
+        open={!!deleteId}
+        title="Delete Event"
+        message="Are you sure you want to delete this event?"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteId(null)}
+        destructive
+      />
     </div>
   );
 }

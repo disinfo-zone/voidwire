@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     pipeline_schedule: str = Field(default="0 5 * * *", alias="PIPELINE_SCHEDULE")
     artifact_retention_days: int = Field(default=90, alias="ARTIFACT_RETENTION_DAYS")
 
+    # Backup
+    backup_dir: str = Field(default="./backups", alias="BACKUP_DIR")
+
     # Rate limiting
     rate_limit_per_hour: int = Field(default=60, alias="RATE_LIMIT_PER_HOUR")
 

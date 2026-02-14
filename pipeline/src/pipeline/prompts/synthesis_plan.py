@@ -11,6 +11,7 @@ def build_plan_prompt(
     thread_snapshot: list[dict],
     date_context: date,
     sky_only: bool = False,
+    thread_display_limit: int = 10,
 ) -> str:
     signals_str = ""
     if not sky_only and selected_signals:
@@ -20,7 +21,7 @@ def build_plan_prompt(
             signals_str += f"\n- [{s.get('id','?')}] ({s.get('domain','?')}/{s.get('intensity','?')}{weight}) {s.get('summary','')}{wild}"
 
     threads_str = ""
-    for t in (thread_snapshot or [])[:10]:
+    for t in (thread_snapshot or [])[:thread_display_limit]:
         threads_str += f"\n- {t.get('canonical_summary','')} ({t.get('domain','')}, {t.get('appearances',0)} appearances, since {t.get('first_surfaced','')})"
 
     sky_note = "\nThe cultural signal is absent today. Read only the planetary weather.\n" if sky_only else ""

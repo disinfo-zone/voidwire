@@ -10,6 +10,7 @@ from api.routers import (
     admin_readings, admin_sources, admin_templates, admin_dictionary,
     admin_settings, admin_pipeline, admin_events, admin_backup,
     admin_audit, admin_analytics, admin_llm, admin_threads, admin_signals,
+    admin_keywords,
 )
 
 @asynccontextmanager
@@ -36,6 +37,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_llm.router, prefix="/admin/llm", tags=["admin"])
     app.include_router(admin_threads.router, prefix="/admin/threads", tags=["admin"])
     app.include_router(admin_signals.router, prefix="/admin/signals", tags=["admin"])
+    app.include_router(admin_keywords.router, prefix="/admin/keywords", tags=["admin"])
     return app
 
 app = create_app()

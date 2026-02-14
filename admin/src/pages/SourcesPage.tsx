@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../api/client';
+import { useToast } from '../components/ui/ToastProvider';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
+import Spinner from '../components/ui/Spinner';
 
 const DOMAINS = ['conflict', 'diplomacy', 'economy', 'technology', 'culture', 'environment', 'social', 'anomalous', 'legal', 'health'];
 
@@ -9,37 +12,60 @@ export default function SourcesPage() {
   const [editing, setEditing] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', url: '', domain: 'conflict', source_type: 'rss', weight: 0.5, max_articles: 10, allow_fulltext: false, config: '{}' });
   const [testResult, setTestResult] = useState<Record<string, any>>({});
+  const [loading, setLoading] = useState(true);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const { toast } = useToast();
 
-  useEffect(() => {
-    loadSources();
-  }, []);
+  useEffect(() => { loadSources(); }, []);
 
   async function loadSources() {
-    apiGet('/admin/sources/').then(setSources).catch(() => {});
+    setLoading(true);
+    try {
+      const data = await apiGet('/admin/sources/');
+      setSources(data);
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+    setLoading(false);
   }
 
   async function handleAdd() {
     let cfg = {};
     try { cfg = JSON.parse(form.config); } catch {}
-    await apiPost('/admin/sources/', { ...form, config: cfg });
-    setShowAdd(false);
-    setForm({ name: '', url: '', domain: 'conflict', source_type: 'rss', weight: 0.5, max_articles: 10, allow_fulltext: false, config: '{}' });
-    loadSources();
+    try {
+      await apiPost('/admin/sources/', { ...form, config: cfg });
+      setShowAdd(false);
+      setForm({ name: '', url: '', domain: 'conflict', source_type: 'rss', weight: 0.5, max_articles: 10, allow_fulltext: false, config: '{}' });
+      loadSources();
+      toast.success('Source added');
+    } catch (e: any) {
+      toast.error(e.message);
+    }
   }
 
   async function handleEdit(id: string) {
-    const s = sources.find((s) => s.id === id);
-    if (!s) return;
     let cfg = {};
     try { cfg = JSON.parse(form.config); } catch {}
-    await apiPatch(`/admin/sources/${id}`, { name: form.name, url: form.url, domain: form.domain, weight: form.weight, max_articles: form.max_articles, allow_fulltext: form.allow_fulltext, config: cfg });
-    setEditing(null);
-    loadSources();
+    try {
+      await apiPatch(`/admin/sources/${id}`, { name: form.name, url: form.url, domain: form.domain, weight: form.weight, max_articles: form.max_articles, allow_fulltext: form.allow_fulltext, config: cfg });
+      setEditing(null);
+      loadSources();
+      toast.success('Source updated');
+    } catch (e: any) {
+      toast.error(e.message);
+    }
   }
 
-  async function handleDelete(id: string) {
-    await apiDelete(`/admin/sources/${id}`);
-    setSources(sources.filter((s) => s.id !== id));
+  async function confirmDelete() {
+    if (!deleteId) return;
+    try {
+      await apiDelete(`/admin/sources/${deleteId}`);
+      setSources(sources.filter((s) => s.id !== deleteId));
+      toast.success('Source deleted');
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+    setDeleteId(null);
   }
 
   async function handleTest(id: string) {
@@ -56,6 +82,8 @@ export default function SourcesPage() {
     setForm({ name: s.name, url: s.url, domain: s.domain, source_type: s.source_type, weight: s.weight, max_articles: s.max_articles || 10, allow_fulltext: s.allow_fulltext || false, config: JSON.stringify(s.config || {}, null, 2) });
   }
 
+  if (loading) return <div><h1 className="text-xl mb-6 text-accent">News Sources</h1><div className="flex justify-center py-12"><Spinner /></div></div>;
+
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -67,11 +95,11 @@ export default function SourcesPage() {
 
       {showAdd && (
         <div className="bg-surface-raised border border-text-ghost rounded p-4 mb-4 space-y-2">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="bg-surface border border-text-ghost rounded px-3 py-1 text-sm text-text-primary" />
             <input placeholder="URL" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} className="bg-surface border border-text-ghost rounded px-3 py-1 text-sm text-text-primary" />
           </div>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <select value={form.domain} onChange={(e) => setForm({ ...form, domain: e.target.value })} className="bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary">
               {DOMAINS.map((d) => <option key={d}>{d}</option>)}
             </select>
@@ -99,11 +127,11 @@ export default function SourcesPage() {
           <div key={s.id} className="bg-surface-raised border border-text-ghost rounded p-4">
             {editing === s.id ? (
               <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="bg-surface border border-text-ghost rounded px-3 py-1 text-sm text-text-primary" />
                   <input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} className="bg-surface border border-text-ghost rounded px-3 py-1 text-sm text-text-primary" />
                 </div>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <select value={form.domain} onChange={(e) => setForm({ ...form, domain: e.target.value })} className="bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary">
                     {DOMAINS.map((d) => <option key={d}>{d}</option>)}
                   </select>
@@ -117,9 +145,9 @@ export default function SourcesPage() {
                 </div>
               </div>
             ) : (
-              <div className="flex justify-between items-start">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row justify-between items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm text-text-primary">{s.name}</span>
                     <span className="text-xs text-text-muted">({s.source_type})</span>
                     <span className={`text-xs ${s.status === 'active' ? 'text-green-400' : 'text-text-muted'}`}>{s.status}</span>
@@ -133,7 +161,7 @@ export default function SourcesPage() {
                 <div className="flex gap-2 shrink-0">
                   <button onClick={() => handleTest(s.id)} className="text-xs text-text-muted hover:text-accent">test</button>
                   <button onClick={() => startEdit(s)} className="text-xs text-text-muted hover:text-accent">edit</button>
-                  <button onClick={() => handleDelete(s.id)} className="text-xs text-red-400 hover:text-red-300">delete</button>
+                  <button onClick={() => setDeleteId(s.id)} className="text-xs text-red-400 hover:text-red-300">delete</button>
                 </div>
               </div>
             )}
@@ -148,6 +176,15 @@ export default function SourcesPage() {
           </div>
         ))}
       </div>
+
+      <ConfirmDialog
+        open={!!deleteId}
+        title="Delete Source"
+        message="Are you sure you want to delete this source?"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteId(null)}
+        destructive
+      />
     </div>
   );
 }

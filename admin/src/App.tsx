@@ -13,6 +13,7 @@ import AuditPage from './pages/AuditPage';
 import LLMConfigPage from './pages/LLMConfigPage';
 import ThreadsPage from './pages/ThreadsPage';
 import SignalsPage from './pages/SignalsPage';
+import BackupPage from './pages/BackupPage';
 import SetupWizardPage from './pages/SetupWizardPage';
 import { useAuth } from './hooks/useAuth';
 
@@ -47,6 +48,7 @@ export default function App() {
           <Route path="signals" element={<SignalsPage />} />
           <Route path="llm" element={<LLMConfigPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="backup" element={<BackupPage />} />
           <Route path="audit" element={<AuditPage />} />
         </Route>
       </Routes>
