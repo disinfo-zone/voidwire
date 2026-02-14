@@ -1,4 +1,5 @@
 """Tests for admin API endpoints."""
+import asyncio
 import uuid
 from datetime import date, datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -69,6 +70,15 @@ class TestSettingsAPI:
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
 
+    async def test_put_setting_allows_array_value(self, client: AsyncClient):
+        resp = await client.put("/admin/settings/", json={
+            "key": "pipeline.synthesis.banned_phrases",
+            "value": ["literal", "breaking news", "hot take"],
+            "category": "pipeline",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
     async def test_get_setting_not_found(self, client: AsyncClient):
         resp = await client.get("/admin/settings/nonexistent.key")
         assert resp.status_code == 404
@@ -83,6 +93,70 @@ class TestSettingsAPI:
         body = resp.json()
         assert body["status"] == "ok"
         assert "deleted_count" in body
+
+
+# ──────────────────────────────────────────────
+# Content
+# ──────────────────────────────────────────────
+
+class TestContentAPI:
+    async def test_list_pages(self, client: AsyncClient):
+        with patch(
+            "api.routers.admin_content.list_content_pages",
+            AsyncMock(return_value=[{"slug": "about", "title": "About", "sections_count": 4, "updated_at": None}]),
+        ):
+            resp = await client.get("/admin/content/pages")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body[0]["slug"] == "about"
+        assert body[0]["sections_count"] == 4
+
+    async def test_get_page(self, client: AsyncClient):
+        with patch(
+            "api.routers.admin_content.get_content_page",
+            AsyncMock(
+                return_value={
+                    "slug": "about",
+                    "title": "About",
+                    "sections": [{"heading": "Transmission", "body": "Body"}],
+                    "updated_at": None,
+                }
+            ),
+        ):
+            resp = await client.get("/admin/content/pages/about")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["slug"] == "about"
+        assert body["sections"][0]["heading"] == "Transmission"
+
+    async def test_update_page(self, client: AsyncClient):
+        with patch(
+            "api.routers.admin_content.save_content_page",
+            AsyncMock(
+                return_value={
+                    "slug": "about",
+                    "title": "About Updated",
+                    "sections": [{"heading": "Transmission", "body": "Updated body"}],
+                    "updated_at": "2026-02-14T00:00:00+00:00",
+                }
+            ),
+        ):
+            resp = await client.put(
+                "/admin/content/pages/about",
+                json={
+                    "title": "About Updated",
+                    "sections": [{"heading": "Transmission", "body": "Updated body"}],
+                },
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["title"] == "About Updated"
+        assert body["sections"][0]["body"] == "Updated body"
+
+    async def test_get_page_not_found(self, client: AsyncClient):
+        with patch("api.routers.admin_content.get_content_page", AsyncMock(side_effect=KeyError("missing"))):
+            resp = await client.get("/admin/content/pages/missing")
+        assert resp.status_code == 404
 
 
 # ──────────────────────────────────────────────
@@ -389,30 +463,35 @@ class TestLLMConfigAPI:
 
 class TestTemplatesAPI:
     async def test_list_seeds_starter_template(self, client: AsyncClient, mock_db):
-        seeded_template: dict[str, object] = {}
+        seeded_templates: list[object] = []
 
         def side_effect_add(obj):
             obj.id = uuid.uuid4()
             obj.created_at = datetime.now(timezone.utc)
-            seeded_template["obj"] = obj
+            if getattr(obj, "template_name", None):
+                seeded_templates.append(obj)
 
         mock_db.add = MagicMock(side_effect=side_effect_add)
 
-        empty_result = MagicMock()
-        empty_result.scalars.return_value.first.return_value = None
+        existing_names_result = MagicMock()
+        existing_names_result.scalars.return_value.all.return_value = []
 
         seeded_result = MagicMock()
-        seeded_result.scalars.return_value.all.side_effect = lambda: [seeded_template["obj"]]
+        seeded_result.scalars.return_value.all.side_effect = lambda: seeded_templates
 
-        mock_db.execute = AsyncMock(side_effect=[empty_result, seeded_result])
+        mock_db.execute = AsyncMock(side_effect=[existing_names_result, seeded_result])
 
         resp = await client.get("/admin/templates/")
         assert resp.status_code == 200
         body = resp.json()
-        assert len(body) == 1
-        assert body[0]["template_name"] == "starter_synthesis_prose"
-        assert body[0]["version"] == 1
-        assert body[0]["is_active"] is True
+        assert len(body) == 2
+        by_name = {t["template_name"]: t for t in body}
+        assert "starter_synthesis_prose" in by_name
+        assert "synthesis_plan" in by_name
+        assert by_name["starter_synthesis_prose"]["version"] == 1
+        assert by_name["synthesis_plan"]["version"] == 1
+        assert by_name["starter_synthesis_prose"]["is_active"] is True
+        assert by_name["synthesis_plan"]["is_active"] is True
 
     async def test_get_not_found(self, client: AsyncClient):
         resp = await client.get(f"/admin/templates/{uuid.uuid4()}")
@@ -470,6 +549,60 @@ class TestReadingsAPI:
         )
         assert resp.status_code == 404
 
+    async def test_regenerate_starts_background_run(self, client: AsyncClient, mock_db):
+        reading_id = uuid.uuid4()
+        reading = MagicMock()
+        reading.id = reading_id
+        reading.run_id = uuid.uuid4()
+        reading.date_context = date(2026, 2, 14)
+        mock_db.get.return_value = reading
+
+        with patch("api.routers.admin_readings._load_pipeline_runner") as loader, patch(
+            "api.routers.admin_readings.asyncio.create_task"
+        ) as create_task:
+            loader.return_value = AsyncMock(return_value=uuid.uuid4())
+            real_create_task = asyncio.tasks.create_task
+            create_task.side_effect = lambda coro, *args, **kwargs: real_create_task(coro, *args, **kwargs)
+            resp = await client.post(
+                f"/admin/readings/{reading_id}/regenerate",
+                json={"mode": "prose_only"},
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "started"
+        assert body["mode"] == "background"
+        assert body["regeneration_mode"] == "prose_only"
+        assert any(
+            getattr(getattr(call.args[0], "cr_code", None), "co_name", "") == "_run_pipeline_background"
+            for call in create_task.call_args_list
+        )
+
+    async def test_regenerate_wait_for_completion_returns_run_id(self, client: AsyncClient, mock_db):
+        reading_id = uuid.uuid4()
+        reading = MagicMock()
+        reading.id = reading_id
+        reading.run_id = uuid.uuid4()
+        reading.date_context = date(2026, 2, 14)
+        mock_db.get.return_value = reading
+
+        run_id = uuid.uuid4()
+        with patch("api.routers.admin_readings._load_pipeline_runner") as loader:
+            runner = AsyncMock(return_value=run_id)
+            loader.return_value = runner
+            resp = await client.post(
+                f"/admin/readings/{reading_id}/regenerate",
+                json={"mode": "reselect", "wait_for_completion": True},
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "triggered"
+        assert body["run_id"] == str(run_id)
+        assert runner.await_args.kwargs["date_context"] == reading.date_context
+        assert runner.await_args.kwargs["parent_run_id"] == reading.run_id
+        assert runner.await_args.kwargs["regeneration_mode"].value == "reselect"
+
 
 # ──────────────────────────────────────────────
 # Pipeline
@@ -522,7 +655,8 @@ class TestPipelineAPI:
             "api.routers.admin_pipeline.asyncio.create_task"
         ) as create_task:
             loader.return_value = AsyncMock(return_value=uuid.uuid4())
-            create_task.side_effect = lambda coro: coro.close()  # consume coroutine in test
+            real_create_task = asyncio.tasks.create_task
+            create_task.side_effect = lambda coro, *args, **kwargs: real_create_task(coro, *args, **kwargs)
             resp = await client.post(
                 "/admin/pipeline/trigger",
                 json={"wait_for_completion": False},
@@ -531,7 +665,10 @@ class TestPipelineAPI:
         body = resp.json()
         assert body["status"] == "started"
         assert body["mode"] == "background"
-        create_task.assert_called_once()
+        assert any(
+            getattr(getattr(call.args[0], "cr_code", None), "co_name", "") == "_run_pipeline_background"
+            for call in create_task.call_args_list
+        )
 
     async def test_trigger_pipeline_dependency_missing_returns_503(self, client: AsyncClient):
         with patch(
@@ -591,6 +728,7 @@ class TestRouteRegistration:
             ("GET", "/admin/threads/"),
             ("GET", "/admin/signals/"),
             ("GET", "/admin/signals/stats"),
+            ("GET", "/admin/content/pages"),
         ]
         for method, path in routes:
             resp = await client.request(method, path)

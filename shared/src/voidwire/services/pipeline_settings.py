@@ -46,8 +46,10 @@ class SynthesisSettings(BaseModel):
     prose_temp_min: float = 0.5
     fallback_temp: float = 0.6
     thread_display_limit: int = 10
+    signal_display_limit: int = Field(default=12, ge=1, le=40)
     standard_word_range: list[int] = Field(default=[400, 600])
     extended_word_range: list[int] = Field(default=[1200, 1800])
+    max_stage_seconds: int = 600
     banned_phrases: list[str] = Field(
         default=[
             "buckle up", "wild ride", "cosmic", "universe has plans",

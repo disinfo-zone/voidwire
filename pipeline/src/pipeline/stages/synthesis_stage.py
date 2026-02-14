@@ -1,9 +1,13 @@
 """Two-pass synthesis stage with fallback ladder."""
 from __future__ import annotations
+import json
 import logging
-from datetime import date
+import re
+from datetime import date, datetime
 from typing import Any
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from voidwire.models import PromptTemplate
 from voidwire.services.llm_client import generate_with_validation
 from voidwire.services.pipeline_settings import SynthesisSettings
 from pipeline.prompts.synthesis_plan import build_plan_prompt
@@ -16,6 +20,281 @@ SILENCE_READING = {
     "body": "The signal is obscured. The planetary mechanism grinds on, silent and unobserved.",
     "word_count": 14,
 }
+PLAN_TEMPLATE_CANDIDATES = ("synthesis_plan", "synthesis_plan_v1")
+PROSE_TEMPLATE_CANDIDATES = (
+    "synthesis_prose",
+    "synthesis_prose_v1",
+    "starter_synthesis_prose",
+)
+TEMPLATE_TOKEN_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}")
+
+
+def _approx_tokens(text: str) -> int:
+    # Lightweight heuristic for telemetry only; avoids tokenizer dependency at runtime.
+    return max(1, int(round(len(text) / 4)))
+
+
+def _record_prompt_metric(metrics: dict[str, dict[str, int]], key: str, prompt: str) -> None:
+    metrics[key] = {
+        "chars": len(prompt),
+        "approx_tokens": _approx_tokens(prompt),
+    }
+
+
+def _truncate_text(value: Any, limit: int) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit].rstrip()}..."
+
+
+def _prepare_signal_context(selected_signals: list[dict], *, limit: int = 20) -> list[dict[str, Any]]:
+    compact: list[dict[str, Any]] = []
+    for signal in selected_signals[:limit]:
+        if not isinstance(signal, dict):
+            continue
+        entities = signal.get("entities")
+        compact_entities = (
+            [str(entity).strip() for entity in entities if str(entity).strip()][:20]
+            if isinstance(entities, list)
+            else []
+        )
+        source_refs = signal.get("source_refs")
+        compact_refs = (
+            [str(ref).strip() for ref in source_refs if str(ref).strip()][:10]
+            if isinstance(source_refs, list)
+            else []
+        )
+        compact.append(
+            {
+                "id": str(signal.get("id", "")).strip(),
+                "domain": str(signal.get("domain", "")).strip().lower(),
+                "intensity": str(signal.get("intensity", "")).strip().lower(),
+                "directionality": str(signal.get("directionality", "")).strip().lower(),
+                "summary": _truncate_text(signal.get("summary", ""), 700),
+                "entities": compact_entities,
+                "source_refs": compact_refs,
+                "was_wild_card": bool(signal.get("was_wild_card", False)),
+                "selection_weight": signal.get("selection_weight"),
+            }
+        )
+    return compact
+
+
+def _prepare_thread_context(
+    thread_snapshot: list[dict],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    compact: list[dict[str, Any]] = []
+    for thread in thread_snapshot[:limit]:
+        if not isinstance(thread, dict):
+            continue
+        try:
+            appearances = int(thread.get("appearances", 0) or 0)
+        except (TypeError, ValueError):
+            appearances = 0
+        compact.append(
+            {
+                "id": str(thread.get("id", "")).strip(),
+                "canonical_summary": _truncate_text(thread.get("canonical_summary", ""), 500),
+                "domain": str(thread.get("domain", "")).strip().lower(),
+                "appearances": appearances,
+                "first_surfaced": thread.get("first_surfaced"),
+                "last_seen": thread.get("last_seen"),
+            }
+        )
+    return compact
+
+
+def _collect_guarded_entities(selected_signals: list[dict], limit: int = 40) -> list[str]:
+    stopwords = {
+        "us", "we", "they", "them", "our", "their", "his", "her", "its", "you", "it",
+        "government", "state", "country", "market", "economy",
+    }
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for signal in selected_signals or []:
+        for raw in signal.get("entities", []) or []:
+            entity = str(raw).strip()
+            if not entity:
+                continue
+            lowered = entity.lower()
+            if lowered in stopwords:
+                continue
+            if len(entity) < 4 and " " not in entity:
+                continue
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            ordered.append(entity)
+            if len(ordered) >= limit:
+                return ordered
+    return ordered
+
+
+def _derive_mention_policy(
+    interpretive_plan: dict | None,
+    selected_signals: list[dict],
+    guarded_entities: list[str],
+) -> dict[str, Any]:
+    base = {
+        "explicit_allowed": False,
+        "explicit_budget": 0,
+        "allowed_entities": [],
+        "rationale": "Allusion-first default: explicit references disabled.",
+    }
+    if not isinstance(interpretive_plan, dict):
+        return base
+
+    candidate = interpretive_plan.get("mention_policy")
+    if not isinstance(candidate, dict):
+        return base
+
+    explicit_allowed = bool(candidate.get("explicit_allowed", False))
+    try:
+        explicit_budget = int(candidate.get("explicit_budget", 0))
+    except Exception:
+        explicit_budget = 0
+    explicit_budget = max(0, min(explicit_budget, 1))
+
+    allowed_raw = candidate.get("allowed_entities", [])
+    allowed = [str(e).strip() for e in (allowed_raw or []) if str(e).strip()]
+    guarded_by_key = {g.lower(): g for g in guarded_entities}
+    allowed_intersection = []
+    for entity in allowed:
+        key = entity.lower()
+        if key in guarded_by_key and guarded_by_key[key] not in allowed_intersection:
+            allowed_intersection.append(guarded_by_key[key])
+
+    if not explicit_allowed:
+        return base
+    if explicit_budget == 0 or not allowed_intersection:
+        return base
+
+    # Escalation gate: explicit naming only when at least one major signal exists.
+    has_major = any(str(s.get("intensity", "")).lower() == "major" for s in (selected_signals or []))
+    if not has_major:
+        return base
+
+    return {
+        "explicit_allowed": True,
+        "explicit_budget": 1,
+        "allowed_entities": allowed_intersection[:1],
+        "rationale": str(candidate.get("rationale", "")).strip() or "Plan-approved explicit reference for a major, unavoidable signal.",
+    }
+
+
+def _compose_output_text(data: dict[str, Any]) -> str:
+    parts: list[str] = []
+    sr = data.get("standard_reading")
+    if isinstance(sr, dict):
+        parts.append(str(sr.get("title", "")))
+        parts.append(str(sr.get("body", "")))
+
+    er = data.get("extended_reading")
+    if isinstance(er, dict):
+        parts.append(str(er.get("title", "")))
+        parts.append(str(er.get("subtitle", "")))
+        for section in er.get("sections", []) or []:
+            if isinstance(section, dict):
+                parts.append(str(section.get("heading", "")))
+                parts.append(str(section.get("body", "")))
+
+    for ann in data.get("transit_annotations", []) or []:
+        if isinstance(ann, dict):
+            parts.append(str(ann.get("aspect", "")))
+            parts.append(str(ann.get("gloss", "")))
+            parts.append(str(ann.get("cultural_resonance", "")))
+            parts.append(str(ann.get("temporal_arc", "")))
+
+    return " ".join(part for part in parts if part).strip()
+
+
+def _count_entity_mentions(text_lower: str, entity: str) -> int:
+    if not entity:
+        return 0
+    pattern = re.compile(rf"(?<![a-z0-9]){re.escape(entity.lower())}(?![a-z0-9])")
+    return len(pattern.findall(text_lower))
+
+
+def _template_usage(template: PromptTemplate) -> dict[str, Any]:
+    return {
+        "id": str(template.id),
+        "template_name": str(template.template_name),
+        "version": int(template.version),
+    }
+
+
+def _serialize_template_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    try:
+        return json.dumps(value, indent=2, default=str)
+    except Exception:
+        return str(value)
+
+
+def _render_prompt_template(template_text: str, context: dict[str, Any]) -> str:
+    lookup = dict(context)
+    lookup.update({str(k).lower(): v for k, v in context.items()})
+
+    def replace(match: re.Match[str]) -> str:
+        token = match.group(1).strip()
+        if token in lookup:
+            return _serialize_template_value(lookup[token])
+        lowered = token.lower()
+        if lowered in lookup:
+            return _serialize_template_value(lookup[lowered])
+        return ""
+
+    return TEMPLATE_TOKEN_RE.sub(replace, template_text)
+
+
+def _find_active_template(
+    active_templates: dict[str, PromptTemplate],
+    candidates: tuple[str, ...],
+    prefix: str,
+) -> PromptTemplate | None:
+    for candidate in candidates:
+        hit = active_templates.get(candidate.lower())
+        if hit is not None:
+            return hit
+
+    prefix_lc = prefix.lower()
+    prefix_matches = [
+        tpl
+        for name, tpl in active_templates.items()
+        if name.startswith(prefix_lc)
+    ]
+    if not prefix_matches:
+        return None
+
+    prefix_matches.sort(
+        key=lambda tpl: (
+            int(getattr(tpl, "version", 0) or 0),
+            str(getattr(tpl, "template_name", "")),
+        ),
+        reverse=True,
+    )
+    return prefix_matches[0]
+
+
+async def _load_active_templates(session: AsyncSession) -> dict[str, PromptTemplate]:
+    result = await session.execute(select(PromptTemplate).where(PromptTemplate.is_active == True))
+    active: dict[str, PromptTemplate] = {}
+    for template in result.scalars().all():
+        name = str(template.template_name).strip().lower()
+        if not name:
+            continue
+        existing = active.get(name)
+        if existing is None or int(template.version) >= int(existing.version):
+            active[name] = template
+    return active
 
 
 async def run_synthesis_stage(
@@ -32,9 +311,67 @@ async def run_synthesis_stage(
     client = await _get_llm_client(session, "synthesis")
 
     prompt_payloads = {}
+    template_versions: dict[str, Any] = {}
+    try:
+        active_templates = await _load_active_templates(session)
+    except Exception as exc:
+        logger.warning("Could not load active prompt templates, using code defaults: %s", exc)
+        active_templates = {}
+
+    prompt_signals = _prepare_signal_context(
+        selected_signals or [],
+        limit=max(1, int(ss.signal_display_limit)),
+    )
+    prompt_threads = _prepare_thread_context(
+        thread_snapshot or [],
+        limit=max(1, int(ss.thread_display_limit)),
+    )
+    prompt_metrics: dict[str, dict[str, int]] = {}
+    prompt_payloads["context_stats"] = {
+        "signals": len(prompt_signals),
+        "threads": len(prompt_threads),
+    }
+    prompt_payloads["_telemetry"] = {
+        "context": {
+            "signals_used": len(prompt_signals),
+            "threads_used": len(prompt_threads),
+            "signal_display_limit": int(ss.signal_display_limit),
+            "thread_display_limit": int(ss.thread_display_limit),
+        },
+        "prompts": prompt_metrics,
+    }
 
     # Pass A: Interpretive plan (with retry at tweaked temperature)
-    plan_prompt = build_plan_prompt(ephemeris_data, selected_signals, thread_snapshot, date_context, sky_only, thread_display_limit=ss.thread_display_limit)
+    plan_template = _find_active_template(
+        active_templates,
+        PLAN_TEMPLATE_CANDIDATES,
+        prefix="synthesis_plan",
+    )
+    if plan_template is not None:
+        plan_prompt = _render_prompt_template(
+            plan_template.content,
+            {
+                "date_context": date_context,
+                "ephemeris_data": ephemeris_data,
+                "selected_signals": prompt_signals,
+                "signals": prompt_signals,
+                "thread_snapshot": prompt_threads,
+                "sky_only": sky_only,
+            },
+        )
+        usage = _template_usage(plan_template)
+        template_versions["synthesis_plan"] = usage
+        prompt_payloads["pass_a_template"] = usage
+    else:
+        plan_prompt = build_plan_prompt(
+            ephemeris_data,
+            prompt_signals,
+            prompt_threads,
+            date_context,
+            sky_only,
+            thread_display_limit=ss.thread_display_limit,
+        )
+    _record_prompt_metric(prompt_metrics, "pass_a", plan_prompt)
     prompt_payloads["pass_a"] = plan_prompt
 
     interpretive_plan = None
@@ -51,15 +388,47 @@ async def run_synthesis_stage(
         except Exception as e:
             logger.warning("Pass A attempt %d failed: %s", attempt + 1, e)
 
+    guarded_entities = _collect_guarded_entities(prompt_signals)
+    mention_policy = _derive_mention_policy(interpretive_plan, prompt_signals, guarded_entities)
+
     # Pass B: Prose generation (retries with decreasing temperature)
-    prose_prompt = build_prose_prompt(
-        ephemeris_data, selected_signals, thread_snapshot,
-        date_context, interpretive_plan, sky_only,
-        standard_word_range=ss.standard_word_range,
-        extended_word_range=ss.extended_word_range,
-        banned_phrases=ss.banned_phrases,
-        thread_display_limit=ss.thread_display_limit,
+    prose_template = _find_active_template(
+        active_templates,
+        PROSE_TEMPLATE_CANDIDATES,
+        prefix="synthesis_prose",
     )
+    if prose_template is not None:
+        prose_prompt = _render_prompt_template(
+            prose_template.content,
+            {
+                "date_context": date_context,
+                "ephemeris_data": ephemeris_data,
+                "selected_signals": prompt_signals,
+                "signals": prompt_signals,
+                "thread_snapshot": prompt_threads,
+                "interpretive_plan": interpretive_plan or {},
+                "mention_policy": mention_policy,
+                "explicit_entity_guard": guarded_entities,
+                "guarded_entities": guarded_entities,
+                "sky_only": sky_only,
+                "standard_word_range": ss.standard_word_range,
+                "extended_word_range": ss.extended_word_range,
+                "banned_phrases": ss.banned_phrases,
+            },
+        )
+        usage = _template_usage(prose_template)
+        template_versions["synthesis_prose"] = usage
+        prompt_payloads["pass_b_template"] = usage
+    else:
+        prose_prompt = build_prose_prompt(
+            ephemeris_data, prompt_signals, prompt_threads,
+            date_context, interpretive_plan, mention_policy, guarded_entities, sky_only,
+            standard_word_range=ss.standard_word_range,
+            extended_word_range=ss.extended_word_range,
+            banned_phrases=ss.banned_phrases,
+            thread_display_limit=ss.thread_display_limit,
+        )
+    _record_prompt_metric(prompt_metrics, "pass_b", prose_prompt)
     prompt_payloads["pass_b"] = prose_prompt
 
     result = None
@@ -68,7 +437,11 @@ async def run_synthesis_stage(
             result = await generate_with_validation(
                 client, "synthesis",
                 [{"role": "user", "content": prose_prompt}],
-                _validate_prose,
+                lambda data: _validate_prose(
+                    data,
+                    mention_policy=mention_policy,
+                    guarded_entities=guarded_entities,
+                ),
                 temperature=max(ss.prose_temp_min, ss.prose_temp_start - attempt * ss.prose_temp_step),
             )
             break
@@ -78,20 +451,46 @@ async def run_synthesis_stage(
     # Fallback: sky-only retry if full synthesis failed but we have ephemeris
     if result is None and not sky_only:
         logger.warning("Full synthesis failed, falling back to sky-only mode")
-        sky_prompt = build_prose_prompt(
-            ephemeris_data, [], thread_snapshot,
-            date_context, interpretive_plan, sky_only=True,
-            standard_word_range=ss.standard_word_range,
-            extended_word_range=ss.extended_word_range,
-            banned_phrases=ss.banned_phrases,
-            thread_display_limit=ss.thread_display_limit,
-        )
+        fallback_policy = {"explicit_allowed": False, "explicit_budget": 0, "allowed_entities": []}
+        if prose_template is not None:
+            sky_prompt = _render_prompt_template(
+                prose_template.content,
+                {
+                    "date_context": date_context,
+                    "ephemeris_data": ephemeris_data,
+                    "selected_signals": [],
+                    "signals": [],
+                    "thread_snapshot": prompt_threads,
+                    "interpretive_plan": interpretive_plan or {},
+                    "mention_policy": fallback_policy,
+                    "explicit_entity_guard": [],
+                    "guarded_entities": [],
+                    "sky_only": True,
+                    "standard_word_range": ss.standard_word_range,
+                    "extended_word_range": ss.extended_word_range,
+                    "banned_phrases": ss.banned_phrases,
+                },
+            )
+        else:
+            sky_prompt = build_prose_prompt(
+                ephemeris_data, [], prompt_threads,
+                date_context, interpretive_plan, fallback_policy, [], sky_only=True,
+                standard_word_range=ss.standard_word_range,
+                extended_word_range=ss.extended_word_range,
+                banned_phrases=ss.banned_phrases,
+                thread_display_limit=ss.thread_display_limit,
+            )
+        _record_prompt_metric(prompt_metrics, "pass_b_fallback", sky_prompt)
         prompt_payloads["pass_b_fallback"] = sky_prompt
         try:
             result = await generate_with_validation(
                 client, "synthesis",
                 [{"role": "user", "content": sky_prompt}],
-                _validate_prose,
+                lambda data: _validate_prose(
+                    data,
+                    mention_policy=fallback_policy,
+                    guarded_entities=[],
+                ),
                 temperature=ss.fallback_temp,
             )
         except Exception as e:
@@ -108,6 +507,7 @@ async def run_synthesis_stage(
             "interpretive_plan": interpretive_plan,
             "generated_output": None,
             "prompt_payloads": prompt_payloads,
+            "template_versions": template_versions,
             "ephemeris_data": ephemeris_data,
         }
 
@@ -118,6 +518,7 @@ async def run_synthesis_stage(
         "interpretive_plan": interpretive_plan,
         "generated_output": result,
         "prompt_payloads": prompt_payloads,
+        "template_versions": template_versions,
     }
 
 
@@ -130,7 +531,12 @@ def _validate_plan(data: Any) -> None:
         raise ValueError("Plan must have 'aspect_readings'")
 
 
-def _validate_prose(data: Any) -> None:
+def _validate_prose(
+    data: Any,
+    *,
+    mention_policy: dict | None = None,
+    guarded_entities: list[str] | None = None,
+) -> None:
     if not isinstance(data, dict) or "standard_reading" not in data:
         raise ValueError("Missing standard_reading")
     sr = data["standard_reading"]
@@ -141,3 +547,40 @@ def _validate_prose(data: Any) -> None:
     # Word count soft check (warn but don't reject)
     if word_count < 100:
         logger.warning("Standard reading body only %d words (target: 200-400)", word_count)
+
+    policy = mention_policy or {}
+    explicit_allowed = bool(policy.get("explicit_allowed", False))
+    try:
+        explicit_budget = int(policy.get("explicit_budget", 0))
+    except Exception:
+        explicit_budget = 0
+    explicit_budget = max(0, min(explicit_budget, 1))
+    if not explicit_allowed:
+        explicit_budget = 0
+
+    allowed_entities = {str(e).strip().lower() for e in (policy.get("allowed_entities", []) or []) if str(e).strip()}
+    guarded = [str(e).strip() for e in (guarded_entities or []) if str(e).strip()]
+    if not guarded:
+        return
+
+    output_text = _compose_output_text(data)
+    lowered = output_text.lower()
+
+    forbidden_hits: list[str] = []
+    allowed_mentions = 0
+    for entity in guarded:
+        mentions = _count_entity_mentions(lowered, entity)
+        if mentions <= 0:
+            continue
+        if entity.lower() in allowed_entities:
+            allowed_mentions += mentions
+        else:
+            forbidden_hits.append(entity)
+
+    if forbidden_hits:
+        sample = ", ".join(dict.fromkeys(forbidden_hits).keys())
+        raise ValueError(f"Direct references to guarded entities are not allowed: {sample}")
+    if allowed_mentions > explicit_budget:
+        raise ValueError(
+            f"Explicit entity mention budget exceeded: allowed {explicit_budget}, found {allowed_mentions}"
+        )

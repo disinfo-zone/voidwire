@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { apiGet, apiPost, apiPut } from '../api/client';
 import { useToast } from '../components/ui/ToastProvider';
 import Spinner from '../components/ui/Spinner';
@@ -18,8 +19,16 @@ export default function PipelinePage() {
   const [showTrigger, setShowTrigger] = useState(false);
   const [triggerForm, setTriggerForm] = useState({ regeneration_mode: '', date_context: '', parent_run_id: '' });
   const [triggering, setTriggering] = useState(false);
+  const [pendingTrigger, setPendingTrigger] = useState<{
+    dateContext: string;
+    knownRunIds: string[];
+    startedAtMs: number;
+  } | null>(null);
+  const [handledRunQuery, setHandledRunQuery] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
+  const runQuery = searchParams.get('run');
 
   useEffect(() => {
     Promise.all([
@@ -42,9 +51,38 @@ export default function PipelinePage() {
       .finally(() => setLoading(false));
   }, []);
 
+  const loadRunById = useCallback(
+    async (runId: string) => {
+      const runSummary = runs.find((run) => run.id === runId);
+      setSelected(runSummary || { id: runId });
+      setArtifacts(null);
+      try {
+        const [detail, arts] = await Promise.all([
+          apiGet(`/admin/pipeline/runs/${runId}`),
+          apiGet(`/admin/pipeline/runs/${runId}/artifacts`),
+        ]);
+        setSelected(detail);
+        setArtifacts(arts);
+      } catch (e: any) {
+        toast.error(e.message);
+      }
+    },
+    [runs, toast],
+  );
+
+  useEffect(() => {
+    if (!runQuery) {
+      setHandledRunQuery(null);
+      return;
+    }
+    if (handledRunQuery === runQuery) return;
+    setHandledRunQuery(runQuery);
+    void loadRunById(runQuery);
+  }, [runQuery, handledRunQuery, loadRunById]);
+
   useEffect(() => {
     const hasRunning = runs.some((r) => r.status === 'running');
-    if (!hasRunning) return;
+    if (!hasRunning && !pendingTrigger) return;
 
     const timer = window.setInterval(async () => {
       try {
@@ -56,16 +94,30 @@ export default function PipelinePage() {
             setSelected((prev: any) => ({ ...prev, ...refreshed }));
           }
         }
+
+        if (pendingTrigger) {
+          const newRunAppeared = latestRuns.some(
+            (r: any) => r.date_context === pendingTrigger.dateContext && !pendingTrigger.knownRunIds.includes(r.id),
+          );
+          const timedOut = Date.now() - pendingTrigger.startedAtMs > 45000;
+          if (newRunAppeared || timedOut) {
+            setPendingTrigger(null);
+            if (timedOut) {
+              toast.info('Trigger accepted, but no new run is visible yet. Check logs if this persists.');
+            }
+          }
+        }
       } catch {
         // Quiet retry loop while a run is active.
       }
     }, 5000);
 
     return () => window.clearInterval(timer);
-  }, [runs, selected?.id]);
+  }, [runs, selected?.id, pendingTrigger, toast]);
 
   async function triggerPipeline() {
     setTriggering(true);
+    const knownRunIds = runs.map((r) => r.id);
     try {
       const body: any = {};
       if (triggerForm.regeneration_mode) body.regeneration_mode = triggerForm.regeneration_mode;
@@ -74,18 +126,32 @@ export default function PipelinePage() {
       body.wait_for_completion = false;
       const response = await apiPost('/admin/pipeline/trigger', body);
       setShowTrigger(false);
-      setRuns(await apiGet('/admin/pipeline/runs'));
+      const latestRuns = await apiGet('/admin/pipeline/runs');
+      setRuns(latestRuns);
       if (response?.mode === 'background') {
+        const triggerDate = response.date_context || triggerForm.date_context || new Date().toISOString().slice(0, 10);
+        const newRunVisible = latestRuns.some(
+          (r: any) => r.date_context === triggerDate && !knownRunIds.includes(r.id),
+        );
+        if (!newRunVisible) {
+          setPendingTrigger({ dateContext: triggerDate, knownRunIds, startedAtMs: Date.now() });
+        } else {
+          setPendingTrigger(null);
+        }
         toast.success(`Pipeline started for ${response.date_context}. Status will update automatically.`);
       } else if (response?.run_id) {
+        setPendingTrigger(null);
         toast.success(`Pipeline completed. Run ID: ${response.run_id}`);
       } else {
+        setPendingTrigger(null);
         toast.success('Pipeline finished');
       }
     } catch (e: any) {
+      setPendingTrigger(null);
       toast.error(e.message);
+    } finally {
+      setTriggering(false);
     }
-    setTriggering(false);
   }
 
   async function saveSchedule() {
@@ -108,18 +174,11 @@ export default function PipelinePage() {
   }
 
   async function selectRun(run: any) {
-    setSelected(run);
-    setArtifacts(null);
-    try {
-      const [detail, arts] = await Promise.all([
-        apiGet(`/admin/pipeline/runs/${run.id}`),
-        apiGet(`/admin/pipeline/runs/${run.id}/artifacts`),
-      ]);
-      setSelected(detail);
-      setArtifacts(arts);
-    } catch (e: any) {
-      toast.error(e.message);
-    }
+    setHandledRunQuery(run.id);
+    const next = new URLSearchParams(searchParams);
+    next.set('run', run.id);
+    setSearchParams(next, { replace: true });
+    await loadRunById(run.id);
   }
 
   return (
@@ -219,6 +278,12 @@ export default function PipelinePage() {
           <button onClick={triggerPipeline} disabled={triggering} className="text-xs px-3 py-1 bg-accent/20 text-accent rounded hover:bg-accent/30 disabled:opacity-50">
             {triggering ? 'Starting background run...' : 'Start Pipeline'}
           </button>
+        </div>
+      )}
+
+      {pendingTrigger && (
+        <div className="bg-surface-raised border border-text-ghost rounded p-3 mb-4 text-xs text-text-muted">
+          Trigger accepted for <span className="text-text-primary">{pendingTrigger.dateContext}</span>. Waiting for the new run record to appear...
         </div>
       )}
 

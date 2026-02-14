@@ -20,6 +20,7 @@ from api.routers import (
     admin_audit,
     admin_auth,
     admin_backup,
+    admin_content,
     admin_dictionary,
     admin_events,
     admin_keywords,
@@ -88,6 +89,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_pipeline.router, prefix="/admin/pipeline", tags=["admin"])
     app.include_router(admin_events.router, prefix="/admin/events", tags=["admin"])
     app.include_router(admin_backup.router, prefix="/admin/backup", tags=["admin"])
+    app.include_router(admin_content.router, prefix="/admin/content", tags=["admin"])
     app.include_router(admin_audit.router, prefix="/admin/audit", tags=["admin"])
     app.include_router(admin_analytics.router, prefix="/admin/analytics", tags=["admin"])
     app.include_router(admin_threads.router, prefix="/admin/threads", tags=["admin"])

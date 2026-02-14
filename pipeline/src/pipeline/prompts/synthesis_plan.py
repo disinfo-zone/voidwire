@@ -45,5 +45,15 @@ Produce an INTERPRETIVE PLAN as JSON with these fields:
 - aspect_readings: Array of {{aspect, interpretation, cultural_link}} for each major transit
 - tone_notes: Prose style guidance (register, metaphor family, rhythm)
 - thread_continuity: Which active threads to reference and how
+- mention_policy: {{
+    explicit_allowed: boolean (default false),
+    explicit_budget: integer (0 or 1),
+    allowed_entities: string[] (entities that may be named directly if explicit_allowed=true),
+    rationale: string
+  }}
+
+Critical instruction:
+- Allusion first. Prefer symbolic framing and subtext over direct event references.
+- Explicit named references are allowed only when a connection is undeniable and structurally central.
 
 Return ONLY valid JSON, no markdown fencing."""

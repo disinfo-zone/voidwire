@@ -2,12 +2,27 @@ interface ConfirmDialogProps {
   open: boolean;
   title: string;
   message: string;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   onCancel: () => void;
   destructive?: boolean;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  confirmDisabled?: boolean;
+  cancelDisabled?: boolean;
 }
 
-export default function ConfirmDialog({ open, title, message, onConfirm, onCancel, destructive }: ConfirmDialogProps) {
+export default function ConfirmDialog({
+  open,
+  title,
+  message,
+  onConfirm,
+  onCancel,
+  destructive,
+  confirmLabel = 'Confirm',
+  cancelLabel = 'Cancel',
+  confirmDisabled = false,
+  cancelDisabled = false,
+}: ConfirmDialogProps) {
   if (!open) return null;
 
   return (
@@ -19,19 +34,21 @@ export default function ConfirmDialog({ open, title, message, onConfirm, onCance
         <div className="flex justify-end gap-2">
           <button
             onClick={onCancel}
-            className="px-3 py-1.5 text-xs text-text-muted hover:text-text-primary rounded"
+            disabled={cancelDisabled}
+            className="px-3 py-1.5 text-xs text-text-muted hover:text-text-primary rounded disabled:opacity-50"
           >
-            Cancel
+            {cancelLabel}
           </button>
           <button
-            onClick={onConfirm}
+            onClick={() => void onConfirm()}
+            disabled={confirmDisabled}
             className={`px-3 py-1.5 text-xs rounded ${
               destructive
                 ? 'bg-red-900/50 text-red-300 hover:bg-red-900/70'
                 : 'bg-accent/20 text-accent hover:bg-accent/30'
-            }`}
+            } disabled:opacity-50`}
           >
-            Confirm
+            {confirmLabel}
           </button>
         </div>
       </div>

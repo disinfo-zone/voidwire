@@ -43,6 +43,24 @@ export const TEMPLATE_VARIABLE_LIBRARY: TemplateVariableDefinition[] = [
     example: '{ "opening_strategy": "...", "aspect_readings": [...] }',
   },
   {
+    key: 'mention_policy',
+    description: 'Validated explicit-reference policy derived from Pass A.',
+    usedIn: 'Synthesis prose',
+    example: '{ "explicit_allowed": false, "explicit_budget": 0 }',
+  },
+  {
+    key: 'guarded_entities',
+    description: 'Entity names that should remain allusive unless explicitly allowed.',
+    usedIn: 'Synthesis prose',
+    example: '["Federal Reserve", "NATO"]',
+  },
+  {
+    key: 'explicit_entity_guard',
+    description: 'Legacy alias for guarded_entities in older prompt drafts.',
+    usedIn: 'Template draft compatibility',
+    example: '["Federal Reserve", "NATO"]',
+  },
+  {
     key: 'articles',
     description: 'Raw/trimmed article blocks used during distillation.',
     usedIn: 'Distillation',
@@ -110,16 +128,34 @@ TODAY: {{date_context}}
 === INTERPRETIVE PLAN ===
 {{interpretive_plan}}
 
+=== MENTION POLICY ===
+{{mention_policy}}
+
+=== GUARDED ENTITIES ===
+{{guarded_entities}}
+
+=== SKY-ONLY MODE ===
+{{sky_only}}
+
+HARD CONSTRAINTS:
+- Return strict JSON only (no markdown fencing).
+- No emojis.
+- Keep tone precise, unsentimental, and allusion-first.
+- Never address the reader directly as "you".
+- Standard reading body target: {{standard_word_range}} words.
+- Extended reading target: {{extended_word_range}} words.
+- Avoid banned phrases: {{banned_phrases}}
+- Respect explicit mention policy and guarded entity constraints above.
+
+STANDARD vs EXTENDED:
+- \`standard_reading\` is the front-page dispatch: one coherent title/body unit.
+- \`extended_reading\` deepens the same thesis using multiple sections and sub-arguments.
+- Both should reference the same core celestial pattern, but at different levels of depth.
+
 Write JSON with:
 - standard_reading: {title, body, word_count}
 - extended_reading: {title, subtitle, sections: [{heading, body}], word_count}
 - transit_annotations: [{aspect, gloss, cultural_resonance, temporal_arc}]
-
-Constraints:
-- No markdown fencing
-- No emojis
-- Keep tone precise and unsentimental
-- Never address the reader directly as "you"
 `,
   tone_parameters: {
     register: 'analytical, literary, restrained',

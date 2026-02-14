@@ -11,32 +11,46 @@
     vx: number;
     vy: number;
     size: number;
-    opacity: number;
+    baseOpacity: number;
+    age: number;
+    lifespan: number;
   }
 
-  const PARTICLE_COUNT = 60;
+  const PARTICLE_COUNT = 42;
   let particles: Particle[] = [];
   let width = 0;
   let height = 0;
   let time = 0;
+  let dpr = 1;
+  let lastFrameTs = 0;
 
-  function createParticle(): Particle {
-    const isBright = Math.random() > 0.95;
+  function createParticle(seedAge = true): Particle {
+    const isBright = Math.random() > 0.975;
+    const lifespan = 24 + Math.random() * 22;
     return {
       x: Math.random() * width,
       y: Math.random() * height,
-      vx: (Math.random() - 0.5) * 0.05,
-      vy: Math.random() * 0.08 + 0.01,
-      size: isBright ? Math.random() * 1.5 + 1.0 : Math.random() * 1.0 + 0.5,
-      opacity: isBright ? Math.random() * 0.25 + 0.1 : Math.random() * 0.12 + 0.04,
+      vx: (Math.random() - 0.5) * 4.5,
+      vy: Math.random() * 8 + 2,
+      size: isBright ? Math.random() * 1.1 + 0.9 : Math.random() * 0.65 + 0.35,
+      baseOpacity: isBright ? Math.random() * 0.045 + 0.03 : Math.random() * 0.025 + 0.008,
+      age: seedAge ? Math.random() * lifespan : 0,
+      lifespan,
     };
   }
 
-  function initParticles() {
+  function setCanvasSize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
     width = window.innerWidth;
     height = window.innerHeight;
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = Math.floor(width * dpr);
+    canvas.height = Math.floor(height * dpr);
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+  }
+
+  function initParticles() {
+    setCanvasSize();
     particles = Array.from({ length: PARTICLE_COUNT }, createParticle);
   }
 
@@ -44,37 +58,46 @@
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    time += 0.005;
+    const now = performance.now();
+    const dt = Math.min((now - (lastFrameTs || now)) / 1000, 0.05);
+    lastFrameTs = now;
+    time += dt;
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
     
-    // Breathing ambient light - more pronounced
-    const breath = Math.sin(time) * 0.04 + 0.05;
+    // Slow ambient wash.
+    const breath = 0.014 + Math.sin(time * 0.22) * 0.006;
     const grad = ctx.createRadialGradient(width/2, height/2, 0, width/2, height/2, width);
-    grad.addColorStop(0, `rgba(20, 20, 30, ${breath})`);
-    grad.addColorStop(1, 'rgba(3, 3, 5, 0)');
+    grad.addColorStop(0, `rgba(200, 186, 168, ${breath})`);
+    grad.addColorStop(1, 'rgba(200, 186, 168, 0)');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, width, height);
 
-    for (const p of particles) {
-      p.x += p.vx;
-      p.y += p.vy;
-
-      // Wrap around edges
-      if (p.y > height + 5) {
-        p.y = -5;
-        p.x = Math.random() * width;
+    for (let i = 0; i < particles.length; i += 1) {
+      const p = particles[i];
+      p.age += dt;
+      if (p.age >= p.lifespan) {
+        particles[i] = createParticle(false);
+        continue;
       }
-      if (p.x < -5) p.x = width + 5;
-      if (p.x > width + 5) p.x = -5;
 
-      // Subtle sparkle
-      const sparkle = Math.sin(time * 2 + p.x) * 0.02;
-      
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      if (p.y > height + 12) p.y = -12;
+      if (p.x < -12) p.x = width + 12;
+      if (p.x > width + 12) p.x = -12;
+
+      // Smooth per-particle fade curve (no hard flashes).
+      const phase = p.age / p.lifespan;
+      const envelope = Math.sin(Math.PI * phase);
+      const alpha = p.baseOpacity * Math.max(envelope, 0);
+
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
       
-      const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 2.5);
-      glow.addColorStop(0, `rgba(200, 186, 168, ${Math.max(0, p.opacity + sparkle)})`);
+      const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 2.3);
+      glow.addColorStop(0, `rgba(200, 186, 168, ${alpha})`);
       glow.addColorStop(1, `rgba(200, 186, 168, 0)`);
       
       ctx.fillStyle = glow;
@@ -85,10 +108,7 @@
   }
 
   function handleResize() {
-    width = window.innerWidth;
-    height = window.innerHeight;
-    canvas.width = width;
-    canvas.height = height;
+    setCanvasSize();
   }
 
   onMount(() => {
@@ -97,6 +117,7 @@
     if (reducedMotion) return;
 
     initParticles();
+    lastFrameTs = performance.now();
     draw();
 
     window.addEventListener('resize', handleResize);
@@ -123,7 +144,8 @@
     left: 0;
     width: 100vw;
     height: 100vh;
-    z-index: -1;
+    z-index: 0;
+    opacity: 0.85;
     pointer-events: none;
   }
 </style>

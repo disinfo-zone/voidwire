@@ -70,6 +70,7 @@ class TestSynthesisSettingsDefaults:
         s = SynthesisSettings()
         assert s.standard_word_range == [400, 600]
         assert s.extended_word_range == [1200, 1800]
+        assert s.signal_display_limit == 12
 
     def test_banned_phrases(self):
         s = SynthesisSettings()

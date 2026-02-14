@@ -8,12 +8,82 @@ const EVENT_TYPES = ['aspect', 'retrograde', 'ingress', 'station', 'lunar_phase'
 
 type Tab = 'meanings' | 'planetary' | 'aspect';
 
+const GUIDE_BY_TAB: Record<
+  Tab,
+  {
+    label: string;
+    useWhen: string;
+    requiredFields: string;
+    workflow: string[];
+  }
+> = {
+  meanings: {
+    label: 'Archetypal Meanings',
+    useWhen: 'Use this tab for event-level interpretations (specific body/body pair + event type). These are the most specific overrides.',
+    requiredFields: 'Set body1 and event_type. Use body2 + aspect_type for pair/aspect entries. Add keywords/domain affinities as comma-separated lists.',
+    workflow: [
+      'Search before adding to avoid duplicate entries for the same body/event combination.',
+      'Write a concise core meaning in plain language; keep it reusable across dates.',
+      'Add 5-12 keywords that should influence synthesis and selection.',
+      'Use domain affinities (politics, culture, economy, etc.) to steer thematic weighting.',
+    ],
+  },
+  planetary: {
+    label: 'Planetary Keywords',
+    useWhen: 'Use this tab for baseline descriptors per single body (Sun, Moon, Mars, etc.) regardless of event type.',
+    requiredFields: 'Set body and keywords. Archetype is optional but recommended. Domain affinities are comma-separated.',
+    workflow: [
+      'Define broad, stable planetary traits only; avoid event-specific language here.',
+      'Keep keyword lists tight and non-redundant to reduce prompt noise.',
+      'Use archetype as a short mnemonic label (e.g. initiator, nurturer, disruptor).',
+      'Prefer edits over adding near-duplicates with alternate body names.',
+    ],
+  },
+  aspect: {
+    label: 'Aspect Keywords',
+    useWhen: 'Use this tab for baseline descriptors by aspect type (conjunction, square, trine, etc.).',
+    requiredFields: 'Set aspect_type and keywords. Archetype is optional and should stay high level.',
+    workflow: [
+      'Describe the aspect dynamic itself, not specific planets.',
+      'Use keywords that can apply across many pairings to keep this layer generic.',
+      'If an interpretation should apply only to one pairing, put it in Archetypal Meanings instead.',
+      'After major edits, run a manual pipeline trigger and review the resulting reading language.',
+    ],
+  },
+};
+
+function DictionaryGuide({ activeTab }: { activeTab: Tab }) {
+  const guide = GUIDE_BY_TAB[activeTab];
+
+  return (
+    <div className="bg-surface-raised border border-text-ghost rounded p-4 mb-6">
+      <div className="text-[11px] uppercase tracking-wider text-text-muted mb-2">Help & Guide</div>
+      <div className="text-sm text-text-secondary mb-2">
+        Dictionary entries steer interpretation quality. Use the most specific tab possible so the model gets clear, non-conflicting signals.
+      </div>
+      <div className="text-sm text-accent mb-1">Current tab: {guide.label}</div>
+      <div className="text-xs text-text-muted mb-1">
+        <span className="text-text-secondary">When to use:</span> {guide.useWhen}
+      </div>
+      <div className="text-xs text-text-muted mb-3">
+        <span className="text-text-secondary">Field expectations:</span> {guide.requiredFields}
+      </div>
+      <ol className="list-decimal list-inside text-xs text-text-muted space-y-1">
+        {guide.workflow.map((step) => (
+          <li key={step}>{step}</li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 export default function DictionaryPage() {
   const [activeTab, setActiveTab] = useState<Tab>('meanings');
 
   return (
     <div>
       <h1 className="text-xl mb-6 text-accent">Archetypal Dictionary</h1>
+      <DictionaryGuide activeTab={activeTab} />
 
       <div className="flex gap-1 mb-6 border-b border-text-ghost overflow-x-auto">
         {([['meanings', 'Archetypal Meanings'], ['planetary', 'Planetary Keywords'], ['aspect', 'Aspect Keywords']] as [Tab, string][]).map(([key, label]) => (

@@ -19,6 +19,10 @@
         reverse_proxy voidwire-api:8000
     }
 
+    handle /admin {
+        redir * /admin/ 308
+    }
+
     handle /admin/* {
         reverse_proxy voidwire-admin:80
     }

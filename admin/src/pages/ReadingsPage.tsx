@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { apiGet, apiPatch, apiPost } from '../api/client';
 import { useToast } from '../components/ui/ToastProvider';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
@@ -7,6 +8,16 @@ import ReadingEditor from '../components/readings/ReadingEditor';
 import DiffViewer from '../components/readings/DiffViewer';
 
 const STATUSES = ['', 'pending', 'approved', 'rejected', 'published', 'archived'];
+
+type RegenTrackingState = {
+  readingId: string;
+  dateContext: string;
+  mode: string;
+  knownRunIds: string[];
+  startedAtMs: number;
+  runId?: string;
+  timedOut?: boolean;
+};
 
 export default function ReadingsPage() {
   const [readings, setReadings] = useState<any[]>([]);
@@ -19,11 +30,54 @@ export default function ReadingsPage() {
   const [regenMode, setRegenMode] = useState('prose_only');
   const [loading, setLoading] = useState(true);
   const [regenConfirm, setRegenConfirm] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenTracking, setRegenTracking] = useState<RegenTrackingState | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
     loadReadings();
   }, [filter]);
+
+  useEffect(() => {
+    if (!regenTracking || regenTracking.runId || regenTracking.timedOut) return;
+
+    const poll = async () => {
+      try {
+        const runs = await apiGet('/admin/pipeline/runs');
+        if (!Array.isArray(runs)) return;
+        const knownIds = new Set(regenTracking.knownRunIds);
+        const preferredMatch = runs.find(
+          (run: any) =>
+            run?.date_context === regenTracking.dateContext &&
+            run?.regeneration_mode === regenTracking.mode &&
+            typeof run?.id === 'string' &&
+            !knownIds.has(run.id),
+        );
+        const fallbackMatch = runs.find(
+          (run: any) =>
+            run?.date_context === regenTracking.dateContext &&
+            typeof run?.id === 'string' &&
+            !knownIds.has(run.id),
+        );
+        const match = preferredMatch || fallbackMatch;
+        if (match?.id) {
+          setRegenTracking((prev) => (prev ? { ...prev, runId: match.id } : prev));
+          return;
+        }
+        if (Date.now() - regenTracking.startedAtMs > 120000) {
+          setRegenTracking((prev) => (prev ? { ...prev, timedOut: true } : prev));
+        }
+      } catch {
+        // Keep polling while tracking is active.
+      }
+    };
+
+    void poll();
+    const timer = window.setInterval(() => {
+      void poll();
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [regenTracking]);
 
   async function loadReadings() {
     setLoading(true);
@@ -95,16 +149,63 @@ export default function ReadingsPage() {
   }
 
   async function handleRegenerate() {
-    if (!selected) return;
+    const activeReading = selected;
+    setRegenConfirm(false);
+    if (!activeReading) return;
+    setRegenerating(true);
+    setRegenTracking(null);
     try {
-      await apiPost(`/admin/readings/${selected.id}/regenerate`, { mode: regenMode });
-      toast.success('Regeneration started');
-      loadReadings();
+      let knownRunIds: string[] = [];
+      try {
+        const existingRuns = await apiGet('/admin/pipeline/runs');
+        if (Array.isArray(existingRuns)) {
+          knownRunIds = existingRuns
+            .filter((run: any) => run?.date_context === activeReading.date_context && typeof run?.id === 'string')
+            .map((run: any) => run.id);
+        }
+      } catch {
+        knownRunIds = [];
+      }
+
+      const response = await apiPost(`/admin/readings/${activeReading.id}/regenerate`, {
+        mode: regenMode,
+        wait_for_completion: false,
+      });
+      if (response?.mode === 'background' || response?.status === 'started') {
+        const trackingDate = response?.date_context || activeReading.date_context;
+        setRegenTracking({
+          readingId: activeReading.id,
+          dateContext: trackingDate,
+          mode: regenMode,
+          knownRunIds,
+          startedAtMs: Date.now(),
+        });
+        toast.success(`Regeneration started (${regenMode})`);
+      } else if (response?.run_id) {
+        setRegenTracking({
+          readingId: activeReading.id,
+          dateContext: activeReading.date_context,
+          mode: regenMode,
+          knownRunIds,
+          startedAtMs: Date.now(),
+          runId: response.run_id,
+        });
+        toast.success('Regeneration completed');
+      } else {
+        toast.success('Regeneration completed');
+      }
+      await loadReadings();
     } catch (e: any) {
       toast.error(e.message);
+    } finally {
+      setRegenerating(false);
     }
-    setRegenConfirm(false);
   }
+
+  const standard = detail ? (detail.published_standard || detail.generated_standard || {}) : {};
+  const extended = detail ? (detail.published_extended || detail.generated_extended || {}) : {};
+  const sections = Array.isArray(extended.sections) ? extended.sections : [];
+  const annotations = detail ? (detail.published_annotations || detail.generated_annotations || []) : [];
 
   return (
     <div>
@@ -114,6 +215,38 @@ export default function ReadingsPage() {
           {STATUSES.map((s) => <option key={s} value={s}>{s || 'All'}</option>)}
         </select>
       </div>
+
+      {regenTracking && (
+        <div className="mb-4 bg-surface-raised border border-text-ghost rounded p-3 text-xs text-text-secondary flex flex-wrap items-center gap-3">
+          <div className="flex-1 min-w-[16rem]">
+            {regenTracking.runId ? (
+              <span>
+                Regeneration run is available for {regenTracking.dateContext}.{" "}
+                <Link
+                  to={`/pipeline?run=${encodeURIComponent(regenTracking.runId)}`}
+                  className="text-accent hover:underline"
+                >
+                  Open run {regenTracking.runId.slice(0, 8)}
+                </Link>
+              </span>
+            ) : regenTracking.timedOut ? (
+              <span>
+                Regeneration started for {regenTracking.dateContext}, but the run is not visible yet. Check Pipeline shortly.
+              </span>
+            ) : (
+              <span>
+                Regeneration started for {regenTracking.dateContext}. Waiting for pipeline run record...
+              </span>
+            )}
+          </div>
+          <button
+            onClick={() => setRegenTracking(null)}
+            className="text-[11px] text-text-muted hover:text-text-primary"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-12"><Spinner /></div>
@@ -159,9 +292,56 @@ export default function ReadingsPage() {
               <div className="bg-surface-raised border border-text-ghost rounded p-4">
                 {view === 'detail' && (
                   <div>
-                    <h2 className="text-lg text-text-primary mb-2">{(detail.generated_standard || {}).title}</h2>
+                    <h2 className="text-lg text-text-primary mb-2">{standard.title || 'Untitled Reading'}</h2>
                     <div className="text-xs text-text-muted mb-4">{detail.date_context} | {detail.status}</div>
-                    <div className="text-sm text-text-secondary whitespace-pre-wrap mb-4">{(detail.generated_standard || {}).body}</div>
+
+                    <div className="mb-6">
+                      <div className="text-xs text-text-muted uppercase tracking-wider mb-2">Standard Reading</div>
+                      <div className="text-sm text-text-secondary whitespace-pre-wrap mb-2">{standard.body || '(empty)'}</div>
+                      {standard.word_count ? (
+                        <div className="text-[11px] text-text-muted">{standard.word_count} words</div>
+                      ) : null}
+                    </div>
+
+                    <div className="mb-6 border-t border-text-ghost pt-4">
+                      <div className="text-xs text-text-muted uppercase tracking-wider mb-2">Extended Reading</div>
+                      {extended.title ? <div className="text-sm text-text-primary mb-1">{extended.title}</div> : null}
+                      {extended.subtitle ? <div className="text-xs text-text-muted mb-3">{extended.subtitle}</div> : null}
+                      {sections.length > 0 ? (
+                        <div className="space-y-3">
+                          {sections.map((section: any, index: number) => (
+                            <div key={index} className="bg-surface rounded p-3">
+                              {section.heading ? <div className="text-xs text-accent mb-1">{section.heading}</div> : null}
+                              <div className="text-xs text-text-secondary whitespace-pre-wrap">{section.body || '(empty section)'}</div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-text-muted">No extended sections.</div>
+                      )}
+                      {extended.word_count ? (
+                        <div className="text-[11px] text-text-muted mt-2">{extended.word_count} words</div>
+                      ) : null}
+                    </div>
+
+                    <div className="mb-4 border-t border-text-ghost pt-4">
+                      <div className="text-xs text-text-muted uppercase tracking-wider mb-2">Transit Annotations</div>
+                      {Array.isArray(annotations) && annotations.length > 0 ? (
+                        <div className="space-y-2">
+                          {annotations.map((annotation: any, index: number) => (
+                            <div key={index} className="bg-surface rounded p-3 text-xs">
+                              <div className="text-accent mb-1">{annotation.aspect || 'Untitled aspect'}</div>
+                              <div className="text-text-secondary mb-1 whitespace-pre-wrap">{annotation.gloss || ''}</div>
+                              {annotation.cultural_resonance ? <div className="text-text-muted whitespace-pre-wrap">Resonance: {annotation.cultural_resonance}</div> : null}
+                              {annotation.temporal_arc ? <div className="text-text-muted whitespace-pre-wrap">Arc: {annotation.temporal_arc}</div> : null}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-text-muted">No annotations.</div>
+                      )}
+                    </div>
+
                     {detail.editorial_notes && (
                       <div className="text-xs text-text-muted border-t border-text-ghost pt-2 mt-4">
                         <span className="text-accent">Notes:</span> {detail.editorial_notes}
@@ -174,8 +354,12 @@ export default function ReadingsPage() {
                         <option value="reselect">Reselect Signals</option>
                         <option value="full_rerun">Full Rerun</option>
                       </select>
-                      <button onClick={() => setRegenConfirm(true)} className="text-xs px-3 py-1 bg-accent/20 text-accent rounded hover:bg-accent/30">
-                        Regenerate
+                      <button
+                        onClick={() => setRegenConfirm(true)}
+                        disabled={regenerating}
+                        className="text-xs px-3 py-1 bg-accent/20 text-accent rounded hover:bg-accent/30 disabled:opacity-50"
+                      >
+                        {regenerating ? 'Starting...' : 'Regenerate'}
                       </button>
                     </div>
                   </div>
@@ -211,6 +395,9 @@ export default function ReadingsPage() {
         message={`This will regenerate the reading using mode: ${regenMode}. Continue?`}
         onConfirm={handleRegenerate}
         onCancel={() => setRegenConfirm(false)}
+        confirmLabel={regenerating ? 'Starting...' : 'Confirm'}
+        confirmDisabled={regenerating}
+        cancelDisabled={regenerating}
       />
     </div>
   );

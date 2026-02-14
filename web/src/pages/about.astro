@@ -1,9 +1,77 @@
 ---
 import Base from '../layouts/Base.astro';
 import Background from '../components/Background.svelte';
+
+const API_URL = process.env.API_URL || import.meta.env.API_URL || 'http://voidwire-api:8000';
+
+type ContentSection = {
+  heading: string;
+  body: string;
+};
+
+const fallbackContent = {
+  title: 'About',
+  sections: [
+    {
+      heading: 'Transmission',
+      body:
+        "VOIDWIRE is a daily dispatch from the celestial wire -- an automated reading of planetary positions, lunar phases, and astronomical transits, rendered into prose by machine intelligence and delivered each day at the threshold between night and morning.\n\nEach reading is generated from precise ephemeris calculations, interpreting the geometry of the solar system as it appears from Earth. The positions are real. The aspects are exact. The language is synthetic.",
+    },
+    {
+      heading: 'Philosophy',
+      body:
+        'This project sits at the intersection of ancient pattern-recognition and modern computation. The sky has been read for millennia. VOIDWIRE simply automates the observation, stripping away human bias while preserving the structure of the interpretive tradition.\n\nNo claims are made about causality or influence. The transmissions are literary artifacts shaped by astronomical data -- nothing more, nothing less.',
+    },
+    {
+      heading: 'Typography & Design',
+      body:
+        "The site is set in EB Garamond, a revival of Claude Garamont's sixteenth-century type. The choice is deliberate: a typeface designed for sustained reading, rooted in the same era that produced the first printed ephemerides and astronomical tables.\n\nThe void-black background eliminates distraction. Text is rendered in muted parchment tones -- warm enough to read comfortably, dim enough to feel like reading by candlelight. The design prioritizes the word above all else.",
+    },
+    {
+      heading: 'Colophon',
+      body:
+        'Built with Astro and Svelte. Ephemeris calculations via Swiss Ephemeris. Served from the void.\n\nThe source is the sky. The medium is the wire. The rest is noise.',
+    },
+  ] as ContentSection[],
+};
+
+let contentTitle = fallbackContent.title;
+let contentSections = fallbackContent.sections;
+
+try {
+  const res = await fetch(`${API_URL}/v1/content/about`);
+  if (res.ok) {
+    const data = await res.json();
+    const title = typeof data?.title === 'string' ? data.title.trim() : '';
+    const sections = Array.isArray(data?.sections)
+      ? data.sections
+          .map((raw: unknown): ContentSection | null => {
+            if (!raw || typeof raw !== 'object') return null;
+            const section = raw as Record<string, unknown>;
+            const heading = String(section.heading ?? '').trim();
+            const body = String(section.body ?? '').trim();
+            if (!heading && !body) return null;
+            return { heading, body };
+          })
+          .filter((section: ContentSection | null): section is ContentSection => section !== null)
+      : [];
+
+    if (title) contentTitle = title;
+    if (sections.length > 0) contentSections = sections;
+  }
+} catch {
+  // Keep fallback content when API is unavailable.
+}
+
+function toParagraphs(body: string): string[] {
+  return body
+    .split(/\n\n+/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
 ---
 
-<Base title="About">
+<Base title={contentTitle}>
   <Background client:load />
 
   <header class="site-header">
@@ -16,51 +84,19 @@ import Background from '../components/Background.svelte';
   </header>
 
   <main class="colophon">
-    <h2>Transmission</h2>
-    <p>
-      VOIDWIRE is a daily dispatch from the celestial wire -- an automated reading
-      of planetary positions, lunar phases, and astronomical transits, rendered into
-      prose by machine intelligence and delivered each day at the threshold between
-      night and morning.
-    </p>
-    <p>
-      Each reading is generated from precise ephemeris calculations, interpreting the
-      geometry of the solar system as it appears from Earth. The positions are real.
-      The aspects are exact. The language is synthetic.
-    </p>
-
-    <h2>Philosophy</h2>
-    <p>
-      This project sits at the intersection of ancient pattern-recognition and
-      modern computation. The sky has been read for millennia. VOIDWIRE simply
-      automates the observation, stripping away human bias while preserving the
-      structure of the interpretive tradition.
-    </p>
-    <p>
-      No claims are made about causality or influence. The transmissions are
-      literary artifacts shaped by astronomical data -- nothing more, nothing less.
-    </p>
-
-    <h2>Typography &amp; Design</h2>
-    <p>
-      The site is set in EB Garamond, a revival of Claude Garamont's sixteenth-century
-      type. The choice is deliberate: a typeface designed for sustained reading,
-      rooted in the same era that produced the first printed ephemerides and
-      astronomical tables.
-    </p>
-    <p>
-      The void-black background eliminates distraction. Text is rendered in muted
-      parchment tones -- warm enough to read comfortably, dim enough to feel like
-      reading by candlelight. The design prioritizes the word above all else.
-    </p>
-
-    <h2>Colophon</h2>
-    <p>
-      Built with Astro and Svelte. Ephemeris calculations via Swiss Ephemeris.
-      Served from the void.
-    </p>
-    <p>
-      The source is the sky. The medium is the wire. The rest is noise.
-    </p>
+    {contentSections.map((section) => (
+      <section class="about-section">
+        {section.heading && <h2>{section.heading}</h2>}
+        {toParagraphs(section.body).map((paragraph) => (
+          <p>{paragraph}</p>
+        ))}
+      </section>
+    ))}
   </main>
 </Base>
+
+<style>
+  .about-section + .about-section {
+    margin-top: 3rem;
+  }
+</style>

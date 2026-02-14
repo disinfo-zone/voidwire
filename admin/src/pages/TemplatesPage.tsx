@@ -92,9 +92,9 @@ export default function TemplatesPage() {
           <div className="bg-surface border border-text-ghost rounded px-3 py-2">
             <div className="text-text-secondary mb-1">Current Runtime Status</div>
             <div className="text-text-muted">
-              Pipeline prompt generation is currently code-defined in
+              Active templates are now used at runtime for synthesis Pass A and Pass B.
+              If no matching active template exists, the pipeline falls back to
               <span className="font-mono"> pipeline/src/pipeline/prompts/*.py</span>.
-              Treat templates here as draft/version control for now.
             </div>
           </div>
           <div className="bg-surface border border-text-ghost rounded px-3 py-2">
@@ -108,10 +108,12 @@ export default function TemplatesPage() {
           </div>
         </div>
         <div className="text-xs text-text-muted">
-          Starter naming suggestions:
-          <span className="text-accent ml-1 font-mono">distillation_v1</span>,
+          Runtime-resolved template names:
+          <span className="text-accent ml-1 font-mono">synthesis_plan</span>,
           <span className="text-accent ml-1 font-mono">synthesis_plan_v1</span>,
-          <span className="text-accent ml-1 font-mono">synthesis_prose_v1</span>.
+          <span className="text-accent ml-1 font-mono">synthesis_prose</span>,
+          <span className="text-accent ml-1 font-mono">synthesis_prose_v1</span>,
+          <span className="text-accent ml-1 font-mono">starter_synthesis_prose</span>.
         </div>
         <div className="text-xs text-text-muted">
           Safe workflow: create a version, keep notes on intent and changes, compare active version output, then rollback if quality drops.

@@ -1,6 +1,7 @@
 """Admin settings."""
 from __future__ import annotations
 from datetime import datetime, timezone
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, delete
@@ -13,7 +14,7 @@ router = APIRouter()
 
 class SettingRequest(BaseModel):
     key: str
-    value: dict
+    value: Any
     category: str = "general"
 
 @router.get("/")

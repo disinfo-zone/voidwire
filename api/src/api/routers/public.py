@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.models import Reading, AstronomicalEvent, PipelineRun
 from api.dependencies import get_db
+from api.services.content_pages import get_content_page
 
 router = APIRouter()
 
@@ -100,6 +101,14 @@ async def get_reading_by_date(date_str: str, db: AsyncSession = Depends(get_db))
     if not reading:
         raise HTTPException(status_code=404, detail="No published reading")
     return _reading_payload(reading)
+
+
+@router.get("/content/{slug}")
+async def get_content_by_slug(slug: str, db: AsyncSession = Depends(get_db)):
+    try:
+        return await get_content_page(db, slug.strip().lower())
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Content page not found") from exc
 
 @router.get("/ephemeris/today")
 async def get_today_ephemeris(db: AsyncSession = Depends(get_db)):

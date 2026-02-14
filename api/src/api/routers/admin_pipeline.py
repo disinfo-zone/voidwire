@@ -1,6 +1,7 @@
 """Admin pipeline management."""
 from __future__ import annotations
 import asyncio
+import hashlib
 import logging
 from datetime import UTC, date, datetime
 from typing import Any
@@ -9,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.config import get_settings
 from voidwire.models import PipelineRun, SiteSetting, AuditLog, AdminUser, Reading
@@ -57,6 +58,10 @@ def _progress_hint(r: PipelineRun) -> str:
             return f"Failed: {first_line[:180]}"
         return "Failed"
 
+    elapsed = _elapsed_seconds(r.started_at, r.ended_at) or 0
+    if elapsed > 900:
+        return "Running longer than expected; synthesis may be stalled"
+
     if r.generated_output:
         return "Finalizing publish step"
     if r.interpretive_plan or r.prompt_payloads:
@@ -94,6 +99,33 @@ def _run_summary(r: PipelineRun, reading: dict[str, Any] | None = None) -> dict:
         "reading_id": reading.get("id"),
         "reading_published_at": reading.get("published_at"),
     }
+
+
+def _pipeline_lock_key(target_date: date) -> int:
+    return int(hashlib.sha256(target_date.isoformat().encode()).hexdigest()[:15], 16) % (2**31)
+
+
+async def _is_pipeline_lock_available(db: AsyncSession, target_date: date) -> bool:
+    engine = db.bind
+    if engine is None:
+        return True
+    if engine.dialect.name != "postgresql":
+        return True
+    lock_key = _pipeline_lock_key(target_date)
+    async with engine.connect() as conn:
+        tx = await conn.begin()
+        try:
+            result = await conn.execute(
+                sa_text("SELECT pg_try_advisory_xact_lock(:key)"),
+                {"key": lock_key},
+            )
+            return bool(result.scalar())
+        finally:
+            if tx.is_active:
+                try:
+                    await tx.rollback()
+                except Exception as exc:
+                    logger.warning("Could not rollback lock probe transaction cleanly: %s", exc)
 
 
 def _load_pipeline_runner():
@@ -229,6 +261,11 @@ async def _run_pipeline_background(
             trigger_source=trigger_source,
         )
         logger.info("Background pipeline run completed successfully: %s", run_id)
+    except RuntimeError as exc:
+        if "advisory lock" in str(exc).lower():
+            logger.warning("Background pipeline run skipped due to lock conflict: %s", exc)
+            return
+        logger.exception("Background pipeline run failed: %s", exc)
     except Exception as exc:
         logger.exception("Background pipeline run failed: %s", exc)
 
@@ -397,6 +434,8 @@ async def trigger_pipeline(
         )
     )
     if running.scalars().first() is not None:
+        raise HTTPException(status_code=409, detail="A pipeline run for this date is already in progress.")
+    if not await _is_pipeline_lock_available(db, target_date):
         raise HTTPException(status_code=409, detail="A pipeline run for this date is already in progress.")
 
     db.add(

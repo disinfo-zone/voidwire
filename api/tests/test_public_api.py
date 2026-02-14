@@ -67,3 +67,19 @@ async def test_reading_by_date_reports_no_extended_when_content_is_empty(client:
     assert body["has_extended"] is False
     assert body["extended"]["sections"] == []
     assert body["extended"]["word_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_content_about_returns_default_payload(client: AsyncClient):
+    response = await client.get("/v1/content/about")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["slug"] == "about"
+    assert body["title"] == "About"
+    assert len(body["sections"]) >= 1
+
+
+@pytest.mark.asyncio
+async def test_content_unknown_slug_returns_404(client: AsyncClient):
+    response = await client.get("/v1/content/not-a-page")
+    assert response.status_code == 404

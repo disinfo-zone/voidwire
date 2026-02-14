@@ -41,6 +41,14 @@ body {
   overflow-x: hidden;
 }
 
+.site-header,
+main,
+.page-container,
+.colophon {
+  position: relative;
+  z-index: 1;
+}
+
 a {
   color: var(--accent);
   text-decoration: none;

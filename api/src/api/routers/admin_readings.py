@@ -1,6 +1,7 @@
 """Admin readings management."""
 from __future__ import annotations
-import json
+import asyncio
+import logging
 from datetime import datetime, timezone
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -11,6 +12,7 @@ from voidwire.models import Reading, PipelineRun, CulturalSignal, AuditLog, Admi
 from api.dependencies import get_db, require_admin
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 class ReadingUpdateRequest(BaseModel):
     status: str | None = None
@@ -25,6 +27,43 @@ class ReadingContentUpdateRequest(BaseModel):
 
 class RegenerateRequest(BaseModel):
     mode: str = "prose_only"  # prose_only | reselect | full_rerun
+    wait_for_completion: bool = False
+
+
+def _load_pipeline_runner():
+    try:
+        from pipeline.orchestrator import run_pipeline
+    except ModuleNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Pipeline package is unavailable in API container. Rebuild API image.",
+        ) from exc
+    return run_pipeline
+
+
+async def _run_pipeline_background(
+    run_pipeline,
+    *,
+    date_context,
+    regeneration_mode,
+    parent_run_id,
+    trigger_source: str,
+) -> None:
+    try:
+        run_id = await run_pipeline(
+            date_context=date_context,
+            regeneration_mode=regeneration_mode,
+            parent_run_id=parent_run_id,
+            trigger_source=trigger_source,
+        )
+        logger.info("Background reading regeneration completed: %s", run_id)
+    except RuntimeError as exc:
+        if "advisory lock" in str(exc).lower():
+            logger.warning("Reading regeneration skipped due to lock conflict: %s", exc)
+            return
+        logger.exception("Background reading regeneration failed: %s", exc)
+    except Exception as exc:
+        logger.exception("Background reading regeneration failed: %s", exc)
 
 def _reading_dict(r: Reading) -> dict:
     return {
@@ -118,17 +157,73 @@ async def regenerate_reading(reading_id: UUID, req: RegenerateRequest, db: Async
     reading = await db.get(Reading, reading_id)
     if not reading:
         raise HTTPException(status_code=404, detail="Reading not found")
-    from pipeline.orchestrator import run_pipeline
     from voidwire.schemas.pipeline import RegenerationMode
+    from api.routers.admin_pipeline import _is_pipeline_lock_available
+
+    run_pipeline = _load_pipeline_runner()
     mode_map = {"prose_only": RegenerationMode.PROSE_ONLY, "reselect": RegenerationMode.RESELECT, "full_rerun": RegenerationMode.FULL_RERUN}
     mode = mode_map.get(req.mode, RegenerationMode.PROSE_ONLY)
-    run_id = await run_pipeline(
-        date_context=reading.date_context,
-        regeneration_mode=mode,
-        parent_run_id=reading.run_id,
-        trigger_source="manual_regenerate",
+
+    running = await db.execute(
+        select(PipelineRun).where(
+            PipelineRun.date_context == reading.date_context,
+            PipelineRun.status == "running",
+        )
     )
-    db.add(AuditLog(user_id=user.id, action=f"reading.regenerate.{req.mode}", target_type="reading", target_id=str(reading_id)))
+    if running.scalars().first() is not None:
+        raise HTTPException(status_code=409, detail="A pipeline run for this date is already in progress.")
+    if not await _is_pipeline_lock_available(db, reading.date_context):
+        raise HTTPException(status_code=409, detail="A pipeline run for this date is already in progress.")
+
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            action=f"reading.regenerate.{req.mode}",
+            target_type="reading",
+            target_id=str(reading_id),
+            detail={
+                "mode": mode.value,
+                "date_context": reading.date_context.isoformat(),
+                "parent_run_id": str(reading.run_id),
+                "wait_for_completion": bool(req.wait_for_completion),
+            },
+        )
+    )
+
+    if not req.wait_for_completion:
+        asyncio.create_task(
+            _run_pipeline_background(
+                run_pipeline,
+                date_context=reading.date_context,
+                regeneration_mode=mode,
+                parent_run_id=reading.run_id,
+                trigger_source="manual_regenerate",
+            )
+        )
+        return {
+            "status": "started",
+            "mode": "background",
+            "date_context": reading.date_context.isoformat(),
+            "regeneration_mode": mode.value,
+        }
+
+    try:
+        run_id = await run_pipeline(
+            date_context=reading.date_context,
+            regeneration_mode=mode,
+            parent_run_id=reading.run_id,
+            trigger_source="manual_regenerate",
+        )
+    except RuntimeError as exc:
+        if "advisory lock" in str(exc).lower():
+            raise HTTPException(status_code=409, detail="A pipeline run for this date is already in progress.") from exc
+        raise HTTPException(status_code=500, detail=f"Pipeline execution failed: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Pipeline execution failed: {exc}") from exc
     return {"status": "triggered", "run_id": str(run_id)}
 
 @router.get("/{reading_id}/signals")
