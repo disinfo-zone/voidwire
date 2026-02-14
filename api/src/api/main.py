@@ -4,7 +4,10 @@ from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from voidwire.config import get_settings
 from voidwire.database import close_engine
+from api.middleware.rate_limit import RateLimitMiddleware
+from api.middleware.setup_guard import SetupGuardMiddleware
 from api.routers import (
     public, health, setup_wizard,
     admin_readings, admin_sources, admin_templates, admin_dictionary,
@@ -20,7 +23,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Voidwire API", version="0.1.0", lifespan=lifespan)
-    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+    settings = get_settings()
+    allowed_origins = [settings.site_url, settings.admin_url]
+    app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+    app.add_middleware(RateLimitMiddleware)
+    app.add_middleware(SetupGuardMiddleware)
     app.include_router(public.router, prefix="/v1", tags=["public"])
     app.include_router(health.router, tags=["health"])
     app.include_router(setup_wizard.router, prefix="/setup", tags=["setup"])

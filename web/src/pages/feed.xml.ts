@@ -13,7 +13,7 @@ function escapeXml(str: string): string {
 }
 
 export const GET: APIRoute = async () => {
-  let items: Array<{ date: string; title: string; body?: string }> = [];
+  let items: Array<{ date_context: string; title: string; body?: string }> = [];
 
   try {
     const res = await fetch(`${API_URL}/v1/archive?per_page=20`);
@@ -27,7 +27,7 @@ export const GET: APIRoute = async () => {
 
   const itemsXml = items
     .map((item) => {
-      const link = `${SITE_URL}/reading/${item.date}`;
+      const link = `${SITE_URL}/reading/${item.date_context}`;
       const description = item.body
         ? escapeXml(item.body.substring(0, 500) + (item.body.length > 500 ? '...' : ''))
         : '';
@@ -35,7 +35,7 @@ export const GET: APIRoute = async () => {
       <title>${escapeXml(item.title)}</title>
       <link>${link}</link>
       <guid isPermaLink="true">${link}</guid>
-      <pubDate>${new Date(item.date).toUTCString()}</pubDate>
+      <pubDate>${new Date(item.date_context).toUTCString()}</pubDate>
       <description>${description}</description>
     </item>`;
     })

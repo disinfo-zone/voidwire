@@ -283,8 +283,177 @@ a:hover {
   background: var(--muted);
 }
 
+/* Pagination */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 2rem;
+  padding: 2rem 0 1rem;
+  border-top: 1px solid var(--border);
+  margin-top: 1rem;
+}
+
+.pagination-link {
+  color: var(--muted);
+  font-size: 0.85rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition: color 0.2s ease;
+}
+
+.pagination-link:hover {
+  color: var(--accent);
+}
+
+.pagination-disabled {
+  color: var(--border);
+  font-size: 0.85rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: default;
+}
+
+.pagination-current {
+  color: var(--muted);
+  font-size: 0.85rem;
+  letter-spacing: 0.1em;
+}
+
+/* Event significance */
+.event-significance {
+  color: var(--muted);
+  font-style: italic;
+}
+
 /* Selection */
 ::selection {
   background: rgba(200, 186, 168, 0.2);
   color: var(--highlight);
+}
+
+/* ── Mobile Responsiveness ─────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .site-header {
+    padding: 2rem 1rem 1.5rem;
+  }
+
+  .site-title {
+    font-size: 1.3rem;
+    letter-spacing: 0.25em;
+    margin-bottom: 0.75rem;
+  }
+
+  .site-nav {
+    gap: 1.25rem;
+    flex-wrap: wrap;
+  }
+
+  .site-nav a {
+    font-size: 0.8rem;
+  }
+
+  .reading-title {
+    font-size: 1.6rem;
+    padding: 0 0.5rem;
+  }
+
+  .reading-subtitle {
+    font-size: 0.95rem;
+    margin-bottom: 2rem;
+  }
+
+  .reading-body {
+    font-size: 1.1rem;
+    padding: 0 1rem;
+    line-height: 1.75;
+  }
+
+  .page-container {
+    padding: 1.5rem 1rem;
+  }
+
+  .page-title {
+    font-size: 1.4rem;
+    padding-top: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .archive-item {
+    flex-direction: column;
+    gap: 0.25rem;
+    align-items: flex-start;
+  }
+
+  .archive-title {
+    font-size: 1rem;
+  }
+
+  .archive-date {
+    font-size: 0.8rem;
+  }
+
+  .event-item {
+    padding: 0.75rem 0;
+  }
+
+  .status-message {
+    padding: 4rem 1.5rem;
+    font-size: 1rem;
+  }
+
+  .colophon {
+    padding: 2rem 1rem;
+  }
+
+  .colophon h2 {
+    font-size: 1.1rem;
+    margin-top: 2rem;
+  }
+
+  .colophon p {
+    font-size: 1rem;
+  }
+
+  .extend-btn {
+    padding: 0.6rem 1.5rem;
+    font-size: 0.85rem;
+  }
+
+  .pagination {
+    gap: 1rem;
+    padding: 1.5rem 0 0.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .site-header {
+    padding: 1.5rem 0.75rem 1rem;
+  }
+
+  .site-title {
+    font-size: 1.1rem;
+  }
+
+  .site-nav {
+    gap: 1rem;
+  }
+
+  .reading-title {
+    font-size: 1.35rem;
+  }
+
+  .reading-body {
+    font-size: 1rem;
+    padding: 0 0.75rem;
+  }
+
+  .page-container {
+    padding: 1rem 0.75rem;
+  }
+
+  .colophon {
+    padding: 1.5rem 0.75rem;
+  }
 }

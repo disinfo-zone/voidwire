@@ -17,7 +17,7 @@ async def get_today_reading(db: AsyncSession = Depends(get_db)):
     if not reading:
         raise HTTPException(status_code=404, detail="No published reading for today")
     content = reading.published_standard or reading.generated_standard
-    return {"date_context": reading.date_context.isoformat(), "title": content.get("title",""), "body": content.get("body",""), "word_count": content.get("word_count",0), "published_at": reading.published_at.isoformat() if reading.published_at else None, "has_extended": bool(reading.published_extended or reading.generated_extended)}
+    return {"date_context": reading.date_context.isoformat(), "title": content.get("title",""), "body": content.get("body",""), "word_count": content.get("word_count",0), "published_at": reading.published_at.isoformat() if reading.published_at else None, "has_extended": bool(reading.published_extended or reading.generated_extended), "annotations": reading.published_annotations or reading.generated_annotations or []}
 
 @router.get("/reading/today/extended")
 async def get_today_extended(db: AsyncSession = Depends(get_db)):
@@ -39,7 +39,7 @@ async def get_reading_by_date(date_str: str, db: AsyncSession = Depends(get_db))
     if not reading:
         raise HTTPException(status_code=404, detail="No published reading")
     content = reading.published_standard or reading.generated_standard
-    return {"date_context": reading.date_context.isoformat(), "title": content.get("title",""), "body": content.get("body",""), "published_at": reading.published_at.isoformat() if reading.published_at else None}
+    return {"date_context": reading.date_context.isoformat(), "title": content.get("title",""), "body": content.get("body",""), "word_count": content.get("word_count", 0), "published_at": reading.published_at.isoformat() if reading.published_at else None, "has_extended": bool(reading.published_extended or reading.generated_extended), "annotations": reading.published_annotations or reading.generated_annotations or []}
 
 @router.get("/ephemeris/today")
 async def get_today_ephemeris(db: AsyncSession = Depends(get_db)):
@@ -48,6 +48,18 @@ async def get_today_ephemeris(db: AsyncSession = Depends(get_db)):
     run = result.scalars().first()
     if not run:
         raise HTTPException(status_code=404, detail="No ephemeris data for today")
+    return run.ephemeris_json
+
+@router.get("/ephemeris/{date_str}")
+async def get_ephemeris_by_date(date_str: str, db: AsyncSession = Depends(get_db)):
+    try:
+        target = date.fromisoformat(date_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format")
+    result = await db.execute(select(PipelineRun).where(PipelineRun.date_context == target, PipelineRun.status == "completed").order_by(PipelineRun.run_number.desc()))
+    run = result.scalars().first()
+    if not run:
+        raise HTTPException(status_code=404, detail="No ephemeris data for this date")
     return run.ephemeris_json
 
 @router.get("/events")

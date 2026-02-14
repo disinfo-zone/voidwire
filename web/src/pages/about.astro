@@ -1,8 +1,11 @@
 ---
 import Base from '../layouts/Base.astro';
+import Background from '../components/Background.svelte';
 ---
 
 <Base title="About">
+  <Background client:load />
+
   <header class="site-header">
     <h1 class="site-title"><a href="/">VOIDWIRE</a></h1>
     <nav class="site-nav">

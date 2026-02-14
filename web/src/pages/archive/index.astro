@@ -1,16 +1,22 @@
 ---
 import Base from '../../layouts/Base.astro';
+import Background from '../../components/Background.svelte';
 
 const API_URL = import.meta.env.API_URL || 'http://api:8000';
+const currentPage = Number(Astro.url.searchParams.get('page') || '1');
+const perPage = 30;
 
-let readings: Array<{ date: string; title: string }> = [];
-let error = null;
+let readings: Array<{ date_context: string; title: string }> = [];
+let error: string | null = null;
+let hasMore = false;
 
 try {
-  const res = await fetch(`${API_URL}/v1/archive?per_page=50`);
+  const res = await fetch(`${API_URL}/v1/archive?page=${currentPage}&per_page=${perPage + 1}`);
   if (res.ok) {
     const data = await res.json();
-    readings = data.items || data;
+    const items = data.items || data;
+    hasMore = items.length > perPage;
+    readings = items.slice(0, perPage);
   } else {
     error = `Failed to load archive (${res.status})`;
   }
@@ -20,6 +26,8 @@ try {
 ---
 
 <Base title="Archive">
+  <Background client:load />
+
   <header class="site-header">
     <h1 class="site-title"><a href="/">VOIDWIRE</a></h1>
     <nav class="site-nav">
@@ -49,13 +57,29 @@ try {
       <ul class="archive-list">
         {readings.map((reading) => (
           <li class="archive-item">
-            <a href={`/reading/${reading.date}`} class="archive-title">
+            <a href={`/reading/${reading.date_context}`} class="archive-title">
               {reading.title}
             </a>
-            <span class="archive-date">{reading.date}</span>
+            <span class="archive-date">{reading.date_context}</span>
           </li>
         ))}
       </ul>
+    )}
+
+    {(currentPage > 1 || hasMore) && (
+      <nav class="pagination">
+        {currentPage > 1 ? (
+          <a href={`/archive?page=${currentPage - 1}`} class="pagination-link">&larr; Newer</a>
+        ) : (
+          <span class="pagination-disabled">&larr; Newer</span>
+        )}
+        <span class="pagination-current">Page {currentPage}</span>
+        {hasMore ? (
+          <a href={`/archive?page=${currentPage + 1}`} class="pagination-link">Older &rarr;</a>
+        ) : (
+          <span class="pagination-disabled">Older &rarr;</span>
+        )}
+      </nav>
     )}
   </main>
 </Base>

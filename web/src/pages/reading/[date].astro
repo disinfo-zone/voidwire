@@ -1,0 +1,178 @@
+---
+import Base from '../../layouts/Base.astro';
+import Reading from '../../components/Reading.astro';
+import TransitGrid from '../../components/TransitGrid.svelte';
+import Background from '../../components/Background.svelte';
+
+const { date: dateParam } = Astro.params;
+const API_URL = import.meta.env.API_URL || 'http://api:8000';
+
+let reading: any = null;
+let ephemeris: any = null;
+let error: string | null = null;
+let notFound = false;
+
+try {
+  const res = await fetch(`${API_URL}/v1/reading/${dateParam}`);
+  if (res.ok) {
+    reading = await res.json();
+  } else if (res.status === 404) {
+    notFound = true;
+  } else {
+    error = `Unexpected status: ${res.status}`;
+  }
+} catch (e) {
+  error = e instanceof Error ? e.message : 'Unknown error';
+}
+
+// Fetch ephemeris for TransitGrid
+if (reading) {
+  try {
+    const res = await fetch(`${API_URL}/v1/ephemeris/${dateParam}`);
+    if (res.ok) {
+      ephemeris = await res.json();
+    }
+  } catch {
+    // Non-critical -- grid just won't render
+  }
+}
+
+const aspects = ephemeris?.aspects || [];
+const pageTitle = reading ? reading.title : `Reading for ${dateParam}`;
+---
+
+<Base title={pageTitle}>
+  <Background client:load />
+
+  <header class="site-header">
+    <h1 class="site-title"><a href="/">VOIDWIRE</a></h1>
+    <nav class="site-nav">
+      <a href="/archive">Archive</a>
+      <a href="/events">Events</a>
+      <a href="/about">About</a>
+    </nav>
+  </header>
+
+  <main>
+    {reading && (
+      <Reading
+        title={reading.title}
+        body={reading.body}
+        date_context={reading.date_context}
+        word_count={reading.word_count}
+        has_extended={reading.has_extended}
+      />
+    )}
+
+    {reading && aspects.length > 0 && (
+      <section class="transit-section">
+        <h2 class="transit-heading">Transit Grid</h2>
+        <TransitGrid aspects={aspects} client:load />
+      </section>
+    )}
+
+    {reading && reading.annotations && reading.annotations.length > 0 && (
+      <section class="annotations-section">
+        <h2 class="annotations-heading">Transit Notes</h2>
+        <div class="annotations-list">
+          {reading.annotations.map((a: any) => (
+            <div class="annotation-item">
+              <div class="annotation-aspect">{a.aspect}</div>
+              <div class="annotation-gloss">{a.gloss}</div>
+              {a.cultural_resonance && (
+                <div class="annotation-resonance">{a.cultural_resonance}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+    )}
+
+    {notFound && (
+      <div class="status-message">
+        <div class="status-icon">&#x2237;</div>
+        <p>No transmission found</p>
+        <p style="font-size: 0.9rem; margin-top: 0.5rem; opacity: 0.6;">
+          No reading was published for {dateParam}. <a href="/archive">Browse the archive</a>.
+        </p>
+      </div>
+    )}
+
+    {error && (
+      <div class="status-message">
+        <div class="status-icon">&#x2302;</div>
+        <p>Signal disrupted</p>
+        <p style="font-size: 0.9rem; margin-top: 0.5rem; opacity: 0.6;">
+          The transmission could not be received. Try again shortly.
+        </p>
+      </div>
+    )}
+  </main>
+</Base>
+
+<style>
+  .transit-section {
+    max-width: 42rem;
+    margin: 0 auto;
+    padding: 1rem 1.5rem 2rem;
+  }
+
+  .transit-heading {
+    font-size: 0.85rem;
+    color: var(--muted);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    text-align: center;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+  }
+
+  .annotations-section {
+    max-width: 42rem;
+    margin: 0 auto;
+    padding: 0 1.5rem 3rem;
+  }
+
+  .annotations-heading {
+    font-size: 0.85rem;
+    color: var(--muted);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    text-align: center;
+    margin-bottom: 1.5rem;
+    font-weight: 500;
+  }
+
+  .annotations-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .annotation-item {
+    border-left: 2px solid var(--border);
+    padding-left: 1rem;
+  }
+
+  .annotation-aspect {
+    color: var(--accent);
+    font-size: 0.9rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 0.25rem;
+  }
+
+  .annotation-gloss {
+    color: var(--text);
+    font-size: 1.05rem;
+    line-height: 1.7;
+  }
+
+  .annotation-resonance {
+    color: var(--muted);
+    font-size: 0.95rem;
+    line-height: 1.6;
+    margin-top: 0.25rem;
+    font-style: italic;
+  }
+</style>
