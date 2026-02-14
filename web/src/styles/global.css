@@ -1,19 +1,19 @@
 :root {
-  --void: #050505;
-  --surface: #0a0a0a;
+  --void: #030305; /* Deeper, slightly indigo black */
+  --surface: #070709;
   --text-primary: #d4d0c8;
-  --text-secondary: #a09a90;
-  --text-muted: #66625c;
-  --text-ghost: #2a2826;
+  --text-secondary: #8c8882;
+  --text-muted: #52504c;
+  --text-ghost: #1a1a1c;
   --accent: #c8baa8;
-  --accent-glow: rgba(200, 186, 168, 0.15);
+  --accent-glow: rgba(200, 186, 168, 0.08);
 
   --font-body: 'EB Garamond', Georgia, serif;
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
   
   --max-width: 680px;
-  --line-height: 1.8;
+  --line-height: 1.85; /* Slightly more spacious */
 }
 
 *,
