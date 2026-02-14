@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { API_BASE, apiGet, apiPost, apiDelete } from '../api/client';
 import { useToast } from '../components/ui/ToastProvider';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
@@ -12,6 +13,7 @@ interface Backup {
 
 export default function BackupPage() {
   const [backups, setBackups] = useState<Backup[]>([]);
+  const [storageMode, setStorageMode] = useState<'local' | 's3'>('local');
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [restoreFile, setRestoreFile] = useState<string | null>(null);
@@ -25,6 +27,7 @@ export default function BackupPage() {
     try {
       const data = await apiGet('/admin/backup/');
       setBackups(data.backups || []);
+      setStorageMode(data.storage === 's3' ? 's3' : 'local');
     } catch (e: any) {
       toast.error(e.message);
     }
@@ -101,13 +104,21 @@ export default function BackupPage() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-xl text-accent">Backups</h1>
-        <button
-          onClick={handleCreate}
-          disabled={creating}
-          className="text-xs px-4 py-2 bg-accent/20 text-accent rounded hover:bg-accent/30 disabled:opacity-50"
-        >
-          {creating ? 'Creating...' : 'Create Backup'}
-        </button>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-text-muted px-2 py-1 bg-surface-raised border border-text-ghost rounded">
+            Storage: {storageMode === 's3' ? 'S3' : 'Local'}
+          </span>
+          <Link to="/site" className="text-xs px-3 py-2 bg-surface-raised border border-text-ghost rounded text-text-muted hover:text-text-primary">
+            Storage Settings
+          </Link>
+          <button
+            onClick={handleCreate}
+            disabled={creating}
+            className="text-xs px-4 py-2 bg-accent/20 text-accent rounded hover:bg-accent/30 disabled:opacity-50"
+          >
+            {creating ? 'Creating...' : 'Create Backup'}
+          </button>
+        </div>
       </div>
 
       {loading ? (

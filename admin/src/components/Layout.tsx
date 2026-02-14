@@ -15,6 +15,7 @@ const navItems = [
   { to: '/signals', label: 'Signals' },
   { to: '/llm', label: 'LLM Config' },
   { to: '/settings', label: 'Settings' },
+  { to: '/site', label: 'Site Settings' },
   { to: '/content', label: 'Content' },
   { to: '/backup', label: 'Backups' },
   { to: '/audit', label: 'Audit Log' },

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.models import Reading, AstronomicalEvent, PipelineRun
 from api.dependencies import get_db
 from api.services.content_pages import get_content_page
+from api.services.site_config import load_site_config
 
 router = APIRouter()
 
@@ -109,6 +110,24 @@ async def get_content_by_slug(slug: str, db: AsyncSession = Depends(get_db)):
         return await get_content_page(db, slug.strip().lower())
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Content page not found") from exc
+
+
+@router.get("/site/config")
+async def get_public_site_config(db: AsyncSession = Depends(get_db)):
+    cfg = await load_site_config(db)
+    return {
+        "site_title": cfg.get("site_title", "VOIDWIRE"),
+        "tagline": cfg.get("tagline", ""),
+        "site_url": cfg.get("site_url", ""),
+        "timezone": cfg.get("timezone", "UTC"),
+        "favicon_url": cfg.get("favicon_url", ""),
+        "meta_description": cfg.get("meta_description", ""),
+        "og_image_url": cfg.get("og_image_url", ""),
+        "og_title_template": cfg.get("og_title_template", "{{title}} | {{site_title}}"),
+        "twitter_handle": cfg.get("twitter_handle", ""),
+        "tracking_head": cfg.get("tracking_head", ""),
+        "tracking_body": cfg.get("tracking_body", ""),
+    }
 
 @router.get("/ephemeris/today")
 async def get_today_ephemeris(db: AsyncSession = Depends(get_db)):

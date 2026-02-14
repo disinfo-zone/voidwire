@@ -1,7 +1,26 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { apiGet, apiPost } from '../api/client';
 import { useToast } from '../components/ui/ToastProvider';
 import Spinner from '../components/ui/Spinner';
+
+function inferProvider(slot: any): string {
+  const explicit = String(slot?.provider_name || '').trim();
+  if (explicit) return explicit;
+  const model = String(slot?.model_id || '').trim();
+  if (!model) return '';
+  const slash = model.indexOf('/');
+  if (slash > 0) return model.slice(0, slash);
+  return '';
+}
+
+function isSlotConfigured(slot: any): boolean {
+  return (
+    String(slot?.api_endpoint || '').trim().length > 0 &&
+    String(slot?.model_id || '').trim().length > 0 &&
+    String(slot?.api_key_masked || '').trim().length > 0
+  );
+}
 
 export default function DashboardPage() {
   const [health, setHealth] = useState<any>(null);
@@ -54,13 +73,21 @@ export default function DashboardPage() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-xl text-accent">Dashboard</h1>
-        <button
-          onClick={triggerPipeline}
-          disabled={triggering}
-          className="text-xs px-4 py-2 bg-accent/20 text-accent rounded hover:bg-accent/30 disabled:opacity-50"
-        >
-          {triggering ? 'Running pipeline... this can take a few minutes' : 'Trigger Pipeline'}
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/site"
+            className="text-xs px-4 py-2 bg-surface-raised border border-text-ghost rounded text-text-muted hover:text-text-primary"
+          >
+            Site Settings
+          </Link>
+          <button
+            onClick={triggerPipeline}
+            disabled={triggering}
+            className="text-xs px-4 py-2 bg-accent/20 text-accent rounded hover:bg-accent/30 disabled:opacity-50"
+          >
+            {triggering ? 'Running pipeline... this can take a few minutes' : 'Trigger Pipeline'}
+          </button>
+        </div>
       </div>
 
       {/* Status cards */}
@@ -111,7 +138,7 @@ export default function DashboardPage() {
               <span className="text-xs text-text-muted uppercase tracking-wider">{slot.slot}</span>
               <span className={`w-2 h-2 rounded-full ${slot.is_active ? 'bg-green-400' : 'bg-text-ghost'}`} />
             </div>
-            <div className="text-sm text-text-primary">{slot.provider_name || 'Not configured'}</div>
+            <div className="text-sm text-text-primary">{inferProvider(slot) || (isSlotConfigured(slot) ? 'Configured' : 'Not configured')}</div>
             <div className="text-xs text-text-muted mt-1">{slot.model_id || '-'}</div>
             {slot.api_key_masked && <div className="text-xs text-green-400 mt-1">Key set ({slot.api_key_masked})</div>}
             {!slot.api_key_masked && slot.is_active && <div className="text-xs text-red-400 mt-1">No API key</div>}

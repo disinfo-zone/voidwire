@@ -5,12 +5,14 @@ import ConfirmDialog from '../components/ui/ConfirmDialog';
 import Spinner from '../components/ui/Spinner';
 
 const EVENT_TYPES = ['new_moon', 'full_moon', 'lunar_eclipse', 'solar_eclipse', 'retrograde_station', 'direct_station', 'ingress_major'];
+const SIGNIFICANCE_LEVELS = ['major', 'moderate', 'minor'];
+const EMPTY_FORM = { event_type: 'new_moon', body: '', sign: '', at: '', significance: 'moderate' };
 
 export default function EventsPage() {
   const [events, setEvents] = useState<any[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
-  const [form, setForm] = useState({ event_type: 'new_moon', body: '', sign: '', at: '', significance: 'moderate' });
+  const [form, setForm] = useState(EMPTY_FORM);
   const [loading, setLoading] = useState(true);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const { toast } = useToast();
@@ -28,10 +30,37 @@ export default function EventsPage() {
     setLoading(false);
   }
 
+  function validateForm(): boolean {
+    if (!EVENT_TYPES.includes(form.event_type)) {
+      toast.error('Invalid event type');
+      return false;
+    }
+    if (!SIGNIFICANCE_LEVELS.includes(form.significance)) {
+      toast.error('Invalid significance level');
+      return false;
+    }
+    if (!form.at?.trim()) {
+      toast.error('Date/time is required');
+      return false;
+    }
+    return true;
+  }
+
+  function normalizedForm() {
+    return {
+      ...form,
+      at: form.at.trim(),
+      body: form.body.trim(),
+      sign: form.sign.trim(),
+    };
+  }
+
   async function handleAdd() {
+    if (!validateForm()) return;
     try {
-      await apiPost('/admin/events/', form);
+      await apiPost('/admin/events/', normalizedForm());
       setShowAdd(false);
+      setForm(EMPTY_FORM);
       loadEvents();
       toast.success('Event created');
     } catch (e: any) {
@@ -40,9 +69,11 @@ export default function EventsPage() {
   }
 
   async function handleEdit(id: string) {
+    if (!validateForm()) return;
     try {
-      await apiPatch(`/admin/events/${id}`, form);
+      await apiPatch(`/admin/events/${id}`, normalizedForm());
       setEditing(null);
+      setForm(EMPTY_FORM);
       loadEvents();
       toast.success('Event updated');
     } catch (e: any) {
@@ -83,7 +114,16 @@ export default function EventsPage() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-xl text-accent">Astronomical Events</h1>
-        <button onClick={() => setShowAdd(!showAdd)} className="text-xs px-3 py-1 bg-surface-raised border border-text-ghost rounded text-accent hover:border-accent">
+        <button
+          onClick={() => {
+            setShowAdd(!showAdd);
+            if (!showAdd) {
+              setEditing(null);
+              setForm(EMPTY_FORM);
+            }
+          }}
+          className="text-xs px-3 py-1 bg-surface-raised border border-text-ghost rounded text-accent hover:border-accent"
+        >
           + Add Event
         </button>
       </div>
@@ -91,20 +131,23 @@ export default function EventsPage() {
       <div className="bg-surface-raised border border-text-ghost rounded p-4 mb-4 space-y-2 text-xs">
         <h2 className="text-sm text-text-primary">Quick Guide</h2>
         <div className="text-text-muted">
-          Use this page to curate major sky events and optionally trigger a focused reading for that event date.
+          Use this page to add sky events that should appear on the public Events page and optionally trigger a run for that event date.
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
           <div className="bg-surface border border-text-ghost rounded px-3 py-2">
             <div className="text-text-secondary mb-1">When To Add</div>
             <div className="text-text-muted">
-              Add eclipses, lunations, retrograde/direct stations, and major ingresses you want to highlight editorially.
+              Add eclipses, lunations, retrograde/direct stations, and major ingresses you want editorially tracked.
             </div>
           </div>
           <div className="bg-surface border border-text-ghost rounded px-3 py-2">
             <div className="text-text-secondary mb-1">Field Tips</div>
             <div className="text-text-muted">
-              <span className="font-mono">at</span> uses local datetime input.
-              <span className="ml-1 font-mono">significance</span> controls editorial priority (major/moderate/minor).
+              <span className="font-mono">event_type</span> must be one of:
+              <span className="ml-1 font-mono">new_moon, full_moon, lunar_eclipse, solar_eclipse, retrograde_station, direct_station, ingress_major</span>.
+              <div className="mt-1">
+                <span className="font-mono">at</span> is interpreted as UTC if no timezone is provided.
+              </div>
             </div>
           </div>
           <div className="bg-surface border border-text-ghost rounded px-3 py-2">
@@ -126,13 +169,13 @@ export default function EventsPage() {
         <div className="bg-surface-raised border border-text-ghost rounded p-4 mb-4 space-y-2">
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
             <select value={form.event_type} onChange={(e) => setForm({ ...form, event_type: e.target.value })} className="bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary">
-              {EVENT_TYPES.map((t) => <option key={t}>{t.replace(/_/g, ' ')}</option>)}
+              {EVENT_TYPES.map((t) => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
             </select>
             <input placeholder="Body" value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} className="bg-surface border border-text-ghost rounded px-3 py-1 text-sm text-text-primary" />
             <input placeholder="Sign" value={form.sign} onChange={(e) => setForm({ ...form, sign: e.target.value })} className="bg-surface border border-text-ghost rounded px-3 py-1 text-sm text-text-primary" />
             <input type="datetime-local" value={form.at} onChange={(e) => setForm({ ...form, at: e.target.value })} className="bg-surface border border-text-ghost rounded px-3 py-1 text-sm text-text-primary" />
             <select value={form.significance} onChange={(e) => setForm({ ...form, significance: e.target.value })} className="bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary">
-              <option>major</option><option>moderate</option><option>minor</option>
+              {SIGNIFICANCE_LEVELS.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
           <button onClick={handleAdd} className="text-xs px-3 py-1 bg-accent/20 text-accent rounded">Save</button>
@@ -152,7 +195,7 @@ export default function EventsPage() {
                   <input value={form.sign} onChange={(ev) => setForm({ ...form, sign: ev.target.value })} className="bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary" />
                   <input type="datetime-local" value={form.at} onChange={(ev) => setForm({ ...form, at: ev.target.value })} className="bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary" />
                   <select value={form.significance} onChange={(ev) => setForm({ ...form, significance: ev.target.value })} className="bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary">
-                    <option>major</option><option>moderate</option><option>minor</option>
+                    {SIGNIFICANCE_LEVELS.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div className="flex gap-2">

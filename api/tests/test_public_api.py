@@ -83,3 +83,13 @@ async def test_content_about_returns_default_payload(client: AsyncClient):
 async def test_content_unknown_slug_returns_404(client: AsyncClient):
     response = await client.get("/v1/content/not-a-page")
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_public_site_config_endpoint(client: AsyncClient):
+    response = await client.get("/v1/site/config")
+    assert response.status_code == 200
+    body = response.json()
+    assert "site_title" in body
+    assert "site_url" in body
+    assert "tracking_head" in body

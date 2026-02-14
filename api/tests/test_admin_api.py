@@ -96,6 +96,50 @@ class TestSettingsAPI:
 
 
 # ──────────────────────────────────────────────
+# Site Config + Backup Storage
+# ──────────────────────────────────────────────
+
+class TestSiteAndBackupSettingsAPI:
+    async def test_get_site_config_defaults(self, client: AsyncClient):
+        resp = await client.get("/admin/site/config")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["site_title"] == "VOIDWIRE"
+        assert "site_url" in body
+        assert "tracking_head" in body
+
+    async def test_update_site_config(self, client: AsyncClient):
+        resp = await client.put(
+            "/admin/site/config",
+            json={
+                "site_title": "VOIDWIRE TEST",
+                "site_url": "https://example.test",
+                "meta_description": "Test description",
+                "tracking_head": "<script>console.log('ok')</script>",
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["site_title"] == "VOIDWIRE TEST"
+        assert body["site_url"] == "https://example.test"
+
+    async def test_get_backup_storage_defaults(self, client: AsyncClient):
+        resp = await client.get("/admin/backup/storage")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["provider"] == "local"
+
+    async def test_update_backup_storage_local(self, client: AsyncClient):
+        resp = await client.put(
+            "/admin/backup/storage",
+            json={"provider": "local"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["provider"] == "local"
+
+
+# ──────────────────────────────────────────────
 # Content
 # ──────────────────────────────────────────────
 
@@ -308,6 +352,34 @@ class TestEventsAPI:
         body = resp.json()
         assert body["status"] == "created"
         assert "id" in body
+
+    async def test_create_event_accepts_datetime_local(self, client: AsyncClient, mock_db):
+        fake_id = uuid.uuid4()
+
+        def side_effect_add(obj):
+            obj.id = fake_id
+
+        mock_db.add = MagicMock(side_effect=side_effect_add)
+
+        resp = await client.post("/admin/events/", json={
+            "event_type": "full_moon",
+            "body": "Moon",
+            "sign": "Virgo",
+            "at": "2026-03-14T12:00",
+            "significance": "moderate",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "created"
+
+    async def test_create_event_invalid_datetime_returns_400(self, client: AsyncClient):
+        resp = await client.post("/admin/events/", json={
+            "event_type": "full_moon",
+            "body": "Moon",
+            "sign": "Virgo",
+            "at": "not-a-date",
+            "significance": "moderate",
+        })
+        assert resp.status_code == 400
 
     async def test_get_not_found(self, client: AsyncClient):
         resp = await client.get(f"/admin/events/{uuid.uuid4()}")
@@ -729,6 +801,8 @@ class TestRouteRegistration:
             ("GET", "/admin/signals/"),
             ("GET", "/admin/signals/stats"),
             ("GET", "/admin/content/pages"),
+            ("GET", "/admin/site/config"),
+            ("GET", "/admin/backup/storage"),
         ]
         for method, path in routes:
             resp = await client.request(method, path)

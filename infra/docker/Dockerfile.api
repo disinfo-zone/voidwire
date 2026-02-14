@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Install system dependencies for pipeline/ephemeris runtime
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends git gcc g++ && \
+    apt-get install -y --no-install-recommends git gcc g++ postgresql-client && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy workspace files

@@ -29,6 +29,7 @@ from api.routers import (
     admin_readings,
     admin_settings,
     admin_signals,
+    admin_site,
     admin_sources,
     admin_templates,
     admin_threads,
@@ -94,6 +95,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_analytics.router, prefix="/admin/analytics", tags=["admin"])
     app.include_router(admin_threads.router, prefix="/admin/threads", tags=["admin"])
     app.include_router(admin_signals.router, prefix="/admin/signals", tags=["admin"])
+    app.include_router(admin_site.router, prefix="/admin/site", tags=["admin"])
     app.include_router(health.router, tags=["health"])
     app.include_router(setup_wizard.router, prefix="/setup", tags=["setup"])
     app.include_router(public.router, prefix="/v1", tags=["public"])

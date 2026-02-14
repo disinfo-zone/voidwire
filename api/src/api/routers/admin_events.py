@@ -1,6 +1,7 @@
 """Admin events management."""
 from __future__ import annotations
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -11,22 +12,57 @@ from api.dependencies import get_db, require_admin
 
 router = APIRouter()
 
+EventType = Literal[
+    "new_moon",
+    "full_moon",
+    "lunar_eclipse",
+    "solar_eclipse",
+    "retrograde_station",
+    "direct_station",
+    "ingress_major",
+]
+Significance = Literal["major", "moderate", "minor"]
+ReadingStatus = Literal["pending", "generated", "published", "skipped"]
+
+
 class EventCreateRequest(BaseModel):
-    event_type: str
+    event_type: EventType
     body: str | None = None
     sign: str | None = None
     at: str
-    significance: str = "moderate"
+    significance: Significance = "moderate"
     ephemeris_data: dict | None = None
 
 class EventUpdateRequest(BaseModel):
-    event_type: str | None = None
+    event_type: EventType | None = None
     body: str | None = None
     sign: str | None = None
     at: str | None = None
-    significance: str | None = None
+    significance: Significance | None = None
     ephemeris_data: dict | None = None
-    reading_status: str | None = None
+    reading_status: ReadingStatus | None = None
+
+
+def _ensure_aware(dt: datetime) -> datetime:
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+
+
+def _parse_event_datetime(value: str) -> datetime:
+    raw = str(value or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Field 'at' is required and must be a valid datetime.")
+    candidate = raw.replace("Z", "+00:00")
+    if len(candidate) == 16 and "T" in candidate:
+        # Browser datetime-local commonly omits seconds: YYYY-MM-DDTHH:MM
+        candidate = f"{candidate}:00"
+    try:
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid 'at' datetime. Use ISO format like 2026-03-14T12:00 or 2026-03-14T12:00:00+00:00.",
+        ) from exc
+    return _ensure_aware(parsed)
 
 def _event_dict(e: AstronomicalEvent) -> dict:
     return {
@@ -55,7 +91,7 @@ async def get_event(event_id: UUID, db: AsyncSession = Depends(get_db), user: Ad
 async def create_event(req: EventCreateRequest, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
     e = AstronomicalEvent(
         event_type=req.event_type, body=req.body, sign=req.sign,
-        at=datetime.fromisoformat(req.at), significance=req.significance,
+        at=_parse_event_datetime(req.at), significance=req.significance,
         ephemeris_data=req.ephemeris_data,
     )
     db.add(e)
@@ -84,7 +120,7 @@ async def update_event(event_id: UUID, req: EventUpdateRequest, db: AsyncSession
         if val is not None:
             setattr(e, field, val)
     if req.at is not None:
-        e.at = datetime.fromisoformat(req.at)
+        e.at = _parse_event_datetime(req.at)
     db.add(
         AuditLog(
             user_id=user.id,
