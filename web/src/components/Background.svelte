@@ -14,19 +14,20 @@
     opacity: number;
   }
 
-  const PARTICLE_COUNT = 50;
+  const PARTICLE_COUNT = 80;
   let particles: Particle[] = [];
   let width = 0;
   let height = 0;
 
   function createParticle(): Particle {
+    const isBright = Math.random() > 0.9;
     return {
       x: Math.random() * width,
       y: Math.random() * height,
-      vx: (Math.random() - 0.5) * 0.15,
-      vy: Math.random() * 0.2 + 0.05,
-      size: Math.random() * 1 + 1,
-      opacity: Math.random() * 0.12 + 0.03,
+      vx: (Math.random() - 0.5) * 0.1,
+      vy: Math.random() * 0.15 + 0.02,
+      size: isBright ? Math.random() * 1.5 + 1 : Math.random() * 1 + 0.5,
+      opacity: isBright ? Math.random() * 0.2 + 0.1 : Math.random() * 0.08 + 0.02,
     };
   }
 
@@ -43,12 +44,15 @@
     if (!ctx) return;
 
     ctx.clearRect(0, 0, width, height);
+    
+    // Add a very subtle gradient for depth
+    const grad = ctx.createRadialGradient(width/2, height/2, 0, width/2, height/2, width);
+    grad.addColorStop(0, 'rgba(10, 10, 12, 0)');
+    grad.addColorStop(1, 'rgba(5, 5, 5, 1)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, width, height);
 
     for (const p of particles) {
-      // Horizontal wobble
-      p.vx += (Math.random() - 0.5) * 0.01;
-      p.vx = Math.max(-0.3, Math.min(0.3, p.vx));
-
       p.x += p.vx;
       p.y += p.vy;
 
@@ -62,7 +66,12 @@
 
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(200, 196, 188, ${p.opacity})`;
+      
+      const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 2);
+      glow.addColorStop(0, `rgba(200, 186, 168, ${p.opacity})`);
+      glow.addColorStop(1, `rgba(200, 186, 168, 0)`);
+      
+      ctx.fillStyle = glow;
       ctx.fill();
     }
 

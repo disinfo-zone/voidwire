@@ -9,16 +9,29 @@ interface Props {
 
 const { title, body, date_context, word_count, has_extended } = Astro.props;
 
-// Convert body text: split on double newlines into paragraph tags
+function refineTypography(text: string) {
+  return text
+    // em-dashes
+    .replace(/--/g, '&mdash;')
+    // smart opening double quotes
+    .replace(/(^|[-\s(\[<{])"/g, '$1&ldquo;')
+    // smart closing double quotes
+    .replace(/"/g, '&rdquo;')
+    // smart opening single quotes
+    .replace(/(^|[-\s(\[<{])'/g, '$1&lsquo;')
+    // smart closing single quotes/apostrophes
+    .replace(/'/g, '&rsquo;');
+}
+
 const paragraphs = body
   .split(/\n\n+/)
   .filter((p: string) => p.trim().length > 0)
-  .map((p: string) => `<p>${p.trim()}</p>`)
+  .map((p: string) => `<p>${refineTypography(p.trim())}</p>`)
   .join('\n');
 ---
 
 <article class="reading">
-  <header style="padding: 2.5rem 1.5rem 0;">
+  <header>
     <h1 class="reading-title">{title}</h1>
     <div class="reading-subtitle">
       {date_context}
@@ -29,16 +42,10 @@ const paragraphs = body
   <div class="reading-body" set:html={paragraphs} />
 
   {has_extended && (
-    <div style="text-align: center; padding-bottom: 2rem;">
-      <a href={`/reading/${date_context}`} class="extend-btn">
-        Continue reading &rarr;
+    <div class="continued-link-wrapper">
+      <a href={`/reading/${date_context}`} class="continued-link">
+        Continue Reading
       </a>
     </div>
   )}
 </article>
-
-<style>
-  .reading {
-    padding-bottom: 3rem;
-  }
-</style>

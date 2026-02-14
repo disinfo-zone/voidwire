@@ -1,13 +1,19 @@
-@import url('https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&display=swap');
-
 :root {
   --void: #050505;
   --surface: #0a0a0a;
-  --border: #1a1a1a;
-  --text: #d4d0c8;
+  --text-primary: #d4d0c8;
+  --text-secondary: #a09a90;
+  --text-muted: #66625c;
+  --text-ghost: #2a2826;
   --accent: #c8baa8;
-  --muted: #7a756d;
-  --highlight: #e8e0d4;
+  --accent-glow: rgba(200, 186, 168, 0.15);
+
+  --font-body: 'EB Garamond', Georgia, serif;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  
+  --max-width: 680px;
+  --line-height: 1.8;
 }
 
 *,
@@ -19,43 +25,48 @@
 }
 
 html {
-  font-size: 16px;
+  font-size: 18px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: var(--void);
+  scroll-behavior: smooth;
 }
 
 body {
   background: var(--void);
-  color: var(--text);
-  font-family: 'EB Garamond', Georgia, 'Times New Roman', serif;
+  color: var(--text-primary);
+  font-family: var(--font-body);
   min-height: 100vh;
-  line-height: 1.6;
+  line-height: var(--line-height);
+  overflow-x: hidden;
 }
 
 a {
   color: var(--accent);
   text-decoration: none;
-  transition: color 0.2s ease;
+  transition: opacity 0.3s ease;
 }
 
 a:hover {
-  color: var(--highlight);
+  opacity: 0.7;
 }
 
-/* Site Header */
+/* Minimal Header */
 .site-header {
-  text-align: center;
-  padding: 3rem 1rem;
-  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2rem 3rem;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
 .site-title {
-  font-size: 1.5rem;
-  letter-spacing: 0.3em;
-  text-transform: uppercase;
-  color: var(--accent);
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
   font-weight: 500;
-  margin-bottom: 1rem;
+  letter-spacing: 0.3em;
+  color: var(--accent);
 }
 
 .site-title a {
@@ -64,210 +75,164 @@ a:hover {
 
 .site-nav {
   display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 2rem;
-  margin-top: 1rem;
+  gap: 2.5rem;
 }
 
 .site-nav a {
-  color: var(--muted);
-  font-size: 0.85rem;
+  font-family: var(--font-sans);
+  color: var(--text-muted);
+  font-size: 0.7rem;
   letter-spacing: 0.15em;
   text-transform: uppercase;
-  transition: color 0.2s ease;
+  transition: color 0.3s ease;
 }
 
 .site-nav a:hover {
   color: var(--accent);
 }
 
-/* Reading Styles */
+/* Reading Typography */
 .reading-title {
-  font-size: 2.5rem;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--accent);
+  font-size: 2.4rem;
+  color: var(--text-primary);
   text-align: center;
-  font-weight: 600;
-  margin-bottom: 0.5rem;
+  font-weight: 400;
+  margin: 6rem auto 1rem;
   line-height: 1.2;
+  max-width: 32rem; /* Constrain width */
 }
 
 .reading-subtitle {
-  font-size: 1.1rem;
-  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--text-muted);
   text-align: center;
-  letter-spacing: 0.15em;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
-  margin-bottom: 2.5rem;
+  margin-bottom: 5rem;
 }
 
 .reading-body {
   font-size: 1.25rem;
-  line-height: 1.8;
-  max-width: 42rem;
+  max-width: var(--max-width);
   margin: 0 auto;
-  letter-spacing: 0.01em;
   padding: 0 1.5rem;
+  color: var(--text-primary);
 }
 
 .reading-body p {
-  margin-bottom: 1.5em;
-  text-indent: 1.5em;
+  margin-bottom: 2em;
 }
 
-.reading-body p:first-child {
-  text-indent: 0;
+.reading-body p:first-child::first-letter {
+  font-size: 3.5rem;
+  float: left;
+  line-height: 0.8;
+  padding-right: 0.15rem;
+  margin-top: 0.15rem;
+  color: var(--accent);
 }
 
-/* Page Container */
+/* Archive & General Pages */
 .page-container {
-  max-width: 48rem;
-  margin: 0 auto;
-  padding: 2rem 1.5rem;
+  max-width: var(--max-width);
+  margin: 4rem auto;
+  padding: 0 1.5rem;
 }
 
-/* Archive List */
+.page-title {
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-align: center;
+  margin-bottom: 4rem;
+  font-weight: 500;
+}
+
 .archive-list {
   list-style: none;
-  padding: 0;
 }
 
 .archive-item {
-  padding: 1rem 0;
-  border-bottom: 1px solid var(--border);
+  padding: 1.25rem 0;
+  border-bottom: 1px solid var(--text-ghost);
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 1rem;
-}
-
-.archive-item:last-child {
-  border-bottom: none;
 }
 
 .archive-date {
-  color: var(--muted);
-  font-size: 0.9rem;
-  letter-spacing: 0.1em;
-  white-space: nowrap;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  font-size: 0.7rem;
 }
 
 .archive-title {
-  color: var(--text);
+  color: var(--text-secondary);
   font-size: 1.1rem;
 }
 
-.archive-title:hover {
-  color: var(--highlight);
+/* About / Colophon */
+.colophon {
+  max-width: var(--max-width);
+  margin: 6rem auto;
+  padding: 0 1.5rem;
 }
 
-/* Events List */
-.event-item {
-  padding: 1rem 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.event-item:last-child {
-  border-bottom: none;
-}
-
-.event-type {
-  color: var(--accent);
-  font-size: 0.85rem;
-  letter-spacing: 0.15em;
+.colophon h2 {
+  font-family: var(--font-sans);
+  font-size: 0.7rem;
+  letter-spacing: 0.25em;
   text-transform: uppercase;
+  color: var(--accent);
+  margin-top: 4rem;
+  margin-bottom: 1.5rem;
+  font-weight: 500;
 }
 
-.event-detail {
-  color: var(--text);
-  font-size: 1.05rem;
-  margin-top: 0.25rem;
+.colophon p {
+  font-size: 1.15rem;
+  color: var(--text-secondary);
+  margin-bottom: 1.5em;
 }
 
-.event-date {
-  color: var(--muted);
-  font-size: 0.9rem;
-  letter-spacing: 0.05em;
+/* Continued Link */
+.continued-link-wrapper {
+  text-align: center;
+  margin: 5rem 0;
+}
+
+.continued-link {
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 1rem 2rem;
+  border: 1px solid var(--text-ghost);
+  transition: all 0.3s ease;
+}
+
+.continued-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* Status Messages */
 .status-message {
   text-align: center;
-  padding: 6rem 2rem;
-  color: var(--muted);
-  font-size: 1.2rem;
+  padding: 10rem 2rem;
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
   letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.status-message .status-icon {
-  font-size: 2rem;
-  margin-bottom: 1rem;
-  opacity: 0.4;
-}
-
-/* Extended Button */
-.extend-btn {
-  display: block;
-  margin: 2rem auto;
-  padding: 0.75rem 2rem;
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--muted);
-  font-family: 'EB Garamond', Georgia, serif;
-  font-size: 0.9rem;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.extend-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-/* About / Colophon */
-.colophon {
-  max-width: 42rem;
-  margin: 0 auto;
-  padding: 3rem 1.5rem;
-}
-
-.colophon h2 {
-  font-size: 1.3rem;
-  color: var(--accent);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  margin-top: 3rem;
-  margin-bottom: 1rem;
-  font-weight: 500;
-}
-
-.colophon p {
-  font-size: 1.1rem;
-  line-height: 1.8;
-  margin-bottom: 1.25em;
-  color: var(--text);
-}
-
-/* Page Title */
-.page-title {
-  font-size: 1.8rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--accent);
-  text-align: center;
-  font-weight: 500;
-  margin-bottom: 2rem;
-  padding-top: 2rem;
 }
 
 /* Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -275,185 +240,23 @@ a:hover {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 3px;
+  background: var(--text-ghost);
 }
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--muted);
-}
-
-/* Pagination */
-.pagination {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 2rem;
-  padding: 2rem 0 1rem;
-  border-top: 1px solid var(--border);
-  margin-top: 1rem;
-}
-
-.pagination-link {
-  color: var(--muted);
-  font-size: 0.85rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  transition: color 0.2s ease;
-}
-
-.pagination-link:hover {
-  color: var(--accent);
-}
-
-.pagination-disabled {
-  color: var(--border);
-  font-size: 0.85rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  cursor: default;
-}
-
-.pagination-current {
-  color: var(--muted);
-  font-size: 0.85rem;
-  letter-spacing: 0.1em;
-}
-
-/* Event significance */
-.event-significance {
-  color: var(--muted);
-  font-style: italic;
-}
-
-/* Selection */
-::selection {
-  background: rgba(200, 186, 168, 0.2);
-  color: var(--highlight);
-}
-
-/* ── Mobile Responsiveness ─────────────────────────────────────── */
 
 @media (max-width: 768px) {
   .site-header {
-    padding: 2rem 1rem 1.5rem;
-  }
-
-  .site-title {
-    font-size: 1.3rem;
-    letter-spacing: 0.25em;
-    margin-bottom: 0.75rem;
-  }
-
-  .site-nav {
-    gap: 1.25rem;
-    flex-wrap: wrap;
-  }
-
-  .site-nav a {
-    font-size: 0.8rem;
-  }
-
-  .reading-title {
-    font-size: 1.6rem;
-    padding: 0 0.5rem;
-  }
-
-  .reading-subtitle {
-    font-size: 0.95rem;
-    margin-bottom: 2rem;
-  }
-
-  .reading-body {
-    font-size: 1.1rem;
-    padding: 0 1rem;
-    line-height: 1.75;
-  }
-
-  .page-container {
-    padding: 1.5rem 1rem;
-  }
-
-  .page-title {
-    font-size: 1.4rem;
-    padding-top: 1rem;
-    margin-bottom: 1.5rem;
-  }
-
-  .archive-item {
+    padding: 1.5rem;
     flex-direction: column;
-    gap: 0.25rem;
-    align-items: flex-start;
+    gap: 1.5rem;
   }
-
-  .archive-title {
-    font-size: 1rem;
-  }
-
-  .archive-date {
-    font-size: 0.8rem;
-  }
-
-  .event-item {
-    padding: 0.75rem 0;
-  }
-
-  .status-message {
-    padding: 4rem 1.5rem;
-    font-size: 1rem;
-  }
-
-  .colophon {
-    padding: 2rem 1rem;
-  }
-
-  .colophon h2 {
-    font-size: 1.1rem;
-    margin-top: 2rem;
-  }
-
-  .colophon p {
-    font-size: 1rem;
-  }
-
-  .extend-btn {
-    padding: 0.6rem 1.5rem;
-    font-size: 0.85rem;
-  }
-
-  .pagination {
-    gap: 1rem;
-    padding: 1.5rem 0 0.5rem;
-  }
-}
-
-@media (max-width: 480px) {
-  .site-header {
-    padding: 1.5rem 0.75rem 1rem;
-  }
-
-  .site-title {
-    font-size: 1.1rem;
-  }
-
-  .site-nav {
-    gap: 1rem;
-  }
-
+  
   .reading-title {
-    font-size: 1.35rem;
+    font-size: 1.8rem;
+    margin-top: 4rem;
+    padding: 0 1rem;
   }
-
+  
   .reading-body {
-    font-size: 1rem;
-    padding: 0 0.75rem;
-  }
-
-  .page-container {
-    padding: 1rem 0.75rem;
-  }
-
-  .colophon {
-    padding: 1.5rem 0.75rem;
+    font-size: 1.15rem;
   }
 }

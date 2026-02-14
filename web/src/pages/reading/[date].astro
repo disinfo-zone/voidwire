@@ -25,30 +25,26 @@ try {
   error = e instanceof Error ? e.message : 'Unknown error';
 }
 
-// Fetch ephemeris for TransitGrid
 if (reading) {
   try {
     const res = await fetch(`${API_URL}/v1/ephemeris/${dateParam}`);
     if (res.ok) {
       ephemeris = await res.json();
     }
-  } catch {
-    // Non-critical -- grid just won't render
-  }
+  } catch {}
 }
 
 const aspects = ephemeris?.aspects || [];
 const pageTitle = reading ? reading.title : `Reading for ${dateParam}`;
 const extended = reading?.extended || null;
-const showExtended =
-  !!(reading?.has_extended || (extended && Array.isArray(extended.sections) && extended.sections.length > 0));
+const showExtended = !!(extended && Array.isArray(extended.sections) && extended.sections.length > 0);
 ---
 
 <Base title={pageTitle}>
   <Background client:load />
 
   <header class="site-header">
-    <h1 class="site-title"><a href="/">VOIDWIRE</a></h1>
+    <div class="site-title"><a href="/">VOIDWIRE</a></div>
     <nav class="site-nav">
       <a href="/archive">Archive</a>
       <a href="/events">Events</a>
@@ -63,49 +59,33 @@ const showExtended =
         body={reading.body}
         date_context={reading.date_context}
         word_count={reading.word_count}
-        has_extended={reading.has_extended}
+        has_extended={false} 
       />
     )}
 
     {reading && showExtended && (
-      <section class="extended-section">
-        <h2 class="extended-kicker">Expanded Reading</h2>
-        {(extended.title || extended.subtitle || extended.word_count) && (
-          <header class="extended-header">
-            {extended.title && <h3 class="extended-title">{extended.title}</h3>}
-            {(extended.subtitle || extended.word_count) && (
-              <div class="extended-subtitle">
-                {extended.subtitle}
-                {extended.word_count ? <span>&nbsp;&middot;&nbsp;{extended.word_count} words</span> : null}
-              </div>
-            )}
-          </header>
-        )}
-        {extended.sections && extended.sections.length > 0 ? (
-          <div class="extended-list">
-            {extended.sections.map((section: any) => (
-              <article class="extended-block">
-                {section.heading && <h3 class="extended-heading">{section.heading}</h3>}
-                <p class="extended-body">{section.body}</p>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <p class="extended-empty">Expanded content is not available for this date.</p>
-        )}
+      <section class="extended-content">
+        <div class="section-divider"></div>
+        
+        {extended.sections.map((section: any) => (
+          <article class="extended-block">
+            {section.heading && <h3 class="extended-heading">{section.heading}</h3>}
+            <div class="extended-body">{section.body}</div>
+          </article>
+        ))}
       </section>
     )}
 
     {reading && aspects.length > 0 && (
-      <section class="transit-section">
-        <h2 class="transit-heading">Transit Grid</h2>
+      <section class="transit-visualization">
+        <div class="section-label">Celestial Geometry</div>
         <TransitGrid aspects={aspects} client:load />
       </section>
     )}
 
     {reading && reading.annotations && reading.annotations.length > 0 && (
       <section class="annotations-section">
-        <h2 class="annotations-heading">Transit Notes</h2>
+        <div class="section-label">Annotations</div>
         <div class="annotations-list">
           {reading.annotations.map((a: any) => (
             <div class="annotation-item">
@@ -122,157 +102,94 @@ const showExtended =
 
     {notFound && (
       <div class="status-message">
-        <div class="status-icon">&#x2237;</div>
-        <p>No transmission found</p>
-        <p style="font-size: 0.9rem; margin-top: 0.5rem; opacity: 0.6;">
-          No reading was published for {dateParam}. <a href="/archive">Browse the archive</a>.
-        </p>
-      </div>
-    )}
-
-    {error && (
-      <div class="status-message">
-        <div class="status-icon">&#x2302;</div>
-        <p>Signal disrupted</p>
-        <p style="font-size: 0.9rem; margin-top: 0.5rem; opacity: 0.6;">
-          The transmission could not be received. Try again shortly.
-        </p>
+        <p>No transmission found for {dateParam}</p>
       </div>
     )}
   </main>
 </Base>
 
 <style>
-  .transit-section {
-    max-width: 42rem;
-    margin: 0 auto;
-    padding: 1rem 1.5rem 2rem;
+  .section-divider {
+    max-width: 100px;
+    height: 1px;
+    background: var(--text-ghost);
+    margin: 6rem auto;
   }
 
-  .transit-heading {
-    font-size: 0.85rem;
-    color: var(--muted);
-    letter-spacing: 0.15em;
+  .section-label {
+    font-family: var(--font-sans);
+    font-size: 0.6rem;
+    letter-spacing: 0.3em;
     text-transform: uppercase;
+    color: var(--text-muted);
     text-align: center;
-    margin-bottom: 0.5rem;
-    font-weight: 500;
+    margin-bottom: 3rem;
   }
 
-  .annotations-section {
-    max-width: 42rem;
+  .extended-content {
+    max-width: var(--max-width);
     margin: 0 auto;
-    padding: 0 1.5rem 3rem;
-  }
-
-  .extended-section {
-    max-width: 42rem;
-    margin: 0 auto;
-    padding: 0 1.5rem 2.5rem;
-  }
-
-  .extended-kicker {
-    font-size: 0.85rem;
-    color: var(--muted);
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    text-align: center;
-    margin-bottom: 1rem;
-    font-weight: 500;
-  }
-
-  .extended-header {
-    text-align: center;
-    margin-bottom: 1.5rem;
-  }
-
-  .extended-title {
-    font-size: 1.4rem;
-    color: var(--accent);
-    margin: 0 0 0.4rem;
-    letter-spacing: 0.04em;
-  }
-
-  .extended-subtitle {
-    color: var(--muted);
-    font-size: 0.95rem;
-    letter-spacing: 0.06em;
-  }
-
-  .extended-list {
-    display: flex;
-    flex-direction: column;
-    gap: 1.25rem;
+    padding: 0 1.5rem 6rem;
   }
 
   .extended-block {
-    border-left: 2px solid var(--border);
-    padding-left: 1rem;
+    margin-bottom: 5rem;
   }
 
   .extended-heading {
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
     color: var(--accent);
-    font-size: 1rem;
-    margin: 0 0 0.5rem;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.15em;
     text-transform: uppercase;
+    margin-bottom: 2rem;
+    font-weight: 500;
   }
 
   .extended-body {
-    color: var(--text);
-    font-size: 1.02rem;
-    line-height: 1.7;
-    margin: 0;
-    white-space: pre-wrap;
+    font-size: 1.25rem;
+    line-height: 1.8;
+    color: var(--text-primary);
   }
 
-  .extended-empty {
-    color: var(--muted);
-    font-style: italic;
-    text-align: center;
-    margin: 0;
+  .transit-visualization {
+    max-width: 1000px;
+    margin: 6rem auto;
+    padding: 0 1.5rem;
   }
 
-  .annotations-heading {
-    font-size: 0.85rem;
-    color: var(--muted);
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    text-align: center;
-    margin-bottom: 1.5rem;
-    font-weight: 500;
+  .annotations-section {
+    max-width: var(--max-width);
+    margin: 6rem auto;
+    padding: 0 1.5rem 10rem;
   }
 
   .annotations-list {
     display: flex;
     flex-direction: column;
-    gap: 1.25rem;
-  }
-
-  .annotation-item {
-    border-left: 2px solid var(--border);
-    padding-left: 1rem;
+    gap: 4rem;
   }
 
   .annotation-aspect {
-    color: var(--accent);
-    font-size: 0.9rem;
-    letter-spacing: 0.1em;
+    font-family: var(--font-sans);
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
     text-transform: uppercase;
-    margin-bottom: 0.25rem;
+    color: var(--accent);
+    margin-bottom: 1rem;
   }
 
   .annotation-gloss {
-    color: var(--text);
-    font-size: 1.05rem;
+    font-size: 1.2rem;
     line-height: 1.7;
+    margin-bottom: 0.75rem;
   }
 
   .annotation-resonance {
-    color: var(--muted);
-    font-size: 0.95rem;
-    line-height: 1.6;
-    margin-top: 0.25rem;
+    font-size: 1rem;
+    color: var(--text-muted);
     font-style: italic;
+    padding-left: 1.5rem;
+    border-left: 1px solid var(--text-ghost);
   }
 </style>
