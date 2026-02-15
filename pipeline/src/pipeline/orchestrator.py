@@ -27,6 +27,7 @@ from pipeline.stages.publish_stage import run_publish_stage
 from pipeline.stages.selection_stage import run_selection_stage
 from pipeline.stages.synthesis_stage import SILENCE_READING, run_synthesis_stage
 from pipeline.stages.thread_stage import run_thread_stage
+from pipeline.stages.personal_reading_stage import run_personal_reading_stage
 
 logger = logging.getLogger(__name__)
 
@@ -636,6 +637,18 @@ async def run_pipeline(
                     run.status = "completed"
                     run.ended_at = datetime.now(UTC)
                     await session.commit()
+
+                    # Stage 9: Personal readings (non-fatal)
+                    try:
+                        personal_count = await run_personal_reading_stage(
+                            run.date_context, session
+                        )
+                        if personal_count:
+                            logger.info("Stage 9: Generated %d personal readings", personal_count)
+                            await session.commit()
+                    except Exception as personal_err:
+                        logger.warning("Personal reading stage failed (non-fatal): %s", personal_err)
+                        await session.rollback()
 
                 except Exception as e:
                     logger.exception("Pipeline failed: %s", e)

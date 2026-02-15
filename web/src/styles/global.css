@@ -43,6 +43,29 @@ body {
   isolation: isolate;
 }
 
+.legal-footer {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 3rem 0 2rem;
+  font-family: var(--font-sans);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.legal-footer a {
+  color: var(--text-muted);
+}
+
+.legal-footer a:hover {
+  color: var(--accent);
+}
+
 .site-header,
 main,
 .page-container,

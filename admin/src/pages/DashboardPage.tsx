@@ -29,6 +29,7 @@ export default function DashboardPage() {
   const [llmSlots, setLlmSlots] = useState<any[]>([]);
   const [threadCount, setThreadCount] = useState<number | null>(null);
   const [sourceHealth, setSourceHealth] = useState<{ total: number; active: number; errored: number } | null>(null);
+  const [operationalHealth, setOperationalHealth] = useState<any>(null);
   const [triggering, setTriggering] = useState(false);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
@@ -53,6 +54,7 @@ export default function DashboardPage() {
           });
         }
       }),
+      apiGet('/admin/analytics/operational-health').then(setOperationalHealth),
     ]).catch((e) => toast.error(e.message)).finally(() => setLoading(false));
   }, []);
 
@@ -129,6 +131,39 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {operationalHealth && (
+        <div className="bg-surface-raised border border-text-ghost rounded p-4 mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs text-text-muted uppercase tracking-wider">Operational Health</h3>
+            <span
+              className={`text-xs ${
+                operationalHealth.status === 'critical'
+                  ? 'text-red-400'
+                  : operationalHealth.status === 'warn'
+                  ? 'text-yellow-300'
+                  : 'text-green-400'
+              }`}
+            >
+              {String(operationalHealth.status || 'ok').toUpperCase()}
+            </span>
+          </div>
+          {Array.isArray(operationalHealth.alerts) && operationalHealth.alerts.length > 0 ? (
+            <div className="space-y-1">
+              {operationalHealth.alerts.slice(0, 4).map((alert: any, idx: number) => (
+                <div key={`${alert.code || idx}`} className="text-xs text-text-secondary">
+                  <span className={alert.severity === 'critical' ? 'text-red-400' : 'text-yellow-300'}>
+                    {String(alert.severity || 'warn').toUpperCase()}
+                  </span>
+                  <span className="ml-2">{alert.message}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-xs text-green-400">No active operational alerts.</div>
+          )}
+        </div>
+      )}
 
       {/* LLM Slot Health */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">

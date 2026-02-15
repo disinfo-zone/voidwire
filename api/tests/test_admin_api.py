@@ -501,7 +501,13 @@ class TestLLMConfigAPI:
         resp = await client.get("/admin/llm/")
         assert resp.status_code == 200
         slots = resp.json()
-        assert [s["slot"] for s in slots] == ["distillation", "embedding", "synthesis"]
+        assert [s["slot"] for s in slots] == [
+            "distillation",
+            "embedding",
+            "personal_free",
+            "personal_pro",
+            "synthesis",
+        ]
 
     async def test_get_slot_not_found(self, client: AsyncClient):
         resp = await client.get("/admin/llm/synthesis")
@@ -803,6 +809,206 @@ class TestAuditAPI:
 
 
 # ──────────────────────────────────────────────
+# Accounts + Billing
+# ──────────────────────────────────────────────
+
+class TestAccountsAPI:
+    async def test_list_users(self, client: AsyncClient, mock_db):
+        fake_user = MagicMock()
+        fake_user.id = uuid.uuid4()
+        fake_user.email = "pro@test.local"
+        fake_user.display_name = "Pro User"
+        fake_user.email_verified = True
+        fake_user.is_active = True
+        fake_user.created_at = datetime.now(timezone.utc)
+        fake_user.last_login_at = datetime.now(timezone.utc)
+        fake_user.pro_override = False
+        fake_user.pro_override_reason = None
+        fake_user.pro_override_until = None
+
+        users_result = MagicMock()
+        users_result.scalars.return_value.all.return_value = [fake_user]
+        subs_result = MagicMock()
+        subs_result.all.return_value = [(fake_user.id,)]
+        mock_db.execute.side_effect = [users_result, subs_result]
+
+        resp = await client.get("/admin/accounts/users")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == 1
+        assert body[0]["email"] == "pro@test.local"
+        assert body[0]["tier"] == "pro"
+        assert body[0]["has_active_subscription"] is True
+
+    async def test_update_user_pro_override(self, client: AsyncClient, mock_db):
+        fake_user = MagicMock()
+        fake_user.id = uuid.uuid4()
+        fake_user.pro_override = False
+        fake_user.pro_override_reason = None
+        fake_user.pro_override_until = None
+        mock_db.get.return_value = fake_user
+
+        resp = await client.patch(
+            f"/admin/accounts/users/{fake_user.id}/pro-override",
+            json={"enabled": True, "reason": "manual QA", "expires_at": None},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["pro_override"] is True
+        assert fake_user.pro_override is True
+        assert fake_user.pro_override_reason == "manual QA"
+
+    async def test_create_discount_code(self, client: AsyncClient, mock_db):
+        existing_result = MagicMock()
+        existing_result.scalars.return_value.first.return_value = None
+        mock_db.execute.return_value = existing_result
+
+        def side_effect_add(obj):
+            if getattr(obj, "code", None) == "TEST50":
+                obj.id = uuid.uuid4()
+                obj.created_at = datetime.now(timezone.utc)
+                obj.updated_at = datetime.now(timezone.utc)
+
+        mock_db.add = MagicMock(side_effect=side_effect_add)
+
+        with patch(
+            "api.routers.admin_accounts.create_coupon_and_promotion_code",
+            return_value={
+                "stripe_coupon_id": "coupon_123",
+                "stripe_promotion_code_id": "promo_123",
+            },
+        ):
+            resp = await client.post(
+                "/admin/accounts/discount-codes",
+                json={
+                    "code": "test50",
+                    "percent_off": 50,
+                    "duration": "once",
+                    "description": "QA discount",
+                },
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["code"] == "TEST50"
+        assert body["percent_off"] == 50
+        assert body["is_active"] is True
+
+    async def test_create_amount_discount_code(self, client: AsyncClient, mock_db):
+        existing_result = MagicMock()
+        existing_result.scalars.return_value.first.return_value = None
+        mock_db.execute.return_value = existing_result
+
+        def side_effect_add(obj):
+            if getattr(obj, "code", None) == "SAVE500":
+                obj.id = uuid.uuid4()
+                obj.created_at = datetime.now(timezone.utc)
+                obj.updated_at = datetime.now(timezone.utc)
+
+        mock_db.add = MagicMock(side_effect=side_effect_add)
+
+        with patch(
+            "api.routers.admin_accounts.create_coupon_and_promotion_code",
+            return_value={
+                "stripe_coupon_id": "coupon_456",
+                "stripe_promotion_code_id": "promo_456",
+            },
+        ):
+            resp = await client.post(
+                "/admin/accounts/discount-codes",
+                json={
+                    "code": "save500",
+                    "amount_off_cents": 500,
+                    "currency": "usd",
+                    "duration": "once",
+                },
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["code"] == "SAVE500"
+        assert body["amount_off_cents"] == 500
+        assert body["currency"] == "usd"
+
+    async def test_disable_discount_code(self, client: AsyncClient, mock_db):
+        code_id = uuid.uuid4()
+        discount = MagicMock()
+        discount.id = code_id
+        discount.code = "TEST50"
+        discount.description = None
+        discount.percent_off = 50
+        discount.amount_off_cents = None
+        discount.currency = None
+        discount.duration = "once"
+        discount.duration_in_months = None
+        discount.max_redemptions = None
+        discount.starts_at = None
+        discount.expires_at = None
+        discount.is_active = True
+        discount.created_at = datetime.now(timezone.utc)
+        discount.updated_at = datetime.now(timezone.utc)
+        discount.stripe_promotion_code_id = "promo_123"
+        mock_db.get.return_value = discount
+
+        with patch("api.routers.admin_accounts.set_promotion_code_active") as set_active:
+            resp = await client.patch(
+                f"/admin/accounts/discount-codes/{code_id}",
+                json={"is_active": False},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["is_active"] is False
+        set_active.assert_called_once_with("promo_123", active=False)
+
+    async def test_delete_discount_code(self, client: AsyncClient, mock_db):
+        code_id = uuid.uuid4()
+        discount = MagicMock()
+        discount.id = code_id
+        discount.code = "OLDCODE"
+        discount.is_active = True
+        discount.stripe_promotion_code_id = "promo_legacy"
+        mock_db.get.return_value = discount
+
+        with patch("api.routers.admin_accounts.set_promotion_code_active") as set_active:
+            resp = await client.delete(f"/admin/accounts/discount-codes/{code_id}")
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "deleted"
+        set_active.assert_called_once_with("promo_legacy", active=False)
+        mock_db.delete.assert_awaited_once_with(discount)
+
+    async def test_operational_health_endpoint(self, client: AsyncClient, mock_db):
+        webhook_result = MagicMock()
+        webhook_result.scalars.return_value.first.return_value = datetime.now(timezone.utc)
+
+        count_result = MagicMock()
+        count_result.scalar.return_value = 0
+
+        latest_cleanup_result = MagicMock()
+        latest_cleanup_result.scalars.return_value.first.return_value = datetime.now(timezone.utc)
+
+        mock_db.execute = AsyncMock(
+            side_effect=[
+                webhook_result,
+                count_result,
+                count_result,
+                count_result,
+                count_result,
+                latest_cleanup_result,
+                count_result,
+                count_result,
+                count_result,
+            ]
+        )
+
+        resp = await client.get("/admin/analytics/operational-health")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "status" in body
+        assert "alerts" in body
+        assert "slo" in body
+
+
+# ──────────────────────────────────────────────
 # Route registration
 # ──────────────────────────────────────────────
 
@@ -829,6 +1035,9 @@ class TestRouteRegistration:
             ("GET", "/admin/content/pages"),
             ("GET", "/admin/site/config"),
             ("GET", "/admin/backup/storage"),
+            ("GET", "/admin/accounts/users"),
+            ("GET", "/admin/accounts/discount-codes"),
+            ("GET", "/admin/analytics/operational-health"),
         ]
         for method, path in routes:
             resp = await client.request(method, path)

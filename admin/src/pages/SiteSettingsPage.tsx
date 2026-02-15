@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { apiGet, apiPut } from '../api/client';
+import { apiGet, apiPost, apiPut } from '../api/client';
 import { useToast } from '../components/ui/ToastProvider';
 import Spinner from '../components/ui/Spinner';
 
@@ -29,6 +29,20 @@ type BackupStorageConfig = {
   s3_is_configured?: boolean;
 };
 
+type SMTPConfig = {
+  enabled: boolean;
+  host: string;
+  port: number;
+  username: string;
+  from_email: string;
+  from_name: string;
+  reply_to: string;
+  use_ssl: boolean;
+  use_starttls: boolean;
+  password_masked?: string;
+  is_configured?: boolean;
+};
+
 const EMPTY_SITE: SiteConfig = {
   site_title: 'VOIDWIRE',
   tagline: '',
@@ -52,14 +66,31 @@ const EMPTY_STORAGE: BackupStorageConfig = {
   s3_use_ssl: true,
 };
 
+const EMPTY_SMTP: SMTPConfig = {
+  enabled: false,
+  host: '',
+  port: 587,
+  username: '',
+  from_email: '',
+  from_name: 'Voidwire',
+  reply_to: '',
+  use_ssl: false,
+  use_starttls: true,
+};
+
 export default function SiteSettingsPage() {
   const [site, setSite] = useState<SiteConfig>(EMPTY_SITE);
   const [storage, setStorage] = useState<BackupStorageConfig>(EMPTY_STORAGE);
+  const [smtp, setSmtp] = useState<SMTPConfig>(EMPTY_SMTP);
   const [s3AccessKey, setS3AccessKey] = useState('');
   const [s3SecretKey, setS3SecretKey] = useState('');
+  const [smtpPassword, setSmtpPassword] = useState('');
+  const [smtpTestEmail, setSmtpTestEmail] = useState('');
   const [loading, setLoading] = useState(true);
   const [savingSite, setSavingSite] = useState(false);
   const [savingStorage, setSavingStorage] = useState(false);
+  const [savingSmtp, setSavingSmtp] = useState(false);
+  const [testingSmtp, setTestingSmtp] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -69,12 +100,14 @@ export default function SiteSettingsPage() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [siteData, storageData] = await Promise.all([
+      const [siteData, storageData, smtpData] = await Promise.all([
         apiGet('/admin/site/config'),
         apiGet('/admin/backup/storage'),
+        apiGet('/admin/site/email/smtp'),
       ]);
       setSite({ ...EMPTY_SITE, ...siteData });
       setStorage({ ...EMPTY_STORAGE, ...storageData });
+      setSmtp({ ...EMPTY_SMTP, ...smtpData });
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -109,6 +142,41 @@ export default function SiteSettingsPage() {
       toast.error(e.message);
     } finally {
       setSavingStorage(false);
+    }
+  }
+
+  async function saveSmtp() {
+    setSavingSmtp(true);
+    try {
+      const payload: any = { ...smtp };
+      if (smtpPassword.trim().length > 0) {
+        payload.password = smtpPassword;
+      }
+      const updated = await apiPut('/admin/site/email/smtp', payload);
+      setSmtp({ ...EMPTY_SMTP, ...updated });
+      setSmtpPassword('');
+      toast.success('SMTP settings saved');
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setSavingSmtp(false);
+    }
+  }
+
+  async function sendSmtpTestEmail() {
+    const target = smtpTestEmail.trim();
+    if (!target) {
+      toast.error('Enter a test recipient email');
+      return;
+    }
+    setTestingSmtp(true);
+    try {
+      await apiPost('/admin/site/email/smtp/test', { to_email: target });
+      toast.success('Test email sent');
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setTestingSmtp(false);
     }
   }
 
@@ -183,6 +251,139 @@ export default function SiteSettingsPage() {
           <label className="text-xs text-text-muted block mb-1">OG Title Template</label>
           <input value={site.og_title_template} onChange={(e) => setSite({ ...site, og_title_template: e.target.value })} className="w-full bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary" />
           <div className="text-[11px] text-text-ghost mt-1">Supports <span className="font-mono">{'{{title}}'}</span> and <span className="font-mono">{'{{site_title}}'}</span>.</div>
+        </div>
+      </section>
+
+      <section className="bg-surface-raised border border-text-ghost rounded p-4 space-y-3">
+        <div className="flex justify-between items-center">
+          <h2 className="text-sm text-text-primary">SMTP (Transactional Email)</h2>
+          <button
+            onClick={saveSmtp}
+            disabled={savingSmtp}
+            className="text-xs px-3 py-1 bg-accent/20 text-accent rounded hover:bg-accent/30 disabled:opacity-50"
+          >
+            {savingSmtp ? 'Saving...' : 'Save SMTP Settings'}
+          </button>
+        </div>
+
+        <label className="flex items-center gap-2 text-xs text-text-muted">
+          <input
+            type="checkbox"
+            checked={smtp.enabled}
+            onChange={(e) => setSmtp({ ...smtp, enabled: e.target.checked })}
+          />
+          Enable SMTP delivery
+        </label>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-text-muted block mb-1">SMTP Host</label>
+            <input
+              value={smtp.host}
+              onChange={(e) => setSmtp({ ...smtp, host: e.target.value })}
+              placeholder="smtp.mailgun.org"
+              className="w-full bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-text-muted block mb-1">SMTP Port</label>
+            <input
+              type="number"
+              value={smtp.port}
+              onChange={(e) => setSmtp({ ...smtp, port: Number(e.target.value) || 587 })}
+              className="w-full bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-text-muted block mb-1">SMTP Username</label>
+            <input
+              value={smtp.username}
+              onChange={(e) => setSmtp({ ...smtp, username: e.target.value })}
+              className="w-full bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-text-muted block mb-1">SMTP Password {smtp.password_masked ? `(current: ${smtp.password_masked})` : ''}</label>
+            <input
+              type="password"
+              value={smtpPassword}
+              onChange={(e) => setSmtpPassword(e.target.value)}
+              placeholder="leave blank to keep current"
+              className="w-full bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-text-muted block mb-1">From Email</label>
+            <input
+              value={smtp.from_email}
+              onChange={(e) => setSmtp({ ...smtp, from_email: e.target.value })}
+              placeholder="noreply@voidwire.example"
+              className="w-full bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-text-muted block mb-1">From Name</label>
+            <input
+              value={smtp.from_name}
+              onChange={(e) => setSmtp({ ...smtp, from_name: e.target.value })}
+              className="w-full bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-text-muted block mb-1">Reply-To (optional)</label>
+            <input
+              value={smtp.reply_to}
+              onChange={(e) => setSmtp({ ...smtp, reply_to: e.target.value })}
+              className="w-full bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-4">
+          <label className="flex items-center gap-2 text-xs text-text-muted">
+            <input
+              type="checkbox"
+              checked={smtp.use_ssl}
+              onChange={(e) =>
+                setSmtp((prev) => ({
+                  ...prev,
+                  use_ssl: e.target.checked,
+                  use_starttls: e.target.checked ? false : prev.use_starttls,
+                }))
+              }
+            />
+            Use implicit SSL (465)
+          </label>
+          <label className="flex items-center gap-2 text-xs text-text-muted">
+            <input
+              type="checkbox"
+              checked={smtp.use_starttls}
+              disabled={smtp.use_ssl}
+              onChange={(e) => setSmtp({ ...smtp, use_starttls: e.target.checked })}
+            />
+            Use STARTTLS (587)
+          </label>
+        </div>
+
+        <div className="border-t border-text-ghost/40 pt-3 space-y-2">
+          <div className="text-xs text-text-muted">
+            Status: {smtp.is_configured ? 'configured' : 'incomplete'} {smtp.enabled ? '(enabled)' : '(disabled)'}
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              value={smtpTestEmail}
+              onChange={(e) => setSmtpTestEmail(e.target.value)}
+              placeholder="test recipient email"
+              className="flex-1 bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary"
+            />
+            <button
+              onClick={sendSmtpTestEmail}
+              disabled={testingSmtp}
+              className="text-xs px-3 py-1 bg-surface border border-text-ghost rounded text-text-secondary hover:text-text-primary disabled:opacity-50"
+            >
+              {testingSmtp ? 'Sending...' : 'Send Test Email'}
+            </button>
+          </div>
         </div>
       </section>
 

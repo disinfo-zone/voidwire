@@ -1,0 +1,190 @@
+"""User personal reading endpoints."""
+
+from __future__ import annotations
+
+from datetime import date
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from voidwire.models import AsyncJob, PersonalReading, User
+
+from api.dependencies import get_current_public_user, get_db
+from api.services.async_job_service import (
+    ASYNC_JOB_TYPE_PERSONAL_READING,
+    enqueue_personal_reading_job,
+    serialize_async_job,
+)
+from api.services.personal_reading_service import PersonalReadingService
+from api.services.subscription_service import get_user_tier
+
+router = APIRouter()
+
+
+class PersonalReadingJobRequest(BaseModel):
+    tier: str = "auto"  # auto|free|pro
+
+
+def _reading_payload(reading: PersonalReading) -> dict:
+    content = reading.content or {}
+    return {
+        "id": str(reading.id) if reading.id else None,
+        "tier": reading.tier,
+        "date_context": reading.date_context.isoformat(),
+        "title": content.get("title", ""),
+        "body": content.get("body", ""),
+        "sections": content.get("sections", []),
+        "word_count": content.get("word_count", 0),
+        "transit_highlights": content.get("transit_highlights", []),
+        "house_system_used": reading.house_system_used,
+        "created_at": reading.created_at.isoformat() if reading.created_at else None,
+    }
+
+
+@router.get("/personal")
+async def get_current_personal_reading(
+    user: User = Depends(get_current_public_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get current personal reading. Daily for pro, weekly for free."""
+    if not user.profile:
+        raise HTTPException(
+            status_code=400,
+            detail="Complete your birth data profile first",
+        )
+
+    tier = await get_user_tier(user, db)
+
+    if tier == "pro":
+        reading = await PersonalReadingService.get_or_generate_pro_reading(user, db)
+    else:
+        reading = await PersonalReadingService.get_or_generate_free_reading(user, db)
+
+    if not reading:
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to generate reading. Personal reading LLM slot may not be configured.",
+        )
+
+    return _reading_payload(reading)
+
+
+@router.post("/personal/jobs")
+async def enqueue_personal_reading_generation(
+    req: PersonalReadingJobRequest,
+    user: User = Depends(get_current_public_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not user.profile:
+        raise HTTPException(
+            status_code=400,
+            detail="Complete your birth data profile first",
+        )
+
+    requested_tier = str(req.tier or "auto").strip().lower() or "auto"
+    if requested_tier not in {"auto", "free", "pro"}:
+        raise HTTPException(status_code=400, detail="tier must be one of: auto, free, pro")
+
+    tier = requested_tier
+    if tier == "auto":
+        tier = await get_user_tier(user, db)
+
+    job = await enqueue_personal_reading_job(
+        db,
+        user_id=user.id,
+        tier=tier,
+        target_date=date.today(),
+    )
+    return serialize_async_job(job)
+
+
+@router.get("/personal/jobs")
+async def list_personal_reading_jobs(
+    limit: int = Query(default=25, ge=1, le=100),
+    user: User = Depends(get_current_public_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(AsyncJob)
+        .where(
+            AsyncJob.user_id == user.id,
+            AsyncJob.job_type == ASYNC_JOB_TYPE_PERSONAL_READING,
+        )
+        .order_by(AsyncJob.created_at.desc())
+        .limit(limit)
+    )
+    return [serialize_async_job(job) for job in result.scalars().all()]
+
+
+@router.get("/personal/jobs/{job_id}")
+async def get_personal_reading_job(
+    job_id: str,
+    user: User = Depends(get_current_public_user),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        job_uuid = UUID(job_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    result = await db.execute(
+        select(AsyncJob).where(
+            AsyncJob.id == job_uuid,
+            AsyncJob.user_id == user.id,
+            AsyncJob.job_type == ASYNC_JOB_TYPE_PERSONAL_READING,
+        )
+    )
+    job = result.scalars().first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return serialize_async_job(job)
+
+
+@router.get("/personal/history")
+async def get_reading_history(
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=20, le=50),
+    user: User = Depends(get_current_public_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get past personal readings, paginated."""
+    offset = (page - 1) * per_page
+    result = await db.execute(
+        select(PersonalReading)
+        .where(PersonalReading.user_id == user.id)
+        .order_by(PersonalReading.date_context.desc())
+        .offset(offset)
+        .limit(per_page)
+    )
+    readings = result.scalars().all()
+    return [_reading_payload(r) for r in readings]
+
+
+@router.get("/personal/{date_str}")
+async def get_reading_by_date(
+    date_str: str,
+    user: User = Depends(get_current_public_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a specific date's personal reading."""
+    try:
+        target = date.fromisoformat(date_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format")
+
+    result = await db.execute(
+        select(PersonalReading)
+        .where(
+            PersonalReading.user_id == user.id,
+            PersonalReading.date_context == target,
+        )
+        .order_by(PersonalReading.created_at.desc())
+        .limit(1)
+    )
+    reading = result.scalars().first()
+    if not reading:
+        raise HTTPException(status_code=404, detail="No reading for this date")
+
+    return _reading_payload(reading)

@@ -6,11 +6,11 @@ import os
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+from time import perf_counter
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse
-from jose import JWTError, jwt
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.config import get_settings
@@ -226,6 +226,42 @@ def _is_s3_mode(config: dict) -> bool:
     return str(config.get("provider", "local")).strip().lower() == "s3"
 
 
+async def _run_backup_storage_drill(storage: dict) -> dict:
+    started = datetime.now(UTC)
+    t0 = perf_counter()
+    if not _is_s3_mode(storage):
+        backup_dir = _backup_dir()
+        marker = backup_dir / f"voidwire_drill_{started.strftime('%Y%m%d_%H%M%S')}.txt"
+        payload = f"voidwire-backup-drill:{started.isoformat()}".encode()
+        marker.write_bytes(payload)
+        roundtrip = marker.read_bytes()
+        marker.unlink(missing_ok=True)
+        if roundtrip != payload:
+            raise RuntimeError("Backup drill read/write mismatch")
+        return {
+            "status": "ok",
+            "provider": "local",
+            "started_at": started.isoformat(),
+            "duration_ms": round((perf_counter() - t0) * 1000, 2),
+        }
+
+    client, bucket = _build_s3_client(storage)
+    key = _s3_key_for_filename(storage, f"voidwire_drill_{started.strftime('%Y%m%d_%H%M%S')}.txt")
+    payload = f"voidwire-backup-drill:{started.isoformat()}".encode()
+    await asyncio.to_thread(client.put_object, Bucket=bucket, Key=key, Body=payload)
+    obj = await asyncio.to_thread(client.get_object, Bucket=bucket, Key=key)
+    roundtrip = await asyncio.to_thread(obj["Body"].read)
+    await asyncio.to_thread(client.delete_object, Bucket=bucket, Key=key)
+    if roundtrip != payload:
+        raise RuntimeError("S3 backup drill read/write mismatch")
+    return {
+        "status": "ok",
+        "provider": "s3",
+        "started_at": started.isoformat(),
+        "duration_ms": round((perf_counter() - t0) * 1000, 2),
+    }
+
+
 @router.get("/")
 async def list_backups(
     db: AsyncSession = Depends(get_db),
@@ -275,6 +311,19 @@ async def get_backup_storage_settings(
     _ = user
     config = await _load_storage_config(db)
     return _storage_response_payload(config)
+
+
+@router.post("/drill")
+async def run_backup_drill(
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(require_admin),
+):
+    _ = user
+    storage = await _load_storage_config(db)
+    try:
+        return await _run_backup_storage_drill(storage)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Backup drill failed: {exc}") from exc
 
 
 @router.put("/storage")
@@ -479,26 +528,11 @@ async def delete_backup(
 @router.get("/{filename}/download")
 async def download_backup(
     filename: str,
-    request: Request,
+    user: AdminUser = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Download backup file. Requires bearer token in Authorization header."""
-    settings = get_settings()
-
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
-    raw_token = auth[7:]
-
-    try:
-        payload = jwt.decode(raw_token, settings.secret_key, algorithms=[settings.jwt_algorithm])
-        user_id = payload.get("sub", "")
-    except JWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-
-    user = await db.get(AdminUser, user_id)
-    if not user or not user.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    """Download backup file."""
+    _ = user
 
     safe = _safe_filename(filename)
     storage = await _load_storage_config(db)

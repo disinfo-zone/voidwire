@@ -1,24 +1,69 @@
-import { useState, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { apiGet, apiPost } from '../api/client';
 
-const TOKEN_KEY = 'voidwire_admin_token';
+const SESSION_KEY = 'voidwire_admin_session';
+
+function readSessionFlag(): boolean {
+  try {
+    return localStorage.getItem(SESSION_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeSessionFlag(value: boolean): void {
+  try {
+    if (value) {
+      localStorage.setItem(SESSION_KEY, '1');
+    } else {
+      localStorage.removeItem(SESSION_KEY);
+    }
+  } catch {
+    // Ignore storage access issues.
+  }
+}
 
 export function useAuth() {
-  const [token, setTokenState] = useState<string | null>(
-    () => localStorage.getItem(TOKEN_KEY)
-  );
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => readSessionFlag());
+  const [loading, setLoading] = useState(true);
 
-  const setToken = useCallback((newToken: string | null) => {
-    if (newToken) {
-      localStorage.setItem(TOKEN_KEY, newToken);
-    } else {
-      localStorage.removeItem(TOKEN_KEY);
-    }
-    setTokenState(newToken);
+  useEffect(() => {
+    let active = true;
+    apiGet('/admin/auth/me')
+      .then(() => {
+        if (!active) return;
+        writeSessionFlag(true);
+        setIsAuthenticated(true);
+      })
+      .catch(() => {
+        if (!active) return;
+        writeSessionFlag(false);
+        setIsAuthenticated(false);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const logout = useCallback(() => {
-    setToken(null);
-  }, [setToken]);
+  const setAuthenticated = useCallback((authenticated: boolean) => {
+    writeSessionFlag(authenticated);
+    setIsAuthenticated(authenticated);
+  }, []);
 
-  return { token, setToken, logout };
+  const logout = useCallback(async () => {
+    try {
+      await apiPost('/admin/auth/logout', {});
+    } catch {
+      // Best-effort logout.
+    }
+    setAuthenticated(false);
+    if (typeof window !== 'undefined') {
+      window.location.assign('/admin/login');
+    }
+  }, [setAuthenticated]);
+
+  return { isAuthenticated, loading, setAuthenticated, logout };
 }

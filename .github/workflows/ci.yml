@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test-and-migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: voidwire
+          POSTGRES_PASSWORD: voidwire
+          POSTGRES_DB: voidwire
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U voidwire"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+asyncpg://voidwire:voidwire@localhost:5432/voidwire
+      SECRET_KEY: ci-secret-key
+      ENCRYPTION_KEY: PuWN5MAxKNPsANjXF_9TgFaWCqfo4hR2L-m3JMqRlLE=
+      REDIS_URL: redis://localhost:6379/0
+      SKIP_SETUP_GUARD: true
+      SKIP_MIGRATION_CHECK: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e shared/ -e ephemeris/ -e pipeline/ -e api/ pytest ruff alembic
+
+      - name: Lint changed critical paths
+        run: >
+          ruff check
+          api/src/api/dependencies.py
+          api/src/api/main.py
+          api/src/api/middleware/csrf.py
+          api/src/api/routers/user_auth.py
+          api/src/api/routers/user_readings.py
+          api/src/api/routers/admin_accounts.py
+          api/src/api/routers/admin_site.py
+          api/src/api/services/async_job_service.py
+          api/src/api/services/billing_reconciliation.py
+          api/src/api/services/email_service.py
+          api/src/api/services/governance.py
+          api/src/api/services/maintenance.py
+          api/tests/test_admin_site_email_api.py
+          api/tests/test_csrf_middleware.py
+          api/tests/test_stripe_webhook_api.py
+          api/tests/test_user_async_jobs_api.py
+          api/tests/test_user_auth_cookie_api.py
+          api/tests/test_user_features_api.py
+          api/tests/test_user_governance_api.py
+          tests/perf/benchmark_user_paths.py
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Migration head check
+        env:
+          SKIP_MIGRATION_CHECK: false
+        run: |
+          python -m alembic upgrade head
+          python -m alembic current

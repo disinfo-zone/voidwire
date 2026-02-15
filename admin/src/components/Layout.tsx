@@ -17,6 +17,7 @@ const navItems = [
   { to: '/settings', label: 'Settings' },
   { to: '/site', label: 'Site Settings' },
   { to: '/content', label: 'Content' },
+  { to: '/accounts', label: 'Accounts' },
   { to: '/backup', label: 'Backups' },
   { to: '/audit', label: 'Audit Log' },
 ];

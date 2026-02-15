@@ -1,0 +1,35 @@
+name: Perf Guard
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  perf-benchmark:
+    runs-on: ubuntu-latest
+    env:
+      SECRET_KEY: ci-secret-key
+      ENCRYPTION_KEY: PuWN5MAxKNPsANjXF_9TgFaWCqfo4hR2L-m3JMqRlLE=
+      SKIP_SETUP_GUARD: true
+      SKIP_MIGRATION_CHECK: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e shared/ -e ephemeris/ -e pipeline/ -e api/
+
+      - name: Run performance guardrail benchmark
+        run: >
+          python tests/perf/benchmark_user_paths.py
+          --requests 20
+          --concurrency 4
+          --max-natal-p95-ms 400
+          --max-personal-p95-ms 400
+          --max-combined-p95-mean-ms 300

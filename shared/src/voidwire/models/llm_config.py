@@ -35,6 +35,7 @@ class LLMConfig(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "slot IN ('synthesis','distillation','embedding')", name="ck_llm_slot"
+            "slot IN ('synthesis','distillation','embedding','personal_free','personal_pro')",
+            name="ck_llm_slot",
         ),
     )

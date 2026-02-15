@@ -113,6 +113,15 @@ const trackingBody = String(siteConfig.tracking_body || '');
   </head>
   <body>
     <slot />
+    <footer class="legal-footer">
+      <a href="/privacy">Privacy</a>
+      <span>•</span>
+      <a href="/terms">Terms</a>
+      <span>•</span>
+      <a href="/billing-policy">Billing</a>
+      <span>•</span>
+      <a href="/disclaimer">Disclaimer</a>
+    </footer>
     {trackingBody && <Fragment set:html={trackingBody} />}
   </body>
 </html>

@@ -16,6 +16,7 @@ export default function BackupPage() {
   const [storageMode, setStorageMode] = useState<'local' | 's3'>('local');
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [drilling, setDrilling] = useState(false);
   const [restoreFile, setRestoreFile] = useState<string | null>(null);
   const [deleteFile, setDeleteFile] = useState<string | null>(null);
   const { toast } = useToast();
@@ -46,6 +47,18 @@ export default function BackupPage() {
     setCreating(false);
   }
 
+  async function handleDrill() {
+    setDrilling(true);
+    try {
+      const data = await apiPost('/admin/backup/drill');
+      const duration = typeof data?.duration_ms === 'number' ? `${data.duration_ms}ms` : 'completed';
+      toast.success(`Backup drill ${duration}`);
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+    setDrilling(false);
+  }
+
   async function handleRestore() {
     if (!restoreFile) return;
     try {
@@ -70,16 +83,10 @@ export default function BackupPage() {
   }
 
   async function handleDownload(filename: string) {
-    const token = localStorage.getItem('voidwire_admin_token');
-    if (!token) {
-      toast.error('Missing auth token');
-      return;
-    }
-
     const url = `${API_BASE}/admin/backup/${encodeURIComponent(filename)}/download`;
     try {
       const resp = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
       });
       if (!resp.ok) throw new Error(`API error: ${resp.status}`);
       const blob = await resp.blob();
@@ -117,6 +124,13 @@ export default function BackupPage() {
             className="text-xs px-4 py-2 bg-accent/20 text-accent rounded hover:bg-accent/30 disabled:opacity-50"
           >
             {creating ? 'Creating...' : 'Create Backup'}
+          </button>
+          <button
+            onClick={handleDrill}
+            disabled={drilling}
+            className="text-xs px-4 py-2 bg-surface-raised border border-text-ghost rounded text-text-muted hover:text-text-primary disabled:opacity-50"
+          >
+            {drilling ? 'Running Drill...' : 'Run Drill'}
           </button>
         </div>
       </div>

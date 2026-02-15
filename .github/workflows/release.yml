@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Release environment"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      image_tag:
+        description: "Image tag / release identifier"
+        required: true
+        type: string
+      confirm_production:
+        description: "Type YES to allow production release"
+        required: false
+        type: string
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: voidwire
+          POSTGRES_PASSWORD: voidwire
+          POSTGRES_DB: voidwire
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U voidwire"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+asyncpg://voidwire:voidwire@localhost:5432/voidwire
+      SECRET_KEY: ci-secret-key
+      ENCRYPTION_KEY: PuWN5MAxKNPsANjXF_9TgFaWCqfo4hR2L-m3JMqRlLE=
+      SKIP_SETUP_GUARD: true
+      SKIP_MIGRATION_CHECK: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e shared/ -e ephemeris/ -e pipeline/ -e api/ pytest alembic
+
+      - name: Migrations
+        run: python -m alembic upgrade head
+
+      - name: Smoke tests
+        run: >
+          pytest -q
+          api/tests/test_public_api.py
+          api/tests/test_auth_api.py::TestAdminAuth::test_login_success
+          api/tests/test_user_auth_cookie_api.py::test_register_sets_http_only_auth_cookie
+
+  deploy-gate:
+    needs: [preflight]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate production confirmation
+        run: |
+          if [ "${{ github.event.inputs.environment }}" = "production" ] && [ "${{ github.event.inputs.confirm_production }}" != "YES" ]; then
+            echo "Production release blocked: set confirm_production=YES"
+            exit 1
+          fi
+
+      - name: Release summary
+        run: |
+          echo "Environment: ${{ github.event.inputs.environment }}"
+          echo "Image tag: ${{ github.event.inputs.image_tag }}"
+          echo "Next step: run deploy command in your infrastructure pipeline."
+          echo "Rollback: redeploy previous stable image tag and re-run smoke checks."

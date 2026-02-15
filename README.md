@@ -89,6 +89,10 @@ docker compose up -d
 
 This starts 8 services by default: PostgreSQL + pgvector, Redis, API, pipeline, public site, admin panel, Minio, and Caddy. On first run, the setup wizard guides through admin account creation, LLM configuration, and news source seeding.
 
+The API container runs `alembic upgrade head` on startup before serving traffic.
+At API startup, the app also validates that DB revisions match Alembic heads and fails fast if the schema is behind.
+Keep `SKIP_MIGRATION_CHECK=false` for normal environments; only set it to `true` for ephemeral CI/local bypass cases.
+
 To include Cloudflare Tunnel in production:
 
 ```bash
@@ -101,6 +105,16 @@ Local URLs:
 - Public site: `http://localhost/`
 - Admin UI: `http://localhost/admin/` (or `http://localhost:5173/admin/`)
 - API health: `http://localhost/api/health`
+
+### Operational Environment Knobs
+
+- `ASYNC_JOB_RETENTION_DAYS`: retention for completed/failed async user jobs before cleanup.
+- `ANALYTICS_RETENTION_DAYS`: retention for analytics events before cleanup.
+- `BILLING_RECONCILIATION_INTERVAL_HOURS`: cadence for scheduled billing reconciliation.
+- `SKIP_MIGRATION_CHECK`: bypass API startup revision parity check (default `false`).
+- `USER_JWT_EXPIRE_MINUTES`: user auth cookie/JWT lifetime.
+- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PUBLISHABLE_KEY`: billing integration settings.
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY`: optional social auth settings.
 
 ## Services
 
@@ -172,7 +186,7 @@ PostgreSQL 16 with extensions:
 - **pgvector** -- HNSW-indexed vector columns for signal and thread embeddings
 - **pgcrypto** -- UUID generation via `gen_random_uuid()`
 
-17 tables covering pipeline runs, readings, cultural signals, threads, news sources, prompt templates, archetypal meanings, LLM config, astronomical events, site settings, admin users, audit log, and analytics.
+Schema includes pipeline/editorial tables plus user-account and billing tables (`users`, `user_profiles`, `subscriptions`, `discount_codes`, token tables, Stripe webhook events, and async jobs).
 
 Migrations managed with Alembic.
 
@@ -188,7 +202,7 @@ Astro static site with Svelte islands for interactivity. Dark aesthetic with EB 
 
 ## Admin Panel
 
-React SPA behind Cloudflare Access (zero-trust). JWT + TOTP authentication at the application layer.
+React SPA behind Cloudflare Access (zero-trust). TOTP login with HttpOnly admin session cookies at the application layer.
 
 - Reading queue with inline editing and diff tracking
 - News source management with health indicators
@@ -198,6 +212,19 @@ React SPA behind Cloudflare Access (zero-trust). JWT + TOTP authentication at th
 - Pipeline controls and run history
 - Scheduler editor (UI override + `.env` fallback), run progress hints, and reading publication status per run
 - Site settings, backup/restore, audit log
+- SMTP settings + test-send flow for transactional emails (verification + password reset)
+- Accounts & billing controls (manual pro override, discount code management)
+- Admin RBAC management (`owner`, `admin`, `support`, `readonly`)
+- Operational health/SLO panel (webhook freshness, checkout failures, token cleanup backlog, override hygiene)
+
+### User Accounts API
+
+- Auth/session: `POST /v1/user/auth/register`, `POST /v1/user/auth/login`, `POST /v1/user/auth/logout`, `POST /v1/user/auth/logout-all`
+- Verification/recovery: `POST /v1/user/auth/verify-email`, `POST /v1/user/auth/resend-verification`, `POST /v1/user/auth/forgot-password`, `POST /v1/user/auth/reset-password`
+- Account management/governance: `GET /v1/user/auth/me`, `PUT /v1/user/auth/me`, `PUT /v1/user/auth/me/password`, `GET /v1/user/auth/me/export`, `DELETE /v1/user/auth/me`
+- Profile + natal: `GET /v1/user/profile`, `PUT /v1/user/profile/birth-data`, `PUT /v1/user/profile/house-system`, `GET /v1/user/profile/natal-chart`, `POST /v1/user/profile/natal-chart/recalculate`
+- Personalized readings: `GET /v1/user/readings/personal`, `POST /v1/user/readings/personal/jobs`, `GET /v1/user/readings/personal/jobs`, `GET /v1/user/readings/personal/jobs/{job_id}`, `GET /v1/user/readings/personal/history`
+- Subscription/billing: `GET /v1/user/subscription`, `POST /v1/user/subscription/checkout`, `POST /v1/user/subscription/portal`, `GET /v1/user/subscription/prices`, Stripe webhook: `POST /v1/stripe/webhook`
 
 ## Testing
 
@@ -217,6 +244,28 @@ Test suite includes:
 - Pipeline orchestrator tests with mocked stages
 - API endpoint tests
 
+CI workflows:
+- `.github/workflows/ci.yml`: lint (critical changed paths), pytest, and migration head check
+- `.github/workflows/perf-guard.yml`: user-path latency guardrails
+- `.github/workflows/release.yml`: preflight migrations/smoke checks and production confirmation gate
+
+### Performance Benchmarks
+
+Run concurrent user-path benchmarks (natal calculation + personalized reading generation path):
+
+```bash
+python tests/perf/benchmark_user_paths.py --requests 40 --concurrency 8
+```
+
+Guardrail thresholds used in CI (`perf-guard.yml`):
+- natal chart p95 <= `400ms`
+- personal reading p95 <= `400ms`
+- combined p95 mean <= `300ms`
+
+Operational runbooks:
+- `docs/runbooks/backup_restore_drill.md`
+- `docs/runbooks/release.md`
+
 ## Project Structure
 
 ```
@@ -231,7 +280,7 @@ voidwire/
     src/voidwire/
       config.py           # Pydantic settings from env
       database.py         # Async SQLAlchemy engine/sessions
-      models/             # 17 SQLAlchemy ORM models
+      models/             # SQLAlchemy ORM models
       services/           # LLM client, encryption
       schemas/            # Pydantic validation schemas
   ephemeris/              # Ephemeris calculator

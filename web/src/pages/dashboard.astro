@@ -1,0 +1,404 @@
+---
+import Base from '../layouts/Base.astro';
+import Background from '../components/Background.svelte';
+import BirthDataForm from '../components/BirthDataForm.svelte';
+import SubscriptionManager from '../components/SubscriptionManager.svelte';
+---
+
+<Base title="Dashboard">
+  <Background />
+
+  <header class="site-header">
+    <div class="site-title"><a href="/">VOIDWIRE</a></div>
+    <nav class="site-nav">
+      <a href="/archive">Archive</a>
+      <a href="/events">Events</a>
+      <a href="/about">About</a>
+    </nav>
+  </header>
+
+  <main>
+    <div id="auth-gate" style="display: none;">
+      <div class="status-message">
+        <p>Redirecting to login...</p>
+      </div>
+    </div>
+
+    <div id="dashboard-content" style="display: none;">
+      <div class="dashboard-container">
+        <h1 class="page-title">Your Dashboard</h1>
+
+        <!-- User info -->
+        <div id="user-info" class="user-info"></div>
+
+        <!-- Personal reading section -->
+        <div id="reading-section" class="reading-section">
+          <div class="section-label">Personal Reading</div>
+          <div id="reading-content" class="reading-content">
+            <div class="loading">Loading your reading...</div>
+          </div>
+        </div>
+
+        <!-- Profile section -->
+        <div class="profile-section">
+          <div class="section-label">Birth Data</div>
+          <div id="profile-status"></div>
+          <div id="birth-form-wrapper" style="display: none;">
+            <BirthDataForm client:visible onSave={() => window.location.reload()} />
+          </div>
+        </div>
+
+        <!-- Subscription section -->
+        <div class="subscription-section">
+          <div class="section-label">Subscription</div>
+          <SubscriptionManager client:visible />
+        </div>
+
+        <!-- Reading history link -->
+        <div class="history-link-wrapper">
+          <a href="#" id="history-link" class="continued-link">Reading History</a>
+        </div>
+
+        <!-- Logout -->
+        <div class="logout-wrapper">
+          <button id="logout-button" class="logout-button">Logout</button>
+        </div>
+      </div>
+    </div>
+  </main>
+</Base>
+
+<script>
+  import { clearToken, authFetch } from '../utils/auth';
+
+  function escapeHtml(value: unknown): string {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function paragraphsToHtml(value: unknown): string {
+    return String(value ?? '')
+      .split(/\n\n+/)
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .map((p) => `<p>${escapeHtml(p)}</p>`)
+      .join('');
+  }
+
+  function sectionToHtml(section: any): string {
+    const heading = escapeHtml(section?.heading ?? '');
+    const body = paragraphsToHtml(section?.body ?? '');
+    return `<div class="section"><h3 class="section-heading">${heading}</h3>${body}</div>`;
+  }
+
+  const content = document.getElementById('dashboard-content');
+  if (content) content.style.display = 'block';
+  loadDashboard();
+
+  async function loadDashboard() {
+    // Load user info
+    try {
+      const meRes = await authFetch('/v1/user/auth/me');
+      if (!meRes.ok) {
+        if (meRes.status === 401) {
+          clearToken();
+          window.location.href = '/login';
+          return;
+        }
+        throw new Error('Failed to load user info');
+      }
+      const me = await meRes.json();
+      const userInfo = document.getElementById('user-info');
+      if (userInfo) {
+        const tier = me.tier === 'pro' ? 'pro' : 'free';
+        const displayName = me.display_name ? escapeHtml(me.display_name) : '';
+        userInfo.innerHTML = `
+          <div class="info-row">
+            <span class="info-label">Email</span>
+            <span class="info-value">${escapeHtml(me.email)}</span>
+          </div>
+          ${displayName ? `<div class="info-row"><span class="info-label">Name</span><span class="info-value">${displayName}</span></div>` : ''}
+          <div class="info-row">
+            <span class="info-label">Tier</span>
+            <span class="info-value tier-${tier}">${tier.toUpperCase()}</span>
+          </div>
+        `;
+      }
+
+      // Show birth form if no profile
+      if (!me.has_profile) {
+        const profileStatus = document.getElementById('profile-status');
+        if (profileStatus) {
+          profileStatus.innerHTML = '<p class="profile-prompt">Complete your birth data to receive personalized readings.</p>';
+        }
+        const formWrapper = document.getElementById('birth-form-wrapper');
+        if (formWrapper) formWrapper.style.display = 'block';
+      } else {
+        // Load profile info
+        const profileRes = await authFetch('/v1/user/profile/');
+        if (profileRes.ok) {
+          const profile = await profileRes.json();
+          const profileStatus = document.getElementById('profile-status');
+          if (profileStatus) {
+            const birthDate = escapeHtml(profile.birth_date ?? '');
+            const birthCity = escapeHtml(profile.birth_city ?? '');
+            const houseSystem = escapeHtml(profile.house_system ?? '');
+            profileStatus.innerHTML = `
+              <div class="profile-summary">
+                <div class="info-row"><span class="info-label">Birth Date</span><span class="info-value">${birthDate}</span></div>
+                <div class="info-row"><span class="info-label">Location</span><span class="info-value">${birthCity}</span></div>
+                <div class="info-row"><span class="info-label">House System</span><span class="info-value">${houseSystem}</span></div>
+                <button id="edit-profile-btn" class="edit-button">Edit Birth Data</button>
+              </div>
+            `;
+            document.getElementById('edit-profile-btn')?.addEventListener('click', () => {
+              const formWrapper = document.getElementById('birth-form-wrapper');
+              if (formWrapper) formWrapper.style.display = formWrapper.style.display === 'none' ? 'block' : 'none';
+            });
+          }
+        }
+
+        // Load personal reading
+        try {
+          const readingRes = await authFetch('/v1/user/readings/personal');
+          const readingContent = document.getElementById('reading-content');
+          if (readingRes.ok) {
+            const reading = await readingRes.json();
+            if (readingContent) {
+              const tierLabel = reading.tier === 'pro' ? 'Pro Reading' : 'Weekly Reading';
+              const bodyHtml = paragraphsToHtml(reading.body);
+              let sectionsHtml = '';
+              const sections = Array.isArray(reading.sections) ? reading.sections : [];
+              if (sections.length > 0) {
+                sectionsHtml = sections.map((s: any) => sectionToHtml(s)).join('');
+              }
+              const safeTitle = escapeHtml(reading.title);
+              const safeDateContext = escapeHtml(reading.date_context);
+              const safeWordCount = Number(reading.word_count) || 0;
+              readingContent.innerHTML = `
+                <div class="reading-tier-badge">${escapeHtml(tierLabel)}</div>
+                <h2 class="reading-title">${safeTitle}</h2>
+                <div class="reading-meta">${safeDateContext} · ${safeWordCount} words</div>
+                <div class="reading-body">${bodyHtml}</div>
+                ${sectionsHtml}
+              `;
+            }
+          } else if (readingRes.status === 503) {
+            if (readingContent) {
+              readingContent.innerHTML = '<p class="muted">Personal reading LLM slot not yet configured. Ask your admin to set it up.</p>';
+            }
+          } else if (readingRes.status === 400) {
+            if (readingContent) {
+              readingContent.innerHTML = '<p class="muted">Complete your birth data above to receive personalized readings.</p>';
+            }
+          }
+        } catch {
+          const readingContent = document.getElementById('reading-content');
+          if (readingContent) {
+            readingContent.innerHTML = '<p class="muted">Could not load reading.</p>';
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Dashboard load error:', err);
+    }
+  }
+
+  // Logout
+  document.getElementById('logout-button')?.addEventListener('click', async () => {
+    try {
+      await authFetch('/v1/user/auth/logout', { method: 'POST' });
+    } catch {
+      // Always clear local legacy tokens regardless of network state.
+    }
+    clearToken();
+    window.location.href = '/login';
+  });
+</script>
+
+<style>
+  .dashboard-container {
+    max-width: var(--max-width);
+    margin: 4rem auto;
+    padding: 0 1.5rem;
+  }
+
+  .page-title {
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--accent);
+    text-align: center;
+    margin-bottom: 3rem;
+    font-weight: 500;
+  }
+
+  .section-label {
+    font-family: var(--font-sans);
+    font-size: 0.6rem;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+    margin-top: 3rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--text-ghost);
+  }
+
+  .user-info,
+  .profile-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  :global(.info-row) {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-sans);
+    font-size: 0.8rem;
+    padding: 0.3rem 0;
+  }
+
+  :global(.info-label) {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  :global(.info-value) {
+    color: var(--text-secondary);
+  }
+
+  :global(.tier-pro) {
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  .reading-section {
+    margin-bottom: 2rem;
+  }
+
+  .reading-content :global(.loading),
+  .reading-content :global(.muted) {
+    font-family: var(--font-sans);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 2rem;
+  }
+
+  .reading-content :global(.reading-tier-badge) {
+    font-family: var(--font-sans);
+    font-size: 0.55rem;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--accent);
+    text-align: center;
+    margin-bottom: 0.75rem;
+  }
+
+  .reading-content :global(.reading-title) {
+    font-family: var(--font-body);
+    font-size: 1.6rem;
+    color: var(--text-primary);
+    text-align: center;
+    font-weight: 400;
+    margin-bottom: 0.5rem;
+  }
+
+  .reading-content :global(.reading-meta) {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    text-align: center;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 2rem;
+  }
+
+  .reading-content :global(.reading-body) {
+    font-size: 1.1rem;
+    color: var(--text-primary);
+    line-height: var(--line-height);
+  }
+
+  .reading-content :global(.reading-body p) {
+    margin-bottom: 1.5em;
+  }
+
+  .reading-content :global(.section-heading) {
+    font-family: var(--font-sans);
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-top: 2rem;
+    margin-bottom: 0.75rem;
+    font-weight: 500;
+  }
+
+  :global(.profile-prompt) {
+    font-family: var(--font-sans);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+  }
+
+  :global(.edit-button) {
+    background: transparent;
+    border: 1px solid var(--text-ghost);
+    color: var(--text-muted);
+    padding: 0.5rem 1rem;
+    font-family: var(--font-sans);
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    cursor: pointer;
+    margin-top: 0.75rem;
+    transition: all 0.3s ease;
+  }
+
+  :global(.edit-button:hover) {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .subscription-section {
+    margin-bottom: 2rem;
+  }
+
+  .history-link-wrapper {
+    text-align: center;
+    margin: 3rem 0;
+  }
+
+  .logout-wrapper {
+    text-align: center;
+    margin: 3rem 0 5rem;
+  }
+
+  .logout-button {
+    background: transparent;
+    border: 1px solid var(--text-ghost);
+    color: var(--text-muted);
+    padding: 0.6rem 2rem;
+    font-family: var(--font-sans);
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.3s ease;
+  }
+
+  .logout-button:hover {
+    border-color: #c45;
+    color: #c45;
+  }
+</style>

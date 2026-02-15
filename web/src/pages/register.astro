@@ -1,0 +1,263 @@
+---
+import Base from '../layouts/Base.astro';
+import Background from '../components/Background.svelte';
+---
+
+<Base title="Register">
+  <Background />
+
+  <header class="site-header">
+    <div class="site-title"><a href="/">VOIDWIRE</a></div>
+    <nav class="site-nav">
+      <a href="/archive">Archive</a>
+      <a href="/events">Events</a>
+      <a href="/about">About</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="auth-container">
+      <h1 class="auth-title">Create Account</h1>
+      <p class="auth-subtitle">Begin receiving personalized readings</p>
+
+      <form id="register-form" class="auth-form">
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input type="email" id="email" name="email" required autocomplete="email" />
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password" required minlength="8" autocomplete="new-password" />
+        </div>
+
+        <div class="form-group">
+          <label for="confirm-password">Confirm Password</label>
+          <input type="password" id="confirm-password" name="confirm-password" required minlength="8" autocomplete="new-password" />
+        </div>
+
+        <div class="form-group">
+          <label for="display-name">Display Name <span class="optional">(optional)</span></label>
+          <input type="text" id="display-name" name="display-name" autocomplete="name" />
+        </div>
+
+        <div id="error-message" class="error-message" style="display: none;"></div>
+
+        <button type="submit" class="auth-button">Register</button>
+      </form>
+
+      <p class="oauth-note">OAuth sign-in options are coming soon.</p>
+
+      <p class="auth-link">Already have an account? <a href="/login">Login</a></p>
+    </div>
+  </main>
+</Base>
+
+<script>
+  import { setToken } from '../utils/auth';
+
+  const form = document.getElementById('register-form') as HTMLFormElement;
+  const errorEl = document.getElementById('error-message') as HTMLDivElement;
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorEl.style.display = 'none';
+
+    const email = (document.getElementById('email') as HTMLInputElement).value;
+    const password = (document.getElementById('password') as HTMLInputElement).value;
+    const confirmPassword = (document.getElementById('confirm-password') as HTMLInputElement).value;
+    const displayName = (document.getElementById('display-name') as HTMLInputElement).value;
+
+    if (password !== confirmPassword) {
+      errorEl.textContent = 'Passwords do not match';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    try {
+      const res = await fetch('/v1/user/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          password,
+          display_name: displayName || null,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.detail || 'Registration failed');
+      }
+
+      const data = await res.json();
+      setToken(data.access_token);
+      window.location.href = '/dashboard';
+    } catch (err) {
+      errorEl.textContent = err instanceof Error ? err.message : 'Registration failed';
+      errorEl.style.display = 'block';
+    }
+  });
+
+</script>
+
+<style>
+  .auth-container {
+    max-width: 400px;
+    margin: 6rem auto;
+    padding: 0 1.5rem;
+  }
+
+  .auth-title {
+    font-family: var(--font-sans);
+    font-size: 0.85rem;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--accent);
+    text-align: center;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+  }
+
+  .auth-subtitle {
+    font-family: var(--font-sans);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-align: center;
+    margin-bottom: 3rem;
+    letter-spacing: 0.1em;
+  }
+
+  .auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .form-group label {
+    font-family: var(--font-sans);
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .optional {
+    color: var(--text-ghost);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .form-group input {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--text-ghost);
+    color: var(--text-primary);
+    padding: 0.75rem 1rem;
+    font-family: var(--font-sans);
+    font-size: 0.85rem;
+    border-radius: 2px;
+    transition: border-color 0.3s ease;
+  }
+
+  .form-group input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .error-message {
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    color: #c45;
+    text-align: center;
+    padding: 0.5rem;
+  }
+
+  .auth-button {
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    padding: 0.85rem;
+    font-family: var(--font-sans);
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin-top: 0.5rem;
+  }
+
+  .auth-button:hover {
+    background: var(--accent-glow);
+  }
+
+  .auth-divider {
+    display: flex;
+    align-items: center;
+    margin: 2rem 0;
+    gap: 1rem;
+  }
+
+  .auth-divider::before,
+  .auth-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--text-ghost);
+  }
+
+  .auth-divider span {
+    font-family: var(--font-sans);
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+  }
+
+  .oauth-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .oauth-button {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--text-ghost);
+    color: var(--text-secondary);
+    padding: 0.75rem;
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+  }
+
+  .oauth-button:hover {
+    border-color: var(--text-muted);
+    color: var(--text-primary);
+  }
+
+  .auth-link {
+    text-align: center;
+    margin-top: 2rem;
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+
+  .auth-link a {
+    color: var(--accent);
+  }
+
+  .oauth-note {
+    font-family: var(--font-sans);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-align: center;
+    margin: 1rem 0 0;
+  }
+</style>

@@ -1,0 +1,175 @@
+---
+interface Props {
+  title: string;
+  body: string;
+  date_context: string;
+  word_count?: number;
+  tier: string;
+  sections?: { heading: string; body: string }[];
+  transit_highlights?: string[];
+}
+
+const { title, body, date_context, word_count, tier, sections, transit_highlights } = Astro.props;
+
+function escapeHtml(text: string) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function refineTypography(text: string) {
+  return escapeHtml(text)
+    .replace(/--/g, '&mdash;')
+    .replace(/(^|[-\s(\[<{])"/g, '$1&ldquo;')
+    .replace(/"/g, '&rdquo;')
+    .replace(/(^|[-\s(\[<{])'/g, '$1&lsquo;')
+    .replace(/'/g, '&rsquo;');
+}
+
+const paragraphs = body
+  .split(/\n\n+/)
+  .filter((p: string) => p.trim().length > 0)
+  .map((p: string) => `<p>${refineTypography(p.trim())}</p>`)
+  .join('\n');
+---
+
+<article class="personal-reading">
+  <header>
+    <div class="tier-badge">{tier === 'pro' ? 'Pro Reading' : 'Weekly Reading'}</div>
+    <h1 class="reading-title">{title}</h1>
+    <div class="reading-subtitle">
+      {date_context}
+      {word_count && <span>&nbsp;&middot;&nbsp;{word_count} words</span>}
+    </div>
+  </header>
+
+  <div class="reading-body" set:html={paragraphs} />
+
+  {sections && sections.length > 0 && (
+    <div class="reading-sections">
+      {sections.map((section) => (
+        <div class="reading-section">
+          <h2 class="section-heading">{section.heading}</h2>
+          <div class="section-body" set:html={
+            section.body.split(/\n\n+/)
+              .filter((p: string) => p.trim())
+              .map((p: string) => `<p>${refineTypography(p.trim())}</p>`)
+              .join('\n')
+          } />
+        </div>
+      ))}
+    </div>
+  )}
+
+  {transit_highlights && transit_highlights.length > 0 && (
+    <div class="transit-highlights">
+      <div class="highlights-label">Key Transits</div>
+      <ul>
+        {transit_highlights.map((h) => <li>{h}</li>)}
+      </ul>
+    </div>
+  )}
+</article>
+
+<style>
+  .personal-reading {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 0 1.5rem;
+  }
+
+  .tier-badge {
+    font-family: var(--font-sans);
+    font-size: 0.55rem;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--accent);
+    text-align: center;
+    margin-bottom: 1rem;
+    margin-top: 2rem;
+  }
+
+  .reading-title {
+    font-size: 2rem;
+    color: var(--text-primary);
+    text-align: center;
+    font-weight: 400;
+    margin-bottom: 1rem;
+    line-height: 1.2;
+    max-width: 32rem;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .reading-subtitle {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-align: center;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 4rem;
+  }
+
+  .reading-body {
+    font-size: 1.2rem;
+    color: var(--text-primary);
+    line-height: var(--line-height);
+  }
+
+  .reading-body :global(p) {
+    margin-bottom: 1.75em;
+  }
+
+  .reading-sections {
+    margin-top: 3rem;
+  }
+
+  .section-heading {
+    font-family: var(--font-sans);
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1rem;
+    margin-top: 2.5rem;
+    font-weight: 500;
+  }
+
+  .section-body {
+    font-size: 1.1rem;
+    color: var(--text-secondary);
+  }
+
+  .section-body :global(p) {
+    margin-bottom: 1.5em;
+  }
+
+  .transit-highlights {
+    margin-top: 3rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--text-ghost);
+  }
+
+  .highlights-label {
+    font-family: var(--font-sans);
+    font-size: 0.6rem;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+  }
+
+  .transit-highlights ul {
+    list-style: none;
+  }
+
+  .transit-highlights li {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    padding: 0.35rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  }
+</style>

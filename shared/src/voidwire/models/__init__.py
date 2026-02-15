@@ -15,6 +15,15 @@ from voidwire.models.admin_user import AdminUser
 from voidwire.models.audit_log import AuditLog
 from voidwire.models.analytics_event import AnalyticsEvent
 from voidwire.models.setup_state import SetupState
+from voidwire.models.user import User
+from voidwire.models.user_profile import UserProfile
+from voidwire.models.subscription import Subscription
+from voidwire.models.personal_reading import PersonalReading
+from voidwire.models.email_verification import EmailVerificationToken
+from voidwire.models.password_reset import PasswordResetToken
+from voidwire.models.stripe_webhook_event import StripeWebhookEvent
+from voidwire.models.discount_code import DiscountCode
+from voidwire.models.async_job import AsyncJob
 
 __all__ = [
     "Base",
@@ -35,4 +44,13 @@ __all__ = [
     "AuditLog",
     "AnalyticsEvent",
     "SetupState",
+    "User",
+    "UserProfile",
+    "Subscription",
+    "PersonalReading",
+    "EmailVerificationToken",
+    "PasswordResetToken",
+    "StripeWebhookEvent",
+    "DiscountCode",
+    "AsyncJob",
 ]

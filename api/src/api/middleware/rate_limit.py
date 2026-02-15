@@ -1,9 +1,9 @@
 """Rate limiting middleware."""
 from __future__ import annotations
 
-from ipaddress import ip_address, ip_network
 import logging
 import time
+from ipaddress import ip_address, ip_network
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -22,6 +22,18 @@ _TRUSTED_PROXY_NETWORKS = (
 
 _EXEMPT_PATHS = {
     "/v1/site/config",
+    "/v1/stripe/webhook",
+}
+
+_AUTH_RATE_LIMITS: dict[str, int] = {
+    "/v1/user/auth/register": 5,
+    "/v1/user/auth/login": 20,
+    "/v1/user/auth/oauth/google": 20,
+    "/v1/user/auth/oauth/apple": 20,
+    "/v1/user/auth/forgot-password": 3,
+    "/v1/user/auth/reset-password": 8,
+    "/v1/user/auth/verify-email": 8,
+    "/v1/user/auth/resend-verification": 5,
 }
 
 
@@ -87,9 +99,28 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if request.url.path in _EXEMPT_PATHS:
             return await call_next(request)
         settings = get_settings()
+        client_ip = _resolve_client_ip(request)
+
+        # Stricter per-endpoint auth rate limits
+        auth_limit = _AUTH_RATE_LIMITS.get(request.url.path)
+        if auth_limit and request.method == "POST":
+            try:
+                r = await self._get_redis_client(request)
+                auth_key = f"ratelimit:auth:{request.url.path}:{client_ip}:{int(time.time()//3600)}"
+                auth_count = await r.incr(auth_key)
+                if auth_count == 1:
+                    await r.expire(auth_key, 3600)
+                if auth_count > auth_limit:
+                    return Response(
+                        content='{"detail":"Rate limit exceeded"}',
+                        status_code=429,
+                        media_type="application/json",
+                    )
+            except Exception as e:
+                logger.warning("Auth rate limit check failed: %s", e)
+
         if settings.rate_limit_per_hour <= 0:
             return await call_next(request)
-        client_ip = _resolve_client_ip(request)
         try:
             r = await self._get_redis_client(request)
             key = f"ratelimit:{client_ip}:{int(time.time()//3600)}"

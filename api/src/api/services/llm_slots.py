@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.models import LLMConfig
 
-DEFAULT_LLM_SLOTS = ("distillation", "embedding", "synthesis")
+DEFAULT_LLM_SLOTS = ("distillation", "embedding", "personal_free", "personal_pro", "synthesis")
 
 
 def _build_default_slot(slot: str) -> LLMConfig:

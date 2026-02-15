@@ -17,11 +17,19 @@ import BackupPage from './pages/BackupPage';
 import SetupWizardPage from './pages/SetupWizardPage';
 import ContentPage from './pages/ContentPage';
 import SiteSettingsPage from './pages/SiteSettingsPage';
+import AccountsPage from './pages/AccountsPage';
 import { useAuth } from './hooks/useAuth';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { token } = useAuth();
-  if (!token) return <Navigate to="/login" replace />;
+  const { isAuthenticated, loading } = useAuth();
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-sm text-text-muted">
+        Checking session...
+      </div>
+    );
+  }
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
 
@@ -52,6 +60,7 @@ export default function App() {
           <Route path="settings" element={<SettingsPage />} />
           <Route path="site" element={<SiteSettingsPage />} />
           <Route path="content" element={<ContentPage />} />
+          <Route path="accounts" element={<AccountsPage />} />
           <Route path="backup" element={<BackupPage />} />
           <Route path="audit" element={<AuditPage />} />
         </Route>

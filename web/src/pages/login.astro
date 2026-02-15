@@ -1,0 +1,426 @@
+---
+import Base from '../layouts/Base.astro';
+import Background from '../components/Background.svelte';
+---
+
+<Base title="Login">
+  <Background />
+
+  <header class="site-header">
+    <div class="site-title"><a href="/">VOIDWIRE</a></div>
+    <nav class="site-nav">
+      <a href="/archive">Archive</a>
+      <a href="/events">Events</a>
+      <a href="/about">About</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="auth-container">
+      <h1 class="auth-title">Login</h1>
+      <p class="auth-subtitle">Access your personalized readings</p>
+      <div id="query-message" class="success-message" style="display: none;"></div>
+
+      <form id="login-form" class="auth-form">
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input type="email" id="email" name="email" required autocomplete="email" />
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password" required autocomplete="current-password" />
+        </div>
+
+        <div id="error-message" class="error-message" style="display: none;"></div>
+
+        <button type="submit" class="auth-button">Login</button>
+      </form>
+
+      <p class="forgot-link"><a href="#" id="forgot-password-link">Forgot password?</a></p>
+      <div id="reset-panel" style="display: none; margin-top: 1rem;">
+        <h2 class="modal-title" style="margin-bottom: 0.8rem;">Set New Password</h2>
+        <form id="reset-form" class="auth-form">
+          <div class="form-group">
+            <label for="reset-password">New Password</label>
+            <input type="password" id="reset-password" minlength="8" required />
+          </div>
+          <button type="submit" class="auth-button">Reset Password</button>
+        </form>
+      </div>
+
+      <p class="oauth-note">OAuth sign-in options are coming soon.</p>
+
+      <p class="auth-link">Don't have an account? <a href="/register">Register</a></p>
+    </div>
+
+    <!-- Forgot password modal -->
+    <div id="forgot-modal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <h2 class="modal-title">Reset Password</h2>
+        <form id="forgot-form">
+          <div class="form-group">
+            <label for="forgot-email">Email</label>
+            <input type="email" id="forgot-email" required />
+          </div>
+          <div id="forgot-message" class="success-message" style="display: none;"></div>
+          <button type="submit" class="auth-button">Send Reset Link</button>
+          <button type="button" id="forgot-cancel" class="cancel-button">Cancel</button>
+        </form>
+      </div>
+    </div>
+  </main>
+</Base>
+
+<script>
+  import { setToken } from '../utils/auth';
+
+  const form = document.getElementById('login-form') as HTMLFormElement;
+  const errorEl = document.getElementById('error-message') as HTMLDivElement;
+  const queryMessageEl = document.getElementById('query-message') as HTMLDivElement;
+  const resetPanel = document.getElementById('reset-panel') as HTMLDivElement;
+  const resetForm = document.getElementById('reset-form') as HTMLFormElement;
+  const params = new URLSearchParams(window.location.search);
+  const verifyToken = params.get('verify_token');
+  const resetToken = params.get('reset_token');
+
+  async function handleQueryTokens() {
+    if (verifyToken) {
+      try {
+        const res = await fetch('/v1/user/auth/verify-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: verifyToken }),
+        });
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({}));
+          throw new Error(payload?.detail || 'Verification failed');
+        }
+        queryMessageEl.textContent = 'Email verified successfully. You can now log in.';
+        queryMessageEl.style.display = 'block';
+      } catch (err) {
+        queryMessageEl.textContent = err instanceof Error ? err.message : 'Verification failed';
+        queryMessageEl.style.display = 'block';
+      }
+    }
+
+    if (resetToken) {
+      resetPanel.style.display = 'block';
+    }
+  }
+
+  void handleQueryTokens();
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorEl.style.display = 'none';
+
+    const email = (document.getElementById('email') as HTMLInputElement).value;
+    const password = (document.getElementById('password') as HTMLInputElement).value;
+
+    try {
+      const res = await fetch('/v1/user/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.detail || 'Login failed');
+      }
+
+      const data = await res.json();
+      setToken(data.access_token);
+      window.location.href = '/dashboard';
+    } catch (err) {
+      errorEl.textContent = err instanceof Error ? err.message : 'Login failed';
+      errorEl.style.display = 'block';
+    }
+  });
+
+  // Forgot password modal
+  const forgotLink = document.getElementById('forgot-password-link');
+  const forgotModal = document.getElementById('forgot-modal') as HTMLDivElement;
+  const forgotForm = document.getElementById('forgot-form') as HTMLFormElement;
+  const forgotCancel = document.getElementById('forgot-cancel');
+  const forgotMessage = document.getElementById('forgot-message') as HTMLDivElement;
+
+  forgotLink?.addEventListener('click', (e) => {
+    e.preventDefault();
+    forgotModal.style.display = 'flex';
+  });
+
+  forgotCancel?.addEventListener('click', () => {
+    forgotModal.style.display = 'none';
+  });
+
+  forgotForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = (document.getElementById('forgot-email') as HTMLInputElement).value;
+
+    await fetch('/v1/user/auth/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+
+    forgotMessage.textContent = 'If that email exists, a reset link has been sent.';
+    forgotMessage.style.display = 'block';
+  });
+
+  resetForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!resetToken) return;
+
+    const newPassword = (document.getElementById('reset-password') as HTMLInputElement).value;
+    if (newPassword.length < 8) {
+      queryMessageEl.textContent = 'Password must be at least 8 characters.';
+      queryMessageEl.style.display = 'block';
+      return;
+    }
+
+    try {
+      const res = await fetch('/v1/user/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: resetToken, new_password: newPassword }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload?.detail || 'Password reset failed');
+      }
+      queryMessageEl.textContent = 'Password reset successfully. Log in with your new password.';
+      queryMessageEl.style.display = 'block';
+      resetPanel.style.display = 'none';
+      const clean = new URL(window.location.href);
+      clean.searchParams.delete('reset_token');
+      window.history.replaceState({}, '', clean.toString());
+    } catch (err) {
+      queryMessageEl.textContent = err instanceof Error ? err.message : 'Password reset failed';
+      queryMessageEl.style.display = 'block';
+    }
+  });
+
+</script>
+
+<style>
+  .auth-container {
+    max-width: 400px;
+    margin: 6rem auto;
+    padding: 0 1.5rem;
+  }
+
+  .auth-title {
+    font-family: var(--font-sans);
+    font-size: 0.85rem;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--accent);
+    text-align: center;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+  }
+
+  .auth-subtitle {
+    font-family: var(--font-sans);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-align: center;
+    margin-bottom: 3rem;
+    letter-spacing: 0.1em;
+  }
+
+  .auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .form-group label {
+    font-family: var(--font-sans);
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .form-group input {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--text-ghost);
+    color: var(--text-primary);
+    padding: 0.75rem 1rem;
+    font-family: var(--font-sans);
+    font-size: 0.85rem;
+    border-radius: 2px;
+    transition: border-color 0.3s ease;
+  }
+
+  .form-group input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .error-message {
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    color: #c45;
+    text-align: center;
+    padding: 0.5rem;
+  }
+
+  .success-message {
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    color: var(--accent);
+    text-align: center;
+    padding: 0.5rem;
+  }
+
+  .auth-button {
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    padding: 0.85rem;
+    font-family: var(--font-sans);
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin-top: 0.5rem;
+  }
+
+  .auth-button:hover {
+    background: var(--accent-glow);
+  }
+
+  .forgot-link {
+    text-align: right;
+    margin-top: 0.5rem;
+    font-family: var(--font-sans);
+    font-size: 0.7rem;
+  }
+
+  .forgot-link a {
+    color: var(--text-muted);
+  }
+
+  .auth-divider {
+    display: flex;
+    align-items: center;
+    margin: 2rem 0;
+    gap: 1rem;
+  }
+
+  .auth-divider::before,
+  .auth-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--text-ghost);
+  }
+
+  .auth-divider span {
+    font-family: var(--font-sans);
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+  }
+
+  .oauth-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .oauth-button {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--text-ghost);
+    color: var(--text-secondary);
+    padding: 0.75rem;
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+  }
+
+  .oauth-button:hover {
+    border-color: var(--text-muted);
+    color: var(--text-primary);
+  }
+
+  .auth-link {
+    text-align: center;
+    margin-top: 2rem;
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+
+  .auth-link a {
+    color: var(--accent);
+  }
+
+  .oauth-note {
+    font-family: var(--font-sans);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-align: center;
+    margin: 1rem 0 0;
+  }
+
+  .modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+
+  .modal-content {
+    background: var(--surface);
+    border: 1px solid var(--text-ghost);
+    padding: 2rem;
+    max-width: 400px;
+    width: 90%;
+  }
+
+  .modal-title {
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1.5rem;
+    font-weight: 500;
+  }
+
+  .cancel-button {
+    background: transparent;
+    border: 1px solid var(--text-ghost);
+    color: var(--text-muted);
+    padding: 0.75rem;
+    font-family: var(--font-sans);
+    font-size: 0.7rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    cursor: pointer;
+    margin-top: 0.5rem;
+    width: 100%;
+    transition: all 0.3s ease;
+  }
+
+  .cancel-button:hover {
+    border-color: var(--text-muted);
+  }
+</style>

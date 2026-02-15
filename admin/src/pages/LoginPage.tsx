@@ -9,17 +9,17 @@ export default function LoginPage() {
   const [totp, setTotp] = useState('');
   const [error, setError] = useState('');
   const navigate = useNavigate();
-  const { setToken } = useAuth();
+  const { setAuthenticated } = useAuth();
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
     try {
-      const data = await apiPost('/admin/auth/login', { email, password, totp_code: totp });
-      setToken(data.access_token);
+      await apiPost('/admin/auth/login', { email, password, totp_code: totp });
+      setAuthenticated(true);
       navigate('/');
-    } catch {
-      setError('Invalid credentials');
+    } catch (e: any) {
+      setError(e?.message || 'Invalid credentials');
     }
   }
 

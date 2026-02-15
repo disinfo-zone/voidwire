@@ -1,0 +1,124 @@
+---
+import Base from '../layouts/Base.astro';
+import Background from '../components/Background.svelte';
+import { apiUrl, forwardedApiHeaders } from '../utils/api';
+
+type ContentSection = {
+  heading: string;
+  body: string;
+};
+
+type ContentPayload = {
+  title: string;
+  sections: ContentSection[];
+};
+
+const FALLBACK_BY_SLUG: Record<string, ContentPayload> = {
+  privacy: {
+    title: 'Privacy Policy',
+    sections: [
+      {
+        heading: 'Data We Collect',
+        body: 'Voidwire stores account identity data, profile inputs, subscription status, and generated readings tied to your account.',
+      },
+    ],
+  },
+  terms: {
+    title: 'Terms of Service',
+    sections: [
+      {
+        heading: 'Service Scope',
+        body: 'Voidwire provides software-generated astrological content for informational and entertainment purposes only.',
+      },
+    ],
+  },
+  'billing-policy': {
+    title: 'Billing Policy',
+    sections: [
+      {
+        heading: 'Subscriptions',
+        body: 'Pro access is subscription-based unless manually overridden by administration for support/testing.',
+      },
+    ],
+  },
+  disclaimer: {
+    title: 'Disclaimer',
+    sections: [
+      {
+        heading: 'No Professional Advice',
+        body: 'Voidwire outputs are generated text and are not a substitute for legal, medical, mental health, or financial advice.',
+      },
+    ],
+  },
+};
+
+const slug = String(Astro.params.content || '').trim().toLowerCase();
+const fallback = FALLBACK_BY_SLUG[slug] || FALLBACK_BY_SLUG.disclaimer;
+let pageTitle = fallback.title;
+let sections = fallback.sections;
+const apiHeaders = forwardedApiHeaders(Astro.clientAddress);
+
+try {
+  const res = await fetch(apiUrl(`/v1/content/${slug}`), { headers: apiHeaders });
+  if (res.ok) {
+    const data = await res.json();
+    if (typeof data?.title === 'string' && data.title.trim()) {
+      pageTitle = data.title.trim();
+    }
+    if (Array.isArray(data?.sections)) {
+      const parsed = data.sections
+        .map((raw: unknown): ContentSection | null => {
+          if (!raw || typeof raw !== 'object') return null;
+          const item = raw as Record<string, unknown>;
+          const heading = String(item.heading ?? '').trim();
+          const body = String(item.body ?? '').trim();
+          if (!heading && !body) return null;
+          return { heading, body };
+        })
+        .filter((item: ContentSection | null): item is ContentSection => item !== null);
+      if (parsed.length > 0) {
+        sections = parsed;
+      }
+    }
+  }
+} catch {
+  // Keep fallback content if API is unavailable.
+}
+
+function toParagraphs(body: string): string[] {
+  return body
+    .split(/\n\n+/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+---
+
+<Base title={pageTitle} canonicalPath={`/${slug}`}>
+  <Background />
+
+  <header class="site-header">
+    <h1 class="site-title"><a href="/">VOIDWIRE</a></h1>
+    <nav class="site-nav">
+      <a href="/archive">Archive</a>
+      <a href="/events">Events</a>
+      <a href="/about">About</a>
+    </nav>
+  </header>
+
+  <main class="colophon">
+    {sections.map((section) => (
+      <section class="content-section">
+        {section.heading && <h2>{section.heading}</h2>}
+        {toParagraphs(section.body).map((paragraph) => (
+          <p>{paragraph}</p>
+        ))}
+      </section>
+    ))}
+  </main>
+</Base>
+
+<style>
+  .content-section + .content-section {
+    margin-top: 3rem;
+  }
+</style>

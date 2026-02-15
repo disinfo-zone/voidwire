@@ -1,10 +1,10 @@
-from starlette.requests import Request
-
 from api.middleware.rate_limit import (
+    _AUTH_RATE_LIMITS,
     _extract_forwarded_client_ip,
     _is_trusted_proxy_host,
     _resolve_client_ip,
 )
+from starlette.requests import Request
 
 
 def _make_request(remote: str, xff: str | None = None) -> Request:
@@ -45,3 +45,9 @@ def test_resolve_client_ip_uses_forwarded_ip_for_trusted_proxy() -> None:
 def test_resolve_client_ip_ignores_forwarded_ip_for_untrusted_remote() -> None:
     request = _make_request("8.8.8.8", "198.51.100.10")
     assert _resolve_client_ip(request) == "8.8.8.8"
+
+
+def test_auth_rate_limits_cover_sensitive_token_endpoints() -> None:
+    assert "/v1/user/auth/reset-password" in _AUTH_RATE_LIMITS
+    assert "/v1/user/auth/verify-email" in _AUTH_RATE_LIMITS
+    assert "/v1/user/auth/resend-verification" in _AUTH_RATE_LIMITS
