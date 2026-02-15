@@ -1,0 +1,118 @@
+---
+interface Props {
+  title?: string;
+  description?: string;
+  canonicalPath?: string;
+}
+
+const { title, description, canonicalPath } = Astro.props;
+
+import '../styles/global.css';
+import { apiUrl, forwardedApiHeaders } from '../utils/api';
+
+type SiteConfig = {
+  site_title: string;
+  tagline: string;
+  site_url: string;
+  timezone: string;
+  favicon_url: string;
+  meta_description: string;
+  og_image_url: string;
+  og_title_template: string;
+  twitter_handle: string;
+  tracking_head: string;
+  tracking_body: string;
+};
+
+const defaultSiteConfig: SiteConfig = {
+  site_title: 'VOIDWIRE',
+  tagline: 'Daily transmissions from the celestial wire.',
+  site_url: 'http://localhost',
+  timezone: 'UTC',
+  favicon_url: '',
+  meta_description: 'Daily transmissions from the celestial wire.',
+  og_image_url: '',
+  og_title_template: '{{title}} | {{site_title}}',
+  twitter_handle: '',
+  tracking_head: '',
+  tracking_body: '',
+};
+
+let siteConfig: SiteConfig = defaultSiteConfig;
+const apiHeaders = forwardedApiHeaders(Astro.clientAddress);
+try {
+  const res = await fetch(apiUrl('/v1/site/config'), { headers: apiHeaders });
+  if (res.ok) {
+    const data = await res.json();
+    siteConfig = { ...defaultSiteConfig, ...data };
+  }
+} catch {
+  siteConfig = defaultSiteConfig;
+}
+
+const siteTitle = String(siteConfig.site_title || defaultSiteConfig.site_title).trim() || 'VOIDWIRE';
+const pageTitle = title ? `${title} | ${siteTitle}` : siteTitle;
+const pageDescription =
+  description ||
+  String(siteConfig.meta_description || siteConfig.tagline || defaultSiteConfig.meta_description).trim();
+
+const faviconUrl = String(siteConfig.favicon_url || '').trim() || '/favicon.ico';
+const ogTemplate = String(siteConfig.og_title_template || '{{title}} | {{site_title}}');
+const ogTitle = ogTemplate
+  .replaceAll('{{title}}', title ? String(title) : siteTitle)
+  .replaceAll('{{site_title}}', siteTitle);
+
+let canonicalUrl = '';
+try {
+  const base = String(siteConfig.site_url || defaultSiteConfig.site_url).trim();
+  const path = String(canonicalPath || Astro.url.pathname || '/');
+  canonicalUrl = new URL(path, base).toString();
+} catch {
+  canonicalUrl = '';
+}
+
+const ogImageUrl = String(siteConfig.og_image_url || '').trim();
+const twitterHandle = String(siteConfig.twitter_handle || '').trim();
+const trackingHead = String(siteConfig.tracking_head || '');
+const trackingBody = String(siteConfig.tracking_body || '');
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={pageDescription} />
+    <meta name="theme-color" content="#050505" />
+    <title>{pageTitle}</title>
+    <link rel="icon" href={faviconUrl} />
+    {canonicalUrl && <link rel="canonical" href={canonicalUrl} />}
+    <meta property="og:title" content={ogTitle} />
+    <meta property="og:description" content={pageDescription} />
+    <meta property="og:type" content="website" />
+    {canonicalUrl && <meta property="og:url" content={canonicalUrl} />}
+    {ogImageUrl && <meta property="og:image" content={ogImageUrl} />}
+    <meta name="twitter:card" content={ogImageUrl ? 'summary_large_image' : 'summary'} />
+    <meta name="twitter:title" content={ogTitle} />
+    <meta name="twitter:description" content={pageDescription} />
+    {twitterHandle && <meta name="twitter:site" content={twitterHandle} />}
+    {ogImageUrl && <meta name="twitter:image" content={ogImageUrl} />}
+
+    <!-- Google Fonts preconnect -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@300;400&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Feeds -->
+    <link rel="alternate" type="application/rss+xml" title="VOIDWIRE RSS" href="/feed.xml" />
+    <link rel="alternate" type="application/atom+xml" title="VOIDWIRE Atom" href="/feed.atom" />
+    {trackingHead && <Fragment set:html={trackingHead} />}
+  </head>
+  <body>
+    <slot />
+    {trackingBody && <Fragment set:html={trackingBody} />}
+  </body>
+</html>

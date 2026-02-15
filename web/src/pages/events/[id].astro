@@ -1,0 +1,286 @@
+---
+import Base from '../../layouts/Base.astro';
+import Reading from '../../components/Reading.astro';
+import TransitGrid from '../../components/TransitGrid.svelte';
+import Background from '../../components/Background.svelte';
+import { apiUrl, forwardedApiHeaders } from '../../utils/api';
+
+const { id } = Astro.params;
+
+let event: any = null;
+let reading: any = null;
+let ephemeris: any = null;
+let error: string | null = null;
+let notFound = false;
+let siteTimezone = 'UTC';
+const apiHeaders = forwardedApiHeaders(Astro.clientAddress);
+
+try {
+  const cfgRes = await fetch(apiUrl('/v1/site/config'), { headers: apiHeaders });
+  if (cfgRes.ok) {
+    const cfg = await cfgRes.json();
+    siteTimezone = String(cfg?.timezone || 'UTC') || 'UTC';
+  }
+} catch {}
+
+try {
+  const res = await fetch(apiUrl(`/v1/events/${id}`), { headers: apiHeaders });
+  if (res.ok) {
+    event = await res.json();
+    reading = event?.reading || null;
+  } else if (res.status === 404) {
+    notFound = true;
+  } else {
+    error = `Unexpected status: ${res.status}`;
+  }
+} catch (e) {
+  error = e instanceof Error ? e.message : 'Unknown error';
+}
+
+if (reading?.date_context) {
+  try {
+    const ephemRes = await fetch(apiUrl(`/v1/ephemeris/${reading.date_context}`), {
+      headers: apiHeaders,
+    });
+    if (ephemRes.ok) {
+      ephemeris = await ephemRes.json();
+    }
+  } catch {}
+}
+
+function formatEventType(type: string): string {
+  return (type || '').replace(/_/g, ' ');
+}
+
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: siteTimezone,
+      timeZoneName: 'short',
+    });
+  } catch {
+    return iso;
+  }
+}
+
+const aspects = ephemeris?.aspects || [];
+const pageTitle = event ? `${formatEventType(event.event_type)} Event Reading` : 'Event Reading';
+const extended = reading?.extended || null;
+const showExtended = !!(extended && Array.isArray(extended.sections) && extended.sections.length > 0);
+---
+
+<Base title={pageTitle}>
+  <Background />
+
+  <header class="site-header">
+    <div class="site-title"><a href="/">VOIDWIRE</a></div>
+    <nav class="site-nav">
+      <a href="/archive">Archive</a>
+      <a href="/events">Events</a>
+      <a href="/about">About</a>
+    </nav>
+  </header>
+
+  <main>
+    {event && (
+      <section class="event-header">
+        <div class="event-kicker">Event Reading</div>
+        <h2>{formatEventType(event.event_type)}</h2>
+        <div class="event-meta">
+          {event.body && <span>{event.body}</span>}
+          {event.body && event.sign && <span> in </span>}
+          {event.sign && <span>{event.sign}</span>}
+          {event.significance && <span> - {event.significance}</span>}
+        </div>
+        <div class="event-date">{formatDate(event.at)}</div>
+      </section>
+    )}
+
+    {reading && (
+      <Reading
+        title={reading.title}
+        body={reading.body}
+        date_context={reading.date_context}
+        word_count={reading.word_count}
+        has_extended={false}
+      />
+    )}
+
+    {reading && showExtended && (
+      <section class="extended-content">
+        <div class="section-divider"></div>
+        {extended.sections.map((section: any) => (
+          <article class="extended-block">
+            {section.heading && <h3 class="extended-heading">{section.heading}</h3>}
+            <div class="extended-body">{section.body}</div>
+          </article>
+        ))}
+      </section>
+    )}
+
+    {reading && aspects.length > 0 && (
+      <section class="transit-visualization">
+        <div class="section-label">Celestial Geometry</div>
+        <TransitGrid aspects={aspects} client:visible />
+      </section>
+    )}
+
+    {reading && reading.annotations && reading.annotations.length > 0 && (
+      <section class="annotations-section">
+        <div class="section-label">Annotations</div>
+        <div class="annotations-list">
+          {reading.annotations.map((a: any) => (
+            <div class="annotation-item">
+              <div class="annotation-aspect">{a.aspect}</div>
+              <div class="annotation-gloss">{a.gloss}</div>
+              {a.cultural_resonance && <div class="annotation-resonance">{a.cultural_resonance}</div>}
+            </div>
+          ))}
+        </div>
+      </section>
+    )}
+
+    {!error && !notFound && event && !reading && (
+      <div class="status-message">
+        <p>Event reading is not available yet.</p>
+      </div>
+    )}
+
+    {notFound && (
+      <div class="status-message">
+        <p>Event not found</p>
+      </div>
+    )}
+
+    {error && (
+      <div class="status-message">
+        <p>Signal disrupted</p>
+        <p style="font-size: 0.9rem; margin-top: 0.5rem; opacity: 0.6;">{error}</p>
+      </div>
+    )}
+  </main>
+</Base>
+
+<style>
+  .event-header {
+    max-width: var(--max-width);
+    margin: 2rem auto 2rem;
+    padding: 0 1.5rem;
+    text-align: center;
+  }
+
+  .event-kicker {
+    font-family: var(--font-sans);
+    font-size: 0.65rem;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+  }
+
+  .event-header h2 {
+    margin: 0;
+    text-transform: capitalize;
+  }
+
+  .event-meta {
+    margin-top: 1rem;
+    color: var(--text-muted);
+  }
+
+  .event-date {
+    margin-top: 0.8rem;
+    font-family: var(--font-sans);
+    color: var(--text-ghost);
+    font-size: 0.8rem;
+  }
+
+  .section-divider {
+    max-width: 100px;
+    height: 1px;
+    background: var(--text-ghost);
+    margin: 6rem auto;
+  }
+
+  .section-label {
+    font-family: var(--font-sans);
+    font-size: 0.6rem;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    text-align: center;
+    margin-bottom: 3rem;
+  }
+
+  .extended-content {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 0 1.5rem 6rem;
+  }
+
+  .extended-block {
+    margin-bottom: 5rem;
+  }
+
+  .extended-heading {
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    color: var(--accent);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 2rem;
+    font-weight: 500;
+  }
+
+  .extended-body {
+    font-size: 1.25rem;
+    line-height: 1.8;
+    color: var(--text-primary);
+  }
+
+  .transit-visualization {
+    max-width: 1000px;
+    margin: 6rem auto;
+    padding: 0 1.5rem;
+  }
+
+  .annotations-section {
+    max-width: var(--max-width);
+    margin: 6rem auto;
+    padding: 0 1.5rem 10rem;
+  }
+
+  .annotations-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4rem;
+  }
+
+  .annotation-aspect {
+    font-family: var(--font-sans);
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1rem;
+  }
+
+  .annotation-gloss {
+    font-size: 1.2rem;
+    line-height: 1.7;
+    margin-bottom: 0.75rem;
+  }
+
+  .annotation-resonance {
+    font-size: 1rem;
+    color: var(--text-muted);
+    font-style: italic;
+    padding-left: 1.5rem;
+    border-left: 1px solid var(--text-ghost);
+  }
+</style>

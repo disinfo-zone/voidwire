@@ -1,0 +1,51 @@
+---
+interface Props {
+  title: string;
+  body: string;
+  date_context: string;
+  word_count?: number;
+  has_extended?: boolean;
+}
+
+const { title, body, date_context, word_count, has_extended } = Astro.props;
+
+function refineTypography(text: string) {
+  return text
+    // em-dashes
+    .replace(/--/g, '&mdash;')
+    // smart opening double quotes
+    .replace(/(^|[-\s(\[<{])"/g, '$1&ldquo;')
+    // smart closing double quotes
+    .replace(/"/g, '&rdquo;')
+    // smart opening single quotes
+    .replace(/(^|[-\s(\[<{])'/g, '$1&lsquo;')
+    // smart closing single quotes/apostrophes
+    .replace(/'/g, '&rsquo;');
+}
+
+const paragraphs = body
+  .split(/\n\n+/)
+  .filter((p: string) => p.trim().length > 0)
+  .map((p: string) => `<p>${refineTypography(p.trim())}</p>`)
+  .join('\n');
+---
+
+<article class="reading">
+  <header>
+    <h1 class="reading-title">{title}</h1>
+    <div class="reading-subtitle">
+      {date_context}
+      {word_count && <span>&nbsp;&middot;&nbsp;{word_count} words</span>}
+    </div>
+  </header>
+
+  <div class="reading-body" set:html={paragraphs} />
+
+  {has_extended && (
+    <div class="continued-link-wrapper">
+      <a href={`/reading/${date_context}`} class="continued-link">
+        Continue Reading
+      </a>
+    </div>
+  )}
+</article>

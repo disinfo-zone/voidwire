@@ -1,0 +1,142 @@
+---
+import Base from '../../layouts/Base.astro';
+import Background from '../../components/Background.svelte';
+import { apiUrl, forwardedApiHeaders } from '../../utils/api';
+
+interface AstroEvent {
+  id: string;
+  event_type: string;
+  body?: string;
+  sign?: string;
+  at: string;
+  significance?: string;
+  reading_available?: boolean;
+  reading_status?: string;
+  reading_title?: string;
+  reading_url?: string | null;
+}
+
+let events: AstroEvent[] = [];
+let error: string | null = null;
+let siteTimezone = 'UTC';
+const apiHeaders = forwardedApiHeaders(Astro.clientAddress);
+
+try {
+  const cfgRes = await fetch(apiUrl('/v1/site/config'), { headers: apiHeaders });
+  if (cfgRes.ok) {
+    const cfg = await cfgRes.json();
+    siteTimezone = String(cfg?.timezone || 'UTC') || 'UTC';
+  }
+} catch {}
+
+try {
+  const res = await fetch(apiUrl('/v1/events?limit=50'), { headers: apiHeaders });
+  if (res.ok) {
+    const data = await res.json();
+    events = data.items || data;
+  } else {
+    error = `Failed to load events (${res.status})`;
+  }
+} catch (e) {
+  error = e instanceof Error ? e.message : 'Unknown error';
+}
+
+function formatEventType(type: string): string {
+  return type.replace(/_/g, ' ');
+}
+
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: siteTimezone,
+      timeZoneName: 'short',
+    });
+  } catch {
+    return iso;
+  }
+}
+---
+
+<Base title="Events">
+  <Background />
+
+  <header class="site-header">
+    <h1 class="site-title"><a href="/">VOIDWIRE</a></h1>
+    <nav class="site-nav">
+      <a href="/archive">Archive</a>
+      <a href="/events">Events</a>
+      <a href="/about">About</a>
+    </nav>
+  </header>
+
+  <main class="page-container">
+    <h2 class="page-title">Upcoming Events</h2>
+
+    {error && (
+      <div class="status-message">
+        <p>Signal disrupted</p>
+        <p style="font-size: 0.9rem; margin-top: 0.5rem; opacity: 0.6;">{error}</p>
+      </div>
+    )}
+
+    {!error && events.length === 0 && (
+      <div class="status-message">
+        <p>No upcoming events detected</p>
+      </div>
+    )}
+
+    {events.length > 0 && (
+      <div>
+        {events.map((event) => (
+          <div class="event-item">
+            <div class="event-type">{formatEventType(event.event_type)}</div>
+            <div class="event-detail">
+              {event.body && <span>{event.body}</span>}
+              {event.body && event.sign && <span> in </span>}
+              {event.sign && <span>{event.sign}</span>}
+              {event.significance && <span class="event-significance"> &mdash; {event.significance}</span>}
+            </div>
+            <div class="event-date">{formatDate(event.at)}</div>
+            {event.reading_available && (
+              <div class="event-reading-link">
+                <a href={event.reading_url || `/events/${event.id}`}>Read Event Reading</a>
+                {event.reading_title && <span class="event-reading-title">- {event.reading_title}</span>}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    )}
+  </main>
+</Base>
+
+<style>
+  .event-reading-link {
+    margin-top: 0.8rem;
+    font-family: var(--font-sans);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .event-reading-link a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  .event-reading-link a:hover {
+    text-decoration: underline;
+  }
+
+  .event-reading-title {
+    color: var(--text-muted);
+    margin-left: 0.5rem;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+</style>

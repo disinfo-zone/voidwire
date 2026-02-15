@@ -1,0 +1,99 @@
+---
+import Base from '../layouts/Base.astro';
+import Reading from '../components/Reading.astro';
+import TransitGrid from '../components/TransitGrid.svelte';
+import Background from '../components/Background.svelte';
+import { apiUrl, forwardedApiHeaders } from '../utils/api';
+
+let reading: any = null;
+let ephemeris: any = null;
+let error: string | null = null;
+let notFound = false;
+const apiHeaders = forwardedApiHeaders(Astro.clientAddress);
+
+try {
+  const res = await fetch(apiUrl('/v1/reading/today'), { headers: apiHeaders });
+  if (res.ok) {
+    reading = await res.json();
+  } else if (res.status === 404) {
+    notFound = true;
+  } else {
+    error = `Unexpected status: ${res.status}`;
+  }
+} catch (e) {
+  error = e instanceof Error ? e.message : 'Unknown error';
+}
+
+if (reading) {
+  try {
+    const res = await fetch(apiUrl('/v1/ephemeris/today'), { headers: apiHeaders });
+    if (res.ok) {
+      ephemeris = await res.json();
+    }
+  } catch {}
+}
+
+const aspects = ephemeris?.aspects || [];
+---
+
+<Base>
+  <Background />
+
+  <header class="site-header">
+    <div class="site-title"><a href="/">VOIDWIRE</a></div>
+    <nav class="site-nav">
+      <a href="/archive">Archive</a>
+      <a href="/events">Events</a>
+      <a href="/about">About</a>
+    </nav>
+  </header>
+
+  <main>
+    {reading && (
+      <Reading
+        title={reading.title}
+        body={reading.body}
+        date_context={reading.date_context}
+        word_count={reading.word_count}
+        has_extended={reading.has_extended}
+      />
+    )}
+
+    {reading && aspects.length > 0 && (
+      <section class="transit-visualization">
+        <div class="section-label">Celestial Geometry</div>
+        <TransitGrid aspects={aspects} client:visible />
+      </section>
+    )}
+
+    {notFound && (
+      <div class="status-message">
+        <p>The wire is silent today.</p>
+      </div>
+    )}
+
+    {error && (
+      <div class="status-message">
+        <p>Signal disrupted. Attempting to reconnect...</p>
+      </div>
+    )}
+  </main>
+</Base>
+
+<style>
+  .section-label {
+    font-family: var(--font-sans);
+    font-size: 0.6rem;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    text-align: center;
+    margin-bottom: 3rem;
+  }
+
+  .transit-visualization {
+    max-width: 1000px;
+    margin: 8rem auto;
+    padding: 0 1.5rem 10rem;
+  }
+</style>
