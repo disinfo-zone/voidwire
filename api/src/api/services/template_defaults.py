@@ -114,6 +114,123 @@ STARTER_PLAN_TEMPLATE_VARIABLES = [
     "sky_only",
 ]
 
+STARTER_EVENT_PROSE_TEMPLATE_NAME = "starter_synthesis_event_prose"
+STARTER_EVENT_PROSE_TEMPLATE_CONTENT = """You are writing an event-focused astrological dispatch.
+
+TODAY: {{date_context}}
+
+=== EVENT CONTEXT (PRIMARY FOCUS) ===
+{{event_context}}
+
+=== TRANSIT DATA ===
+{{ephemeris_data}}
+
+=== CULTURAL SIGNALS (SECONDARY TEXTURE) ===
+{{selected_signals}}
+
+=== ACTIVE THREADS (SECONDARY TEXTURE) ===
+{{thread_snapshot}}
+
+=== INTERPRETIVE PLAN ===
+{{interpretive_plan}}
+
+=== MENTION POLICY ===
+{{mention_policy}}
+
+=== GUARDED ENTITIES ===
+{{guarded_entities}}
+
+=== SKY-ONLY MODE ===
+{{sky_only}}
+
+HARD CONSTRAINTS:
+- Return strict JSON only (no markdown fencing).
+- No emojis.
+- Never address the reader directly as "you".
+- The event in EVENT CONTEXT must be the central frame from opening to close.
+- Signals and threads may color the reading but cannot displace the event as primary.
+- Standard reading body target: {{standard_word_range}} words.
+- Extended reading target: {{extended_word_range}} words.
+- Avoid banned phrases: {{banned_phrases}}
+- Respect explicit mention policy and guarded entity constraints above.
+
+STRUCTURE:
+- standard_reading: concise front-page event dispatch with one coherent thesis.
+- extended_reading: deeper event analysis with multiple sections.
+- transit_annotations: tie specific aspects to the event arc.
+
+Write JSON with:
+- standard_reading: {title, body, word_count}
+- extended_reading: {title, subtitle, sections: [{heading, body}], word_count}
+- transit_annotations: [{aspect, gloss, cultural_resonance, temporal_arc}]
+"""
+
+STARTER_EVENT_PROSE_TEMPLATE_VARIABLES = [
+    "date_context",
+    "event_context",
+    "ephemeris_data",
+    "selected_signals",
+    "thread_snapshot",
+    "interpretive_plan",
+    "mention_policy",
+    "guarded_entities",
+    "sky_only",
+    "standard_word_range",
+    "extended_word_range",
+    "banned_phrases",
+]
+
+STARTER_EVENT_PLAN_TEMPLATE_NAME = "starter_synthesis_event_plan"
+STARTER_EVENT_PLAN_TEMPLATE_CONTENT = """You are drafting an event-focused interpretive plan.
+
+TODAY: {{date_context}}
+
+=== EVENT CONTEXT (PRIMARY FOCUS) ===
+{{event_context}}
+
+=== TRANSIT DATA ===
+{{ephemeris_data}}
+
+=== CULTURAL SIGNALS ===
+{{selected_signals}}
+
+=== ACTIVE THREADS ===
+{{thread_snapshot}}
+
+SKY-ONLY MODE:
+{{sky_only}}
+
+Produce an INTERPRETIVE PLAN as JSON with these fields:
+- title
+- opening_strategy
+- closing_strategy
+- wild_card_integration
+- aspect_readings: [{aspect, interpretation, cultural_link}]
+- tone_notes
+- thread_continuity
+- mention_policy: {
+    explicit_allowed: boolean,
+    explicit_budget: integer (0 or 1),
+    allowed_entities: string[],
+    rationale: string
+  }
+
+Critical instructions:
+- Anchor every planning decision to the event context first.
+- Treat signals and threads as supporting texture, not primary thesis.
+
+Return ONLY valid JSON, no markdown fencing.
+"""
+
+STARTER_EVENT_PLAN_TEMPLATE_VARIABLES = [
+    "date_context",
+    "event_context",
+    "ephemeris_data",
+    "selected_signals",
+    "thread_snapshot",
+    "sky_only",
+]
+
 
 def _build_starter_prose_template() -> PromptTemplate:
     return PromptTemplate(
@@ -147,6 +264,38 @@ def _build_starter_plan_template() -> PromptTemplate:
     )
 
 
+def _build_starter_event_prose_template() -> PromptTemplate:
+    return PromptTemplate(
+        template_name=STARTER_EVENT_PROSE_TEMPLATE_NAME,
+        version=1,
+        is_active=True,
+        content=STARTER_EVENT_PROSE_TEMPLATE_CONTENT,
+        variables_used=STARTER_EVENT_PROSE_TEMPLATE_VARIABLES,
+        tone_parameters={
+            "register": "focused, analytical, restrained",
+            "style_notes": "event-first framing; keep signals secondary",
+        },
+        author="system",
+        notes="Auto-generated starter prose template for event-linked readings.",
+    )
+
+
+def _build_starter_event_plan_template() -> PromptTemplate:
+    return PromptTemplate(
+        template_name=STARTER_EVENT_PLAN_TEMPLATE_NAME,
+        version=1,
+        is_active=True,
+        content=STARTER_EVENT_PLAN_TEMPLATE_CONTENT,
+        variables_used=STARTER_EVENT_PLAN_TEMPLATE_VARIABLES,
+        tone_parameters={
+            "register": "strategic, event-centric, restrained",
+            "style_notes": "event-focused planning with symbolic rigor",
+        },
+        author="system",
+        notes="Auto-generated starter plan template for event-linked readings.",
+    )
+
+
 async def ensure_starter_prompt_template(db: AsyncSession) -> list[PromptTemplate]:
     """Ensure baseline synthesis templates exist, backfilling missing starters."""
     result = await db.execute(select(PromptTemplate.template_name))
@@ -155,6 +304,8 @@ async def ensure_starter_prompt_template(db: AsyncSession) -> list[PromptTemplat
     starters = [
         _build_starter_prose_template(),
         _build_starter_plan_template(),
+        _build_starter_event_prose_template(),
+        _build_starter_event_plan_template(),
     ]
     created: list[PromptTemplate] = []
     for starter in starters:

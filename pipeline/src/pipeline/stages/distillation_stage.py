@@ -59,12 +59,12 @@ def _validate_signals(data: Any) -> None:
         if not isinstance(s, dict) or "summary" not in s:
             raise ValueError(f"Signal {i} invalid")
 
-async def _get_llm_client(session: AsyncSession, slot: str) -> LLMClient:
+async def _get_llm_client(session: AsyncSession, slot: str, *, timeout: float = 120.0) -> LLMClient:
     result = await session.execute(select(LLMConfig).where(LLMConfig.slot == slot, LLMConfig.is_active == True))
     config = result.scalars().first()
     if not config:
         raise ValueError(f"No active LLM config for slot: {slot}")
-    client = LLMClient()
+    client = LLMClient(timeout=timeout)
     client.configure_slot(LLMSlotConfig(
         slot=slot, provider_name=config.provider_name, api_endpoint=config.api_endpoint,
         model_id=config.model_id, api_key_encrypted=config.api_key_encrypted,

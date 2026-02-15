@@ -8,7 +8,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from voidwire.models import Reading, PipelineRun, CulturalSignal, AuditLog, AdminUser
+from voidwire.models import (
+    Reading,
+    PipelineRun,
+    CulturalSignal,
+    AuditLog,
+    AdminUser,
+    AstronomicalEvent,
+)
 from api.dependencies import get_db, require_admin
 
 router = APIRouter()
@@ -48,6 +55,7 @@ async def _run_pipeline_background(
     regeneration_mode,
     parent_run_id,
     trigger_source: str,
+    trigger_metadata: dict | None = None,
 ) -> None:
     try:
         run_id = await run_pipeline(
@@ -55,6 +63,7 @@ async def _run_pipeline_background(
             regeneration_mode=regeneration_mode,
             parent_run_id=parent_run_id,
             trigger_source=trigger_source,
+            trigger_metadata=trigger_metadata,
         )
         logger.info("Background reading regeneration completed: %s", run_id)
     except RuntimeError as exc:
@@ -64,6 +73,39 @@ async def _run_pipeline_background(
         logger.exception("Background reading regeneration failed: %s", exc)
     except Exception as exc:
         logger.exception("Background reading regeneration failed: %s", exc)
+
+
+async def _sync_event_for_reading(db: AsyncSession, reading: Reading) -> None:
+    result = await db.execute(select(AstronomicalEvent).where(AstronomicalEvent.run_id == reading.run_id).limit(1))
+    event = result.scalars().first()
+    if not event:
+        run = await db.get(PipelineRun, reading.run_id)
+        artifacts = run.reused_artifacts if run and isinstance(run.reused_artifacts, dict) else {}
+        source_event_id = str(artifacts.get("source_event_id", "")).strip()
+        if source_event_id:
+            try:
+                event = await db.get(AstronomicalEvent, UUID(source_event_id))
+            except ValueError:
+                event = None
+        if event is not None:
+            event.run_id = reading.run_id
+    if not event:
+        return
+
+    content = reading.published_standard or reading.generated_standard or {}
+    title = str(content.get("title", "")).strip()
+    if title:
+        event.reading_title = title
+
+    if reading.status == "published":
+        event.reading_status = "published"
+        event.published_at = reading.published_at
+        event.published_url = f"/events/{event.id}"
+    else:
+        event.reading_status = "generated"
+        event.published_at = None
+        event.published_url = None
+
 
 def _reading_dict(r: Reading) -> dict:
     return {
@@ -110,6 +152,7 @@ async def update_reading(reading_id: UUID, req: ReadingUpdateRequest, db: AsyncS
     if req.editorial_notes:
         reading.editorial_notes = req.editorial_notes
     reading.updated_at = datetime.now(timezone.utc)
+    await _sync_event_for_reading(db, reading)
     db.add(AuditLog(user_id=user.id, action=f"reading.{req.status or 'edit'}", target_type="reading", target_id=str(reading_id)))
     return {"status": "ok"}
 
@@ -136,6 +179,7 @@ async def update_reading_content(reading_id: UUID, req: ReadingContentUpdateRequ
             diff["extended"] = True
     reading.editorial_diff = diff if diff else None
     reading.updated_at = datetime.now(timezone.utc)
+    await _sync_event_for_reading(db, reading)
     db.add(AuditLog(user_id=user.id, action="reading.content_edit", target_type="reading", target_id=str(reading_id)))
     return {"status": "ok", "editorial_diff": diff}
 
@@ -163,6 +207,12 @@ async def regenerate_reading(reading_id: UUID, req: RegenerateRequest, db: Async
     run_pipeline = _load_pipeline_runner()
     mode_map = {"prose_only": RegenerationMode.PROSE_ONLY, "reselect": RegenerationMode.RESELECT, "full_rerun": RegenerationMode.FULL_RERUN}
     mode = mode_map.get(req.mode, RegenerationMode.PROSE_ONLY)
+    event_result = await db.execute(
+        select(AstronomicalEvent).where(AstronomicalEvent.run_id == reading.run_id).limit(1)
+    )
+    linked_event = event_result.scalars().first()
+    trigger_source = "manual_event" if linked_event is not None else "manual_regenerate"
+    trigger_metadata = {"source_event_id": str(linked_event.id)} if linked_event is not None else None
 
     running = await db.execute(
         select(PipelineRun).where(
@@ -185,6 +235,8 @@ async def regenerate_reading(reading_id: UUID, req: RegenerateRequest, db: Async
                 "mode": mode.value,
                 "date_context": reading.date_context.isoformat(),
                 "parent_run_id": str(reading.run_id),
+                "trigger_source": trigger_source,
+                "source_event_id": str(linked_event.id) if linked_event is not None else None,
                 "wait_for_completion": bool(req.wait_for_completion),
             },
         )
@@ -197,7 +249,8 @@ async def regenerate_reading(reading_id: UUID, req: RegenerateRequest, db: Async
                 date_context=reading.date_context,
                 regeneration_mode=mode,
                 parent_run_id=reading.run_id,
-                trigger_source="manual_regenerate",
+                trigger_source=trigger_source,
+                trigger_metadata=trigger_metadata,
             )
         )
         return {
@@ -212,7 +265,8 @@ async def regenerate_reading(reading_id: UUID, req: RegenerateRequest, db: Async
             date_context=reading.date_context,
             regeneration_mode=mode,
             parent_run_id=reading.run_id,
-            trigger_source="manual_regenerate",
+            trigger_source=trigger_source,
+            trigger_metadata=trigger_metadata,
         )
     except RuntimeError as exc:
         if "advisory lock" in str(exc).lower():

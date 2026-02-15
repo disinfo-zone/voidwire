@@ -396,6 +396,26 @@ class TestEventsAPI:
         )
         assert resp.status_code == 404
 
+    async def test_generate_event_reading_starts_background(self, client: AsyncClient, mock_db):
+        event_id = uuid.uuid4()
+        event = MagicMock()
+        event.id = event_id
+        event.at = datetime(2026, 3, 14, 12, 0)
+        mock_db.get.return_value = event
+
+        with patch("api.routers.admin_pipeline._is_pipeline_lock_available", new=AsyncMock(return_value=True)), patch(
+            "api.routers.admin_events._run_event_pipeline_background",
+            new=AsyncMock(return_value=None),
+        ) as background_runner:
+            resp = await client.post(f"/admin/events/{event_id}/generate-reading")
+            await asyncio.sleep(0)
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "started"
+        assert body["mode"] == "background"
+        assert background_runner.await_count == 1
+
 
 # ──────────────────────────────────────────────
 # Threads
@@ -556,14 +576,20 @@ class TestTemplatesAPI:
         resp = await client.get("/admin/templates/")
         assert resp.status_code == 200
         body = resp.json()
-        assert len(body) == 2
+        assert len(body) == 4
         by_name = {t["template_name"]: t for t in body}
         assert "starter_synthesis_prose" in by_name
         assert "synthesis_plan" in by_name
+        assert "starter_synthesis_event_prose" in by_name
+        assert "starter_synthesis_event_plan" in by_name
         assert by_name["starter_synthesis_prose"]["version"] == 1
         assert by_name["synthesis_plan"]["version"] == 1
+        assert by_name["starter_synthesis_event_prose"]["version"] == 1
+        assert by_name["starter_synthesis_event_plan"]["version"] == 1
         assert by_name["starter_synthesis_prose"]["is_active"] is True
         assert by_name["synthesis_plan"]["is_active"] is True
+        assert by_name["starter_synthesis_event_prose"]["is_active"] is True
+        assert by_name["starter_synthesis_event_plan"]["is_active"] is True
 
     async def test_get_not_found(self, client: AsyncClient):
         resp = await client.get(f"/admin/templates/{uuid.uuid4()}")

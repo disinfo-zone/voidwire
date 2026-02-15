@@ -5,7 +5,7 @@ import ConfirmDialog from '../components/ui/ConfirmDialog';
 import Spinner from '../components/ui/Spinner';
 import SettingField from '../components/settings/SettingField';
 
-const CATEGORIES = ['selection', 'threads', 'synthesis', 'ingestion', 'distillation'] as const;
+const CATEGORIES = ['selection', 'threads', 'synthesis', 'ingestion', 'distillation', 'events'] as const;
 
 const CATEGORY_LABELS: Record<string, string> = {
   selection: 'Selection',
@@ -13,6 +13,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   synthesis: 'Synthesis',
   ingestion: 'Ingestion',
   distillation: 'Distillation',
+  events: 'Event Readings',
 };
 
 function toLabel(key: string): string {

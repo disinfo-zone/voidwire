@@ -1,8 +1,7 @@
 ---
 import Base from '../layouts/Base.astro';
 import Background from '../components/Background.svelte';
-
-const API_URL = process.env.API_URL || import.meta.env.API_URL || 'http://voidwire-api:8000';
+import { apiUrl, forwardedApiHeaders } from '../utils/api';
 
 type ContentSection = {
   heading: string;
@@ -37,9 +36,10 @@ const fallbackContent = {
 
 let contentTitle = fallbackContent.title;
 let contentSections = fallbackContent.sections;
+const apiHeaders = forwardedApiHeaders(Astro.clientAddress);
 
 try {
-  const res = await fetch(`${API_URL}/v1/content/about`);
+  const res = await fetch(apiUrl('/v1/content/about'), { headers: apiHeaders });
   if (res.ok) {
     const data = await res.json();
     const title = typeof data?.title === 'string' ? data.title.trim() : '';
@@ -72,7 +72,7 @@ function toParagraphs(body: string): string[] {
 ---
 
 <Base title={contentTitle}>
-  <Background client:load />
+  <Background />
 
   <header class="site-header">
     <h1 class="site-title"><a href="/">VOIDWIRE</a></h1>

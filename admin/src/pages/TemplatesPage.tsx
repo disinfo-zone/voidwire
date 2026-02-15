@@ -111,9 +111,12 @@ export default function TemplatesPage() {
           Runtime-resolved template names:
           <span className="text-accent ml-1 font-mono">synthesis_plan</span>,
           <span className="text-accent ml-1 font-mono">synthesis_plan_v1</span>,
+          <span className="text-accent ml-1 font-mono">synthesis_plan_event</span>,
           <span className="text-accent ml-1 font-mono">synthesis_prose</span>,
           <span className="text-accent ml-1 font-mono">synthesis_prose_v1</span>,
-          <span className="text-accent ml-1 font-mono">starter_synthesis_prose</span>.
+          <span className="text-accent ml-1 font-mono">synthesis_prose_event</span>,
+          <span className="text-accent ml-1 font-mono">starter_synthesis_prose</span>,
+          <span className="text-accent ml-1 font-mono">starter_synthesis_event_prose</span>.
         </div>
         <div className="text-xs text-text-muted">
           Safe workflow: create a version, keep notes on intent and changes, compare active version output, then rollback if quality drops.

@@ -185,6 +185,7 @@ async def generate_with_validation(
     *,
     temperature: float | None = None,
     max_tokens: int | None = None,
+    repair_retry: bool = True,
 ) -> dict:
     """Generate LLM output, parse JSON, validate, with one repair retry.
 
@@ -214,6 +215,8 @@ async def generate_with_validation(
         validate_fn(data)
         return data
     except (json.JSONDecodeError, Exception) as e:
+        if not repair_retry:
+            raise
         logger.warning("LLM output validation failed, attempting repair: %s", e)
 
         repair_messages = messages + [

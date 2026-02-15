@@ -1,22 +1,36 @@
 ---
 import Base from '../../layouts/Base.astro';
 import Background from '../../components/Background.svelte';
-
-const API_URL = process.env.API_URL || import.meta.env.API_URL || 'http://voidwire-api:8000';
+import { apiUrl, forwardedApiHeaders } from '../../utils/api';
 
 interface AstroEvent {
+  id: string;
   event_type: string;
   body?: string;
   sign?: string;
   at: string;
   significance?: string;
+  reading_available?: boolean;
+  reading_status?: string;
+  reading_title?: string;
+  reading_url?: string | null;
 }
 
 let events: AstroEvent[] = [];
 let error: string | null = null;
+let siteTimezone = 'UTC';
+const apiHeaders = forwardedApiHeaders(Astro.clientAddress);
 
 try {
-  const res = await fetch(`${API_URL}/v1/events?limit=50`);
+  const cfgRes = await fetch(apiUrl('/v1/site/config'), { headers: apiHeaders });
+  if (cfgRes.ok) {
+    const cfg = await cfgRes.json();
+    siteTimezone = String(cfg?.timezone || 'UTC') || 'UTC';
+  }
+} catch {}
+
+try {
+  const res = await fetch(apiUrl('/v1/events?limit=50'), { headers: apiHeaders });
   if (res.ok) {
     const data = await res.json();
     events = data.items || data;
@@ -39,6 +53,7 @@ function formatDate(iso: string): string {
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
+      timeZone: siteTimezone,
       timeZoneName: 'short',
     });
   } catch {
@@ -48,7 +63,7 @@ function formatDate(iso: string): string {
 ---
 
 <Base title="Events">
-  <Background client:load />
+  <Background />
 
   <header class="site-header">
     <h1 class="site-title"><a href="/">VOIDWIRE</a></h1>
@@ -87,9 +102,41 @@ function formatDate(iso: string): string {
               {event.significance && <span class="event-significance"> &mdash; {event.significance}</span>}
             </div>
             <div class="event-date">{formatDate(event.at)}</div>
+            {event.reading_available && (
+              <div class="event-reading-link">
+                <a href={event.reading_url || `/events/${event.id}`}>Read Event Reading</a>
+                {event.reading_title && <span class="event-reading-title">- {event.reading_title}</span>}
+              </div>
+            )}
           </div>
         ))}
       </div>
     )}
   </main>
 </Base>
+
+<style>
+  .event-reading-link {
+    margin-top: 0.8rem;
+    font-family: var(--font-sans);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .event-reading-link a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  .event-reading-link a:hover {
+    text-decoration: underline;
+  }
+
+  .event-reading-title {
+    color: var(--text-muted);
+    margin-left: 0.5rem;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+</style>

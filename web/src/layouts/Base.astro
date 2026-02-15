@@ -8,8 +8,7 @@ interface Props {
 const { title, description, canonicalPath } = Astro.props;
 
 import '../styles/global.css';
-
-const API_URL = process.env.API_URL || import.meta.env.API_URL || 'http://voidwire-api:8000';
+import { apiUrl, forwardedApiHeaders } from '../utils/api';
 
 type SiteConfig = {
   site_title: string;
@@ -40,8 +39,9 @@ const defaultSiteConfig: SiteConfig = {
 };
 
 let siteConfig: SiteConfig = defaultSiteConfig;
+const apiHeaders = forwardedApiHeaders(Astro.clientAddress);
 try {
-  const res = await fetch(`${API_URL}/v1/site/config`);
+  const res = await fetch(apiUrl('/v1/site/config'), { headers: apiHeaders });
   if (res.ok) {
     const data = await res.json();
     siteConfig = { ...defaultSiteConfig, ...data };
@@ -112,32 +112,7 @@ const trackingBody = String(siteConfig.tracking_body || '');
     {trackingHead && <Fragment set:html={trackingHead} />}
   </head>
   <body>
-    <!-- Esoteric background motif -->
-    <div class="celestial-motif" aria-hidden="true">
-      <svg width="100%" height="100%" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="500" cy="500" r="400" stroke="currentColor" stroke-width="0.5" fill="none" opacity="0.08" />
-        <line x1="100" y1="500" x2="900" y2="500" stroke="currentColor" stroke-width="0.3" opacity="0.06" />
-        <line x1="500" y1="100" x2="500" y2="900" stroke="currentColor" stroke-width="0.3" opacity="0.06" />
-        <path d="M 200 200 L 800 800 M 800 200 L 200 800" stroke="currentColor" stroke-width="0.2" opacity="0.04" />
-      </svg>
-    </div>
     <slot />
     {trackingBody && <Fragment set:html={trackingBody} />}
   </body>
 </html>
-
-<style is:global>
-  .celestial-motif {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    z-index: -2;
-    pointer-events: none;
-    color: var(--accent);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-</style>

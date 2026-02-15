@@ -1,5 +1,6 @@
 """Two-pass synthesis stage with fallback ladder."""
 from __future__ import annotations
+import asyncio
 import json
 import logging
 import re
@@ -21,10 +22,20 @@ SILENCE_READING = {
     "word_count": 14,
 }
 PLAN_TEMPLATE_CANDIDATES = ("synthesis_plan", "synthesis_plan_v1")
+EVENT_PLAN_TEMPLATE_CANDIDATES = (
+    "synthesis_plan_event",
+    "synthesis_plan_event_v1",
+    "starter_synthesis_event_plan",
+)
 PROSE_TEMPLATE_CANDIDATES = (
     "synthesis_prose",
     "synthesis_prose_v1",
     "starter_synthesis_prose",
+)
+EVENT_PROSE_TEMPLATE_CANDIDATES = (
+    "synthesis_prose_event",
+    "synthesis_prose_event_v1",
+    "starter_synthesis_event_prose",
 )
 TEMPLATE_TOKEN_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}")
 
@@ -218,6 +229,15 @@ def _count_entity_mentions(text_lower: str, entity: str) -> int:
     return len(pattern.findall(text_lower))
 
 
+def _is_mention_policy_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "guarded entities" in message
+        or "direct references to guarded entities" in message
+        or "explicit entity mention budget exceeded" in message
+    )
+
+
 def _template_usage(template: PromptTemplate) -> dict[str, Any]:
     return {
         "id": str(template.id),
@@ -305,10 +325,15 @@ async def run_synthesis_stage(
     sky_only: bool,
     session: AsyncSession,
     settings: SynthesisSettings | None = None,
+    allow_guard_relaxation: bool = False,
+    event_context: dict[str, Any] | None = None,
 ) -> dict:
     ss = settings or SynthesisSettings()
     from pipeline.stages.distillation_stage import _get_llm_client
-    client = await _get_llm_client(session, "synthesis")
+    fast_mode = allow_guard_relaxation
+    # Event-linked runs should resolve quickly and avoid expensive repair loops.
+    llm_timeout = 90.0 if fast_mode else 120.0
+    client = await _get_llm_client(session, "synthesis", timeout=llm_timeout)
 
     prompt_payloads = {}
     template_versions: dict[str, Any] = {}
@@ -339,70 +364,119 @@ async def run_synthesis_stage(
             "thread_display_limit": int(ss.thread_display_limit),
         },
         "prompts": prompt_metrics,
+        "mode": "event_fast_mode" if fast_mode else "default",
+        "llm_timeout_seconds": int(llm_timeout),
     }
+    if isinstance(event_context, dict) and event_context:
+        prompt_payloads["_telemetry"]["event_context"] = {
+            "id": str(event_context.get("id", "")).strip(),
+            "event_type": str(event_context.get("event_type", "")).strip(),
+            "days_out": event_context.get("days_out"),
+        }
+    logger.info(
+        "Synthesis stage start date=%s fast_mode=%s sky_only=%s signals=%d threads=%d llm_timeout=%ss event=%s",
+        date_context,
+        fast_mode,
+        sky_only,
+        len(prompt_signals),
+        len(prompt_threads),
+        int(llm_timeout),
+        str(event_context.get("event_type", "")).strip() if isinstance(event_context, dict) else "",
+    )
 
     # Pass A: Interpretive plan (with retry at tweaked temperature)
-    plan_template = _find_active_template(
-        active_templates,
-        PLAN_TEMPLATE_CANDIDATES,
-        prefix="synthesis_plan",
-    )
-    if plan_template is not None:
-        plan_prompt = _render_prompt_template(
-            plan_template.content,
-            {
-                "date_context": date_context,
-                "ephemeris_data": ephemeris_data,
-                "selected_signals": prompt_signals,
-                "signals": prompt_signals,
-                "thread_snapshot": prompt_threads,
-                "sky_only": sky_only,
-            },
-        )
-        usage = _template_usage(plan_template)
-        template_versions["synthesis_plan"] = usage
-        prompt_payloads["pass_a_template"] = usage
-    else:
-        plan_prompt = build_plan_prompt(
-            ephemeris_data,
-            prompt_signals,
-            prompt_threads,
-            date_context,
-            sky_only,
-            thread_display_limit=ss.thread_display_limit,
-        )
-    _record_prompt_metric(prompt_metrics, "pass_a", plan_prompt)
-    prompt_payloads["pass_a"] = plan_prompt
-
     interpretive_plan = None
-    for attempt in range(ss.plan_retries):
-        try:
-            temp = ss.plan_temp_start + (attempt * ss.plan_temp_step)
-            interpretive_plan = await generate_with_validation(
-                client, "synthesis",
-                [{"role": "user", "content": plan_prompt}],
-                _validate_plan,
-                temperature=temp,
+    if fast_mode:
+        prompt_payloads["pass_a_skipped"] = "event_fast_mode"
+    else:
+        plan_template = None
+        if isinstance(event_context, dict) and event_context:
+            plan_template = _find_active_template(
+                active_templates,
+                EVENT_PLAN_TEMPLATE_CANDIDATES,
+                prefix="synthesis_plan_event",
             )
-            break
-        except Exception as e:
-            logger.warning("Pass A attempt %d failed: %s", attempt + 1, e)
+        elif plan_template is None:
+            plan_template = _find_active_template(
+                active_templates,
+                PLAN_TEMPLATE_CANDIDATES,
+                prefix="synthesis_plan",
+            )
+        if plan_template is not None:
+            plan_prompt = _render_prompt_template(
+                plan_template.content,
+                {
+                    "date_context": date_context,
+                    "ephemeris_data": ephemeris_data,
+                    "event_context": event_context or {},
+                    "selected_signals": prompt_signals,
+                    "signals": prompt_signals,
+                    "thread_snapshot": prompt_threads,
+                    "sky_only": sky_only,
+                },
+            )
+            usage = _template_usage(plan_template)
+            plan_key = "synthesis_plan_event" if "event" in str(plan_template.template_name).lower() else "synthesis_plan"
+            template_versions[plan_key] = usage
+            prompt_payloads["pass_a_template"] = usage
+        else:
+            plan_prompt = build_plan_prompt(
+                ephemeris_data,
+                prompt_signals,
+                prompt_threads,
+                date_context,
+                event_context=event_context,
+                sky_only=sky_only,
+                thread_display_limit=ss.thread_display_limit,
+            )
+        _record_prompt_metric(prompt_metrics, "pass_a", plan_prompt)
+        prompt_payloads["pass_a"] = plan_prompt
+        for attempt in range(ss.plan_retries):
+            try:
+                temp = ss.plan_temp_start + (attempt * ss.plan_temp_step)
+                logger.info(
+                    "Synthesis pass_a attempt=%d temp=%.2f",
+                    attempt + 1,
+                    temp,
+                )
+                interpretive_plan = await generate_with_validation(
+                    client, "synthesis",
+                    [{"role": "user", "content": plan_prompt}],
+                    _validate_plan,
+                    temperature=temp,
+                )
+                break
+            except asyncio.CancelledError:
+                logger.warning("Synthesis pass_a cancelled at attempt=%d", attempt + 1)
+                await client.close()
+                raise
+            except Exception as e:
+                logger.warning("Pass A attempt %d failed: %s", attempt + 1, e)
 
     guarded_entities = _collect_guarded_entities(prompt_signals)
     mention_policy = _derive_mention_policy(interpretive_plan, prompt_signals, guarded_entities)
 
     # Pass B: Prose generation (retries with decreasing temperature)
-    prose_template = _find_active_template(
-        active_templates,
-        PROSE_TEMPLATE_CANDIDATES,
-        prefix="synthesis_prose",
-    )
+    prose_template = None
+    if isinstance(event_context, dict) and event_context:
+        prose_template = _find_active_template(
+            active_templates,
+            EVENT_PROSE_TEMPLATE_CANDIDATES,
+            prefix="synthesis_prose_event",
+        )
+    elif prose_template is None:
+        prose_template = _find_active_template(
+            active_templates,
+            PROSE_TEMPLATE_CANDIDATES,
+            prefix="synthesis_prose",
+        )
     if prose_template is not None:
         prose_prompt = _render_prompt_template(
             prose_template.content,
             {
                 "date_context": date_context,
                 "ephemeris_data": ephemeris_data,
+                "event_context": event_context or {},
                 "selected_signals": prompt_signals,
                 "signals": prompt_signals,
                 "thread_snapshot": prompt_threads,
@@ -417,12 +491,13 @@ async def run_synthesis_stage(
             },
         )
         usage = _template_usage(prose_template)
-        template_versions["synthesis_prose"] = usage
+        prose_key = "synthesis_prose_event" if "event" in str(prose_template.template_name).lower() else "synthesis_prose"
+        template_versions[prose_key] = usage
         prompt_payloads["pass_b_template"] = usage
     else:
         prose_prompt = build_prose_prompt(
             ephemeris_data, prompt_signals, prompt_threads,
-            date_context, interpretive_plan, mention_policy, guarded_entities, sky_only,
+            date_context, event_context, interpretive_plan, mention_policy, guarded_entities, sky_only,
             standard_word_range=ss.standard_word_range,
             extended_word_range=ss.extended_word_range,
             banned_phrases=ss.banned_phrases,
@@ -431,22 +506,78 @@ async def run_synthesis_stage(
     _record_prompt_metric(prompt_metrics, "pass_b", prose_prompt)
     prompt_payloads["pass_b"] = prose_prompt
 
+    prose_retries = 1 if fast_mode else ss.prose_retries
     result = None
-    for attempt in range(ss.prose_retries):
+    relaxed_guard_used = False
+    for attempt in range(prose_retries):
+        temperature = max(ss.prose_temp_min, ss.prose_temp_start - attempt * ss.prose_temp_step)
         try:
-            result = await generate_with_validation(
-                client, "synthesis",
-                [{"role": "user", "content": prose_prompt}],
-                lambda data: _validate_prose(
+            validate_fn = (
+                _validate_prose_structure
+                if fast_mode
+                else lambda data: _validate_prose(
                     data,
                     mention_policy=mention_policy,
                     guarded_entities=guarded_entities,
-                ),
-                temperature=max(ss.prose_temp_min, ss.prose_temp_start - attempt * ss.prose_temp_step),
+                )
+            )
+            logger.info(
+                "Synthesis pass_b attempt=%d temp=%.2f repair_retry=%s",
+                attempt + 1,
+                temperature,
+                not fast_mode,
+            )
+            result = await generate_with_validation(
+                client, "synthesis",
+                [{"role": "user", "content": prose_prompt}],
+                validate_fn,
+                temperature=temperature,
+                repair_retry=not fast_mode,
             )
             break
+        except asyncio.CancelledError:
+            logger.warning("Synthesis pass_b cancelled at attempt=%d", attempt + 1)
+            await client.close()
+            raise
         except Exception as e:
             logger.warning("Pass B attempt %d failed: %s", attempt + 1, e)
+            if allow_guard_relaxation and not relaxed_guard_used and _is_mention_policy_error(e):
+                relaxed_guard_used = True
+                prompt_payloads["guard_policy_relaxed"] = {
+                    "reason": str(e),
+                    "attempt": attempt + 1,
+                }
+                logger.warning(
+                    "Pass B guard policy failed; retrying once with structure-only validation"
+                )
+                try:
+                    logger.info(
+                        "Synthesis pass_b relaxed_validation attempt=%d temp=%.2f",
+                        attempt + 1,
+                        temperature,
+                    )
+                    result = await generate_with_validation(
+                        client,
+                        "synthesis",
+                        [{"role": "user", "content": prose_prompt}],
+                        _validate_prose_structure,
+                        temperature=temperature,
+                        repair_retry=False,
+                    )
+                    break
+                except asyncio.CancelledError:
+                    logger.warning(
+                        "Synthesis pass_b relaxed validation cancelled at attempt=%d",
+                        attempt + 1,
+                    )
+                    await client.close()
+                    raise
+                except Exception as relaxed_exc:
+                    logger.warning(
+                        "Pass B relaxed validation attempt failed: %s", relaxed_exc
+                    )
+                    # Move directly to sky-only fallback instead of exhausting retries.
+                    break
 
     # Fallback: sky-only retry if full synthesis failed but we have ephemeris
     if result is None and not sky_only:
@@ -458,6 +589,7 @@ async def run_synthesis_stage(
                 {
                     "date_context": date_context,
                     "ephemeris_data": ephemeris_data,
+                    "event_context": event_context or {},
                     "selected_signals": [],
                     "signals": [],
                     "thread_snapshot": prompt_threads,
@@ -474,7 +606,7 @@ async def run_synthesis_stage(
         else:
             sky_prompt = build_prose_prompt(
                 ephemeris_data, [], prompt_threads,
-                date_context, interpretive_plan, fallback_policy, [], sky_only=True,
+                date_context, event_context, interpretive_plan, fallback_policy, [], sky_only=True,
                 standard_word_range=ss.standard_word_range,
                 extended_word_range=ss.extended_word_range,
                 banned_phrases=ss.banned_phrases,
@@ -483,16 +615,26 @@ async def run_synthesis_stage(
         _record_prompt_metric(prompt_metrics, "pass_b_fallback", sky_prompt)
         prompt_payloads["pass_b_fallback"] = sky_prompt
         try:
-            result = await generate_with_validation(
-                client, "synthesis",
-                [{"role": "user", "content": sky_prompt}],
-                lambda data: _validate_prose(
-                    data,
-                    mention_policy=fallback_policy,
-                    guarded_entities=[],
-                ),
-                temperature=ss.fallback_temp,
-            )
+                logger.info(
+                    "Synthesis pass_b fallback temp=%.2f repair_retry=%s",
+                    ss.fallback_temp,
+                    not fast_mode,
+                )
+                result = await generate_with_validation(
+                    client, "synthesis",
+                    [{"role": "user", "content": sky_prompt}],
+                    _validate_prose_structure if fast_mode else lambda data: _validate_prose(
+                        data,
+                        mention_policy=fallback_policy,
+                        guarded_entities=[],
+                    ),
+                    temperature=ss.fallback_temp,
+                    repair_retry=not fast_mode,
+                )
+        except asyncio.CancelledError:
+            logger.warning("Synthesis pass_b fallback cancelled")
+            await client.close()
+            raise
         except Exception as e:
             logger.warning("Sky-only fallback failed: %s", e)
 
@@ -537,17 +679,7 @@ def _validate_prose(
     mention_policy: dict | None = None,
     guarded_entities: list[str] | None = None,
 ) -> None:
-    if not isinstance(data, dict) or "standard_reading" not in data:
-        raise ValueError("Missing standard_reading")
-    sr = data["standard_reading"]
-    if not isinstance(sr, dict) or "title" not in sr or "body" not in sr:
-        raise ValueError("standard_reading needs title and body")
-    body = sr.get("body", "")
-    word_count = len(body.split())
-    # Word count soft check (warn but don't reject)
-    if word_count < 100:
-        logger.warning("Standard reading body only %d words (target: 200-400)", word_count)
-
+    _validate_prose_structure(data)
     policy = mention_policy or {}
     explicit_allowed = bool(policy.get("explicit_allowed", False))
     try:
@@ -584,3 +716,16 @@ def _validate_prose(
         raise ValueError(
             f"Explicit entity mention budget exceeded: allowed {explicit_budget}, found {allowed_mentions}"
         )
+
+
+def _validate_prose_structure(data: Any) -> None:
+    if not isinstance(data, dict) or "standard_reading" not in data:
+        raise ValueError("Missing standard_reading")
+    sr = data["standard_reading"]
+    if not isinstance(sr, dict) or "title" not in sr or "body" not in sr:
+        raise ValueError("standard_reading needs title and body")
+    body = sr.get("body", "")
+    word_count = len(body.split())
+    # Word count soft check (warn but don't reject)
+    if word_count < 100:
+        logger.warning("Standard reading body only %d words (target: 200-400)", word_count)

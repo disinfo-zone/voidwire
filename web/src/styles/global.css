@@ -1,12 +1,12 @@
 :root {
-  --void: #030305; /* Deeper, slightly indigo black */
-  --surface: #070709;
-  --text-primary: #d4d0c8;
-  --text-secondary: #8c8882;
-  --text-muted: #52504c;
-  --text-ghost: #1a1a1c;
-  --accent: #c8baa8;
-  --accent-glow: rgba(200, 186, 168, 0.08);
+  --void: #040608;
+  --surface: #090d10;
+  --text-primary: #d9d4c9;
+  --text-secondary: #a9a39a;
+  --text-muted: #6f6a62;
+  --text-ghost: #252a30;
+  --accent: #d6af72;
+  --accent-glow: rgba(214, 175, 114, 0.12);
 
   --font-body: 'EB Garamond', Georgia, serif;
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
@@ -28,17 +28,19 @@ html {
   font-size: 18px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: var(--void);
+  background: linear-gradient(180deg, #060a16 0%, #050914 48%, #04070f 100%);
   scroll-behavior: smooth;
 }
 
 body {
-  background: var(--void);
+  background: transparent;
   color: var(--text-primary);
   font-family: var(--font-body);
   min-height: 100vh;
   line-height: var(--line-height);
   overflow-x: hidden;
+  position: relative;
+  isolation: isolate;
 }
 
 .site-header,
@@ -46,7 +48,7 @@ main,
 .page-container,
 .colophon {
   position: relative;
-  z-index: 1;
+  z-index: 2;
 }
 
 a {

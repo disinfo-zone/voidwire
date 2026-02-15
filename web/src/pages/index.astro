@@ -3,16 +3,16 @@ import Base from '../layouts/Base.astro';
 import Reading from '../components/Reading.astro';
 import TransitGrid from '../components/TransitGrid.svelte';
 import Background from '../components/Background.svelte';
-
-const API_URL = process.env.API_URL || import.meta.env.API_URL || 'http://voidwire-api:8000';
+import { apiUrl, forwardedApiHeaders } from '../utils/api';
 
 let reading: any = null;
 let ephemeris: any = null;
 let error: string | null = null;
 let notFound = false;
+const apiHeaders = forwardedApiHeaders(Astro.clientAddress);
 
 try {
-  const res = await fetch(`${API_URL}/v1/reading/today`);
+  const res = await fetch(apiUrl('/v1/reading/today'), { headers: apiHeaders });
   if (res.ok) {
     reading = await res.json();
   } else if (res.status === 404) {
@@ -26,7 +26,7 @@ try {
 
 if (reading) {
   try {
-    const res = await fetch(`${API_URL}/v1/ephemeris/today`);
+    const res = await fetch(apiUrl('/v1/ephemeris/today'), { headers: apiHeaders });
     if (res.ok) {
       ephemeris = await res.json();
     }
@@ -37,7 +37,7 @@ const aspects = ephemeris?.aspects || [];
 ---
 
 <Base>
-  <Background client:load />
+  <Background />
 
   <header class="site-header">
     <div class="site-title"><a href="/">VOIDWIRE</a></div>
@@ -62,7 +62,7 @@ const aspects = ephemeris?.aspects || [];
     {reading && aspects.length > 0 && (
       <section class="transit-visualization">
         <div class="section-label">Celestial Geometry</div>
-        <TransitGrid aspects={aspects} client:load />
+        <TransitGrid aspects={aspects} client:visible />
       </section>
     )}
 

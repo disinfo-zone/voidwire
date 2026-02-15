@@ -71,12 +71,27 @@ class DistillationSettings(BaseModel):
     target_signals_max: int = 20
 
 
+class EventsSettings(BaseModel):
+    # If event is farther out than this many days, use ephemeris only.
+    ephemeris_only_after_days: int = Field(default=3, ge=0, le=60)
+    # If event is farther out than this many days (but not ephemeris-only), use threads only.
+    thread_only_after_days: int = Field(default=1, ge=0, le=30)
+    # Near-event signal cap (<= thread_only_after_days).
+    max_signals_near_event: int = Field(default=4, ge=0, le=20)
+    # Thread caps by horizon mode.
+    max_threads_thread_only: int = Field(default=8, ge=0, le=40)
+    max_threads_near_event: int = Field(default=10, ge=0, le=40)
+    # Optional quality guard for near-event mode.
+    major_signals_only_near_event: bool = True
+
+
 class PipelineSettings(BaseModel):
     selection: SelectionSettings = Field(default_factory=SelectionSettings)
     threads: ThreadSettings = Field(default_factory=ThreadSettings)
     synthesis: SynthesisSettings = Field(default_factory=SynthesisSettings)
     ingestion: IngestionSettings = Field(default_factory=IngestionSettings)
     distillation: DistillationSettings = Field(default_factory=DistillationSettings)
+    events: EventsSettings = Field(default_factory=EventsSettings)
 
 
 async def load_pipeline_settings(session: AsyncSession) -> PipelineSettings:

@@ -1,16 +1,20 @@
 """Admin events management."""
 from __future__ import annotations
-from datetime import UTC, datetime
+import asyncio
+import logging
+from datetime import UTC, date, datetime
 from typing import Literal
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from voidwire.models import AstronomicalEvent, AuditLog, AdminUser
+from voidwire.database import get_session
+from voidwire.models import AstronomicalEvent, AuditLog, AdminUser, PipelineRun, Reading
 from api.dependencies import get_db, require_admin
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 EventType = Literal[
     "new_moon",
@@ -74,6 +78,85 @@ def _event_dict(e: AstronomicalEvent) -> dict:
         "reading_title": e.reading_title,
         "published_at": e.published_at.isoformat() if e.published_at else None,
     }
+
+
+def _event_public_url(event_id: UUID) -> str:
+    return f"/events/{event_id}"
+
+
+async def _sync_event_reading_state(
+    db: AsyncSession,
+    event: AstronomicalEvent,
+    *,
+    run_id: UUID | None = None,
+) -> None:
+    if run_id is not None:
+        event.run_id = run_id
+    reading = None
+    if event.run_id:
+        result = await db.execute(select(Reading).where(Reading.run_id == event.run_id).limit(1))
+        reading = result.scalars().first()
+
+    if not reading:
+        if event.run_id:
+            event.reading_status = "pending"
+        return
+
+    content = reading.published_standard or reading.generated_standard or {}
+    title = str(content.get("title", "")).strip()
+    if title:
+        event.reading_title = title
+
+    if reading.status == "published":
+        event.reading_status = "published"
+        event.published_at = reading.published_at
+        event.published_url = _event_public_url(event.id)
+    else:
+        event.reading_status = "generated"
+        event.published_at = None
+        event.published_url = None
+
+
+async def _run_event_pipeline_background(event_id: UUID, date_context: date) -> None:
+    from pipeline.orchestrator import run_pipeline
+
+    try:
+        run_id = await run_pipeline(
+            date_context=date_context,
+            trigger_source="manual_event",
+            trigger_metadata={"source_event_id": str(event_id)},
+        )
+    except RuntimeError as exc:
+        if "advisory lock" in str(exc).lower():
+            logger.warning("Event pipeline run skipped due to lock conflict: %s", exc)
+            return
+        logger.exception("Event pipeline run failed: %s", exc)
+        async with get_session() as db:
+            event = await db.get(AstronomicalEvent, event_id)
+            if event:
+                event.reading_status = "skipped"
+                event.published_at = None
+                event.published_url = None
+                await db.commit()
+        return
+    except Exception as exc:
+        logger.exception("Event pipeline run failed: %s", exc)
+        async with get_session() as db:
+            event = await db.get(AstronomicalEvent, event_id)
+            if event:
+                event.reading_status = "skipped"
+                event.published_at = None
+                event.published_url = None
+                await db.commit()
+        return
+
+    async with get_session() as db:
+        event = await db.get(AstronomicalEvent, event_id)
+        if not event:
+            return
+        await _sync_event_reading_state(db, event, run_id=run_id)
+        await db.commit()
+
 
 @router.get("/")
 async def list_events(limit: int = Query(default=50), db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
@@ -154,9 +237,35 @@ async def generate_event_reading(event_id: UUID, db: AsyncSession = Depends(get_
     e = await db.get(AstronomicalEvent, event_id)
     if not e:
         raise HTTPException(status_code=404, detail="Event not found")
-    from pipeline.orchestrator import run_pipeline
-    run_id = await run_pipeline(date_context=e.at.date(), trigger_source="manual_event")
-    e.reading_status = "generated"
-    e.run_id = run_id
-    db.add(AuditLog(user_id=user.id, action="event.generate_reading", target_type="event", target_id=str(event_id)))
-    return {"status": "triggered", "run_id": str(run_id)}
+    running = await db.execute(
+        select(PipelineRun).where(
+            PipelineRun.date_context == e.at.date(),
+            PipelineRun.status == "running",
+        )
+    )
+    if running.scalars().first() is not None:
+        raise HTTPException(status_code=409, detail="A pipeline run for this event date is already in progress.")
+
+    from api.routers.admin_pipeline import _is_pipeline_lock_available
+
+    if not await _is_pipeline_lock_available(db, e.at.date()):
+        raise HTTPException(status_code=409, detail="A pipeline run for this event date is already in progress.")
+
+    e.reading_status = "pending"
+    e.published_at = None
+    e.published_url = None
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            action="event.generate_reading",
+            target_type="event",
+            target_id=str(event_id),
+            detail={"date_context": e.at.date().isoformat(), "mode": "background"},
+        )
+    )
+    asyncio.create_task(_run_event_pipeline_background(event_id=e.id, date_context=e.at.date()))
+    return {
+        "status": "started",
+        "mode": "background",
+        "date_context": e.at.date().isoformat(),
+    }

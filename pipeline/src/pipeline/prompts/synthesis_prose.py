@@ -10,6 +10,7 @@ def build_prose_prompt(
     selected_signals: list[dict],
     thread_snapshot: list[dict],
     date_context: date,
+    event_context: dict | None = None,
     interpretive_plan: dict | None = None,
     mention_policy: dict | None = None,
     explicit_entity_guard: list[str] | None = None,
@@ -50,6 +51,15 @@ def build_prose_prompt(
         threads_str += f"\n- {t.get('canonical_summary','')} ({t.get('domain','')}, {t.get('appearances',0)} appearances)"
 
     sky_note = "\nThe cultural signal is absent today. Read only the planetary weather.\n" if sky_only else ""
+    event_block = ""
+    if isinstance(event_context, dict) and event_context:
+        event_block = (
+            "\n=== EVENT CONTEXT (PRIMARY FOCUS) ===\n"
+            f"{json.dumps(event_context, indent=2, default=str)}\n"
+            "\nEvent instruction:\n"
+            "- Make this event the primary narrative anchor for both standard and extended readings.\n"
+            "- Use signals/threads only as supporting color, never as the central frame.\n"
+        )
 
     return f"""You are a cultural seismograph. Your prose uses proper em-dashes (\u2014), not hyphens or en-dashes.
 
@@ -65,6 +75,7 @@ TODAY: {date_context.isoformat()}
 
 === ACTIVE THREADS ==={threads_str or " (none)"}
 {sky_note}
+{event_block}
 HARD CONSTRAINTS (violation = rejection):
 - Do NOT address the reader as "you." Do not give advice or prescriptions.
 - No emojis, ever.
@@ -75,6 +86,7 @@ HARD CONSTRAINTS (violation = rejection):
 - Title must not resemble any of: {titles_str}
 - Do not use the words: {', '.join(f'"{p}"' for p in banned)}
 - Every transit annotation must reference a specific aspect from the transit data.
+- If EVENT CONTEXT is present, keep it as the dominant frame throughout the reading.
 - Explicit mention policy:
   - Max explicit named references allowed across ALL output text: {effective_budget}
   - Explicit references may only use these entities: {allowed_entities_str}

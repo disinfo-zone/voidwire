@@ -37,6 +37,12 @@ export const TEMPLATE_VARIABLE_LIBRARY: TemplateVariableDefinition[] = [
     example: '[{ "canonical_summary": "...", "appearances": 5 }]',
   },
   {
+    key: 'event_context',
+    description: 'Event payload for event-linked readings (type/body/sign/date/significance).',
+    usedIn: 'Event synthesis plan + prose',
+    example: '{ "event_type": "lunar_eclipse", "sign": "Virgo", "days_out": 5 }',
+  },
+  {
     key: 'interpretive_plan',
     description: 'Pass A plan JSON consumed by Pass B prose generation.',
     usedIn: 'Synthesis prose',

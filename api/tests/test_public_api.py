@@ -1,6 +1,7 @@
 """Tests for public API."""
 from datetime import date, datetime, timezone
 from unittest.mock import MagicMock
+import uuid
 
 import pytest
 from httpx import AsyncClient
@@ -29,8 +30,10 @@ async def test_reading_today_includes_normalized_extended_payload(client: AsyncC
     reading.generated_annotations = []
     reading.published_at = datetime(2026, 2, 14, 10, 0, tzinfo=timezone.utc)
 
+    run = MagicMock()
+    run.reused_artifacts = {"trigger_source": "scheduler"}
     db_result = MagicMock()
-    db_result.scalars.return_value.first.return_value = reading
+    db_result.all.return_value = [(reading, run)]
     mock_db.execute.return_value = db_result
 
     response = await client.get("/v1/reading/today")
@@ -57,8 +60,10 @@ async def test_reading_by_date_reports_no_extended_when_content_is_empty(client:
     reading.generated_annotations = []
     reading.published_at = None
 
+    run = MagicMock()
+    run.reused_artifacts = {"trigger_source": "scheduler"}
     db_result = MagicMock()
-    db_result.scalars.return_value.first.return_value = reading
+    db_result.all.return_value = [(reading, run)]
     mock_db.execute.return_value = db_result
 
     response = await client.get("/v1/reading/2026-02-14")
@@ -67,6 +72,82 @@ async def test_reading_by_date_reports_no_extended_when_content_is_empty(client:
     assert body["has_extended"] is False
     assert body["extended"]["sections"] == []
     assert body["extended"]["word_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_reading_today_skips_event_triggered_readings(client: AsyncClient, mock_db):
+    event_reading = MagicMock()
+    event_reading.date_context = date(2026, 2, 14)
+    event_reading.published_standard = {"title": "Event Reading", "body": "Event body", "word_count": 450}
+    event_reading.generated_standard = {}
+    event_reading.published_extended = {}
+    event_reading.generated_extended = {}
+    event_reading.published_annotations = []
+    event_reading.generated_annotations = []
+    event_reading.published_at = datetime(2026, 2, 14, 10, 0, tzinfo=timezone.utc)
+
+    normal_reading = MagicMock()
+    normal_reading.date_context = date(2026, 2, 14)
+    normal_reading.published_standard = {"title": "Daily Reading", "body": "Daily body", "word_count": 500}
+    normal_reading.generated_standard = {}
+    normal_reading.published_extended = {}
+    normal_reading.generated_extended = {}
+    normal_reading.published_annotations = []
+    normal_reading.generated_annotations = []
+    normal_reading.published_at = datetime(2026, 2, 14, 11, 0, tzinfo=timezone.utc)
+
+    event_run = MagicMock()
+    event_run.reused_artifacts = {"trigger_source": "manual_event"}
+    scheduler_run = MagicMock()
+    scheduler_run.reused_artifacts = {"trigger_source": "scheduler"}
+
+    db_result = MagicMock()
+    db_result.all.return_value = [
+        (event_reading, event_run),
+        (normal_reading, scheduler_run),
+    ]
+    mock_db.execute.return_value = db_result
+
+    response = await client.get("/v1/reading/today")
+    assert response.status_code == 200
+    assert response.json()["title"] == "Daily Reading"
+
+
+@pytest.mark.asyncio
+async def test_events_list_includes_event_reading_link(client: AsyncClient, mock_db):
+    event_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+
+    event = MagicMock()
+    event.id = event_id
+    event.event_type = "full_moon"
+    event.body = "Moon"
+    event.sign = "Virgo"
+    event.at = datetime(2026, 3, 14, 12, 0, tzinfo=timezone.utc)
+    event.significance = "major"
+    event.reading_status = "generated"
+    event.reading_title = None
+    event.run_id = run_id
+
+    reading = MagicMock()
+    reading.run_id = run_id
+    reading.status = "pending"
+    reading.published_standard = None
+    reading.generated_standard = {"title": "Event Thread", "body": "Body", "word_count": 420}
+
+    events_result = MagicMock()
+    events_result.scalars.return_value.all.return_value = [event]
+    reading_result = MagicMock()
+    reading_result.scalars.return_value.all.return_value = [reading]
+    mock_db.execute.side_effect = [events_result, reading_result]
+
+    response = await client.get("/v1/events")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["reading_available"] is True
+    assert body[0]["reading_url"] == f"/events/{event_id}"
+    assert body[0]["reading_title"] == "Event Thread"
 
 
 @pytest.mark.asyncio

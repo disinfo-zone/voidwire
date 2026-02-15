@@ -10,6 +10,7 @@ def build_plan_prompt(
     selected_signals: list[dict],
     thread_snapshot: list[dict],
     date_context: date,
+    event_context: dict | None = None,
     sky_only: bool = False,
     thread_display_limit: int = 10,
 ) -> str:
@@ -25,6 +26,14 @@ def build_plan_prompt(
         threads_str += f"\n- {t.get('canonical_summary','')} ({t.get('domain','')}, {t.get('appearances',0)} appearances, since {t.get('first_surfaced','')})"
 
     sky_note = "\nThe cultural signal is absent today. Read only the planetary weather.\n" if sky_only else ""
+    event_block = ""
+    if isinstance(event_context, dict) and event_context:
+        event_block = (
+            "\n=== EVENT CONTEXT (PRIMARY FOCUS) ===\n"
+            f"{json.dumps(event_context, indent=2, default=str)}\n"
+            "\nEvent instruction: Anchor this plan around the event context above. "
+            "Signals and threads are only secondary texture.\n"
+        )
 
     return f"""You are a cultural seismograph reading the world through astrological symbolism.
 
@@ -37,6 +46,7 @@ TODAY: {date_context.isoformat()}
 
 === ACTIVE THREADS ==={threads_str or " (none)"}
 {sky_note}
+{event_block}
 Produce an INTERPRETIVE PLAN as JSON with these fields:
 - title: Working title for the reading
 - opening_strategy: How to open (which transit or signal leads)
@@ -55,5 +65,6 @@ Produce an INTERPRETIVE PLAN as JSON with these fields:
 Critical instruction:
 - Allusion first. Prefer symbolic framing and subtext over direct event references.
 - Explicit named references are allowed only when a connection is undeniable and structurally central.
+- If EVENT CONTEXT is present, the event is the primary frame. The reading should orbit that event first.
 
 Return ONLY valid JSON, no markdown fencing."""
