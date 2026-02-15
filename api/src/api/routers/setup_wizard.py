@@ -15,6 +15,13 @@ from api.services.template_defaults import ensure_starter_prompt_template
 
 router = APIRouter()
 
+
+async def _require_setup_incomplete(db: AsyncSession) -> SetupState | None:
+    state = await db.get(SetupState, 1)
+    if state and state.is_complete:
+        raise HTTPException(status_code=403, detail="Setup already complete")
+    return state
+
 class AdminCreateRequest(BaseModel):
     email: str
     password: str
@@ -41,7 +48,7 @@ async def get_setup_status(db: AsyncSession = Depends(get_db)):
 
 @router.post("/init-db")
 async def init_database(db: AsyncSession = Depends(get_db)):
-    state = await db.get(SetupState, 1)
+    state = await _require_setup_incomplete(db)
     if not state:
         state = SetupState(id=1, steps_completed=[])
         db.add(state)
@@ -55,7 +62,7 @@ async def init_database(db: AsyncSession = Depends(get_db)):
 
 @router.post("/create-admin")
 async def create_admin(req: AdminCreateRequest, db: AsyncSession = Depends(get_db)):
-    state = await db.get(SetupState, 1)
+    state = await _require_setup_incomplete(db)
     if not state:
         raise HTTPException(status_code=400, detail="Run init-db first")
     totp_secret = generate_totp_secret()
@@ -69,6 +76,7 @@ async def create_admin(req: AdminCreateRequest, db: AsyncSession = Depends(get_d
 
 @router.post("/configure-llm")
 async def configure_llm(req: LLMSlotRequest, db: AsyncSession = Depends(get_db)):
+    await _require_setup_incomplete(db)
     existing = await db.execute(select(LLMConfig).where(LLMConfig.slot == req.slot))
     config = existing.scalars().first()
     encrypted_key = encrypt_value(req.api_key)
@@ -89,6 +97,7 @@ async def configure_llm(req: LLMSlotRequest, db: AsyncSession = Depends(get_db))
 
 @router.post("/configure-site")
 async def configure_site(req: SiteConfigRequest, db: AsyncSession = Depends(get_db)):
+    await _require_setup_incomplete(db)
     for key, val, cat in [("site.title", {"value": req.site_title}, "general"), ("site.timezone", {"value": req.timezone}, "general"), ("pipeline.auto_publish", {"enabled": req.auto_publish}, "pipeline")]:
         setting = await db.get(SiteSetting, key)
         if setting:
@@ -105,7 +114,7 @@ async def configure_site(req: SiteConfigRequest, db: AsyncSession = Depends(get_
 
 @router.post("/complete")
 async def complete_setup(db: AsyncSession = Depends(get_db)):
-    state = await db.get(SetupState, 1)
+    state = await _require_setup_incomplete(db)
     if not state:
         raise HTTPException(status_code=400, detail="Setup not initialized")
     await ensure_default_llm_slots(db)

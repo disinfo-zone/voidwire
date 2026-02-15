@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiPost } from '../api/client';
+import { apiGet, apiPost } from '../api/client';
 
 const steps = ['Database', 'Admin Account', 'LLM Config', 'Sources', 'Site Settings', 'Complete'];
 
@@ -9,7 +9,40 @@ export default function SetupWizardPage() {
   const [status, setStatus] = useState('');
   const [adminForm, setAdminForm] = useState({ email: '', password: '' });
   const [totpUri, setTotpUri] = useState('');
+  const [checkingStatus, setCheckingStatus] = useState(true);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    let cancelled = false;
+    async function checkSetupStatus() {
+      try {
+        const data = await apiGet('/setup/status');
+        if (!cancelled && data?.is_complete) {
+          const hasToken = Boolean(localStorage.getItem('voidwire_admin_token'));
+          navigate(hasToken ? '/' : '/login', { replace: true });
+          return;
+        }
+      } catch {
+        if (!cancelled) {
+          setStatus('Unable to verify setup status. Check API availability.');
+        }
+      } finally {
+        if (!cancelled) setCheckingStatus(false);
+      }
+    }
+    void checkSetupStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
+  if (checkingStatus) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-void">
+        <p className="text-xs font-mono tracking-wider text-text-muted uppercase">Verifying setup state...</p>
+      </div>
+    );
+  }
 
   async function initDb() {
     await apiPost('/setup/init-db');
