@@ -149,7 +149,7 @@
       xmlns="http://www.w3.org/2000/svg"
     >
       <!-- Background -->
-      <rect width={GRID_SIZE} height={GRID_SIZE} fill="var(--void)" />
+      <rect width={GRID_SIZE} height={GRID_SIZE} fill="var(--tg-bg)" />
       
       <!-- Column labels (top) -->
       {#each PLANETS as planet, i}
@@ -157,7 +157,7 @@
           x={LABEL_SIZE + i * CELL_SIZE + CELL_SIZE / 2}
           y={LABEL_SIZE / 2 + 5}
           text-anchor="middle"
-          fill="var(--text-muted)"
+          fill="var(--tg-muted)"
           font-size="20"
           font-family="var(--font-body)"
         >
@@ -171,7 +171,7 @@
           x={LABEL_SIZE / 2}
           y={LABEL_SIZE + j * CELL_SIZE + CELL_SIZE / 2 + 6}
           text-anchor="middle"
-          fill="var(--text-muted)"
+          fill="var(--tg-muted)"
           font-size="20"
           font-family="var(--font-body)"
         >
@@ -204,7 +204,7 @@
               y={LABEL_SIZE + j * CELL_SIZE + 2}
               width={CELL_SIZE - 4}
               height={CELL_SIZE - 4}
-              fill="var(--surface)"
+              fill="var(--tg-surface)"
               rx="1"
             />
           {/if}
@@ -218,7 +218,7 @@
           y1={LABEL_SIZE}
           x2={LABEL_SIZE + i * CELL_SIZE}
           y2={GRID_SIZE}
-          stroke="var(--text-ghost)"
+          stroke="var(--tg-grid-line)"
           stroke-width="0.5"
           opacity="0.3"
         />
@@ -227,7 +227,7 @@
           y1={LABEL_SIZE + i * CELL_SIZE}
           x2={GRID_SIZE}
           y2={LABEL_SIZE + i * CELL_SIZE}
-          stroke="var(--text-ghost)"
+          stroke="var(--tg-grid-line)"
           stroke-width="0.5"
           opacity="0.3"
         />
@@ -251,6 +251,18 @@
 
 <style>
   .transit-grid-wrapper {
+    --tg-bg: #04070f;
+    --tg-surface: #0b1118;
+    --tg-muted: #737d8c;
+    --tg-grid-line: #2a323f;
+    --tg-tooltip-bg: rgba(6, 8, 14, 0.95);
+    --tg-tooltip-border: #2a323f;
+    --tg-primary: #d9d4c9;
+    --tg-secondary: #a9a39a;
+    --tg-accent: #d6af72;
+    --tg-accent-glow: rgba(214, 175, 114, 0.18);
+    color-scheme: dark;
+    forced-color-adjust: none;
     position: relative;
     display: flex;
     justify-content: center;
@@ -262,9 +274,9 @@
     width: 100%;
     max-width: 520px;
     aspect-ratio: 1/1;
-    border: 1px solid var(--text-ghost);
+    border: 1px solid var(--tg-grid-line);
     padding: 1rem;
-    background: var(--surface);
+    background: var(--tg-surface);
     box-shadow: 0 20px 50px rgba(0,0,0,0.5);
   }
 
@@ -275,7 +287,7 @@
   }
 
   .applying {
-    filter: drop-shadow(0 0 2px var(--accent-glow));
+    filter: drop-shadow(0 0 2px var(--tg-accent-glow));
     animation: pulse 4s infinite ease-in-out;
   }
 
@@ -286,10 +298,10 @@
 
   .tooltip {
     position: absolute;
-    background: rgba(10, 10, 10, 0.95);
+    background: var(--tg-tooltip-bg);
     backdrop-filter: blur(8px);
-    border: 1px solid var(--text-ghost);
-    color: var(--text-primary);
+    border: 1px solid var(--tg-tooltip-border);
+    color: var(--tg-primary);
     font-family: var(--font-body);
     font-size: 0.9rem;
     padding: 0.75rem 1rem;
@@ -304,19 +316,19 @@
   }
 
   .tooltip-line.header {
-    color: var(--accent);
+    color: var(--tg-accent);
     text-transform: uppercase;
     letter-spacing: 0.1em;
     font-weight: 500;
     margin-bottom: 0.25rem;
-    border-bottom: 1px solid var(--text-ghost);
+    border-bottom: 1px solid var(--tg-tooltip-border);
     padding-bottom: 0.25rem;
   }
 
   .tooltip-line.sub {
     font-family: var(--font-mono);
     font-size: 0.7rem;
-    color: var(--text-muted);
+    color: var(--tg-muted);
     text-transform: uppercase;
     letter-spacing: 0.1em;
     margin-bottom: 0.5rem;
@@ -324,7 +336,7 @@
 
   .tooltip-line.meta {
     font-size: 0.75rem;
-    color: var(--accent);
+    color: var(--tg-accent);
     letter-spacing: 0.05em;
     margin-bottom: 0.5rem;
     font-style: italic;
@@ -332,7 +344,7 @@
 
   .tooltip-line + .tooltip-line:not(.sub):not(.meta) {
     margin-top: 0.5rem;
-    color: var(--text-secondary);
+    color: var(--tg-secondary);
   }
 
   @media (max-width: 600px) {
