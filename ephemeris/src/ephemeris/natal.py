@@ -3,18 +3,17 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, time, timezone
+from datetime import UTC, date, datetime, time
 from zoneinfo import ZoneInfo
 
 from ephemeris.aspects import angular_distance, find_aspects
 from ephemeris.bodies import (
     ALL_BODIES,
+    ASPECTS,
     BODY_IDS,
-    SIGNS,
     aspect_significance,
     get_effective_orb,
     longitude_to_sign,
-    ASPECTS,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,9 +40,11 @@ HOUSE_SYSTEMS: dict[str, bytes] = {
 def _datetime_to_jd(dt: datetime) -> float:
     """Convert datetime to Julian Day number."""
     if _HAS_SWISSEPH:
-        utc = dt.astimezone(timezone.utc)
+        utc = dt.astimezone(UTC)
         return swe.julday(
-            utc.year, utc.month, utc.day,
+            utc.year,
+            utc.month,
+            utc.day,
             utc.hour + utc.minute / 60.0 + utc.second / 3600.0,
         )
     y = dt.year
@@ -52,9 +53,9 @@ def _datetime_to_jd(dt: datetime) -> float:
     if m <= 2:
         y -= 1
         m += 12
-    A = int(y / 100)
-    B = 2 - A + int(A / 4)
-    return int(365.25 * (y + 4716)) + int(30.6001 * (m + 1)) + d + B - 1524.5
+    a_term = int(y / 100)
+    b_term = 2 - a_term + int(a_term / 4)
+    return int(365.25 * (y + 4716)) + int(30.6001 * (m + 1)) + d + b_term - 1524.5
 
 
 def _calculate_position(body_name: str, jd: float) -> dict:
@@ -75,11 +76,13 @@ def _calculate_position(body_name: str, jd: float) -> dict:
                 speed = result[3]
             except Exception:
                 import hashlib
+
                 h = int(hashlib.sha256(f"{body_name}{jd}".encode()).hexdigest()[:8], 16)
                 longitude = (h % 36000) / 100.0
                 speed = 1.0
     else:
         import hashlib
+
         h = int(hashlib.sha256(f"{body_name}{jd}".encode()).hexdigest()[:8], 16)
         longitude = (h % 36000) / 100.0
         speed = 1.0
@@ -130,7 +133,7 @@ def calculate_natal_chart(
     try:
         tz = ZoneInfo(birth_timezone)
     except Exception:
-        tz = timezone.utc
+        tz = UTC
     birth_dt = datetime.combine(birth_date, bt, tzinfo=tz)
     jd = _datetime_to_jd(birth_dt)
 
@@ -144,9 +147,7 @@ def calculate_natal_chart(
 
     if _HAS_SWISSEPH:
         try:
-            cusp_result, angle_result = swe.houses_ex(
-                jd, birth_latitude, birth_longitude, hsys
-            )
+            cusp_result, angle_result = swe.houses_ex(jd, birth_latitude, birth_longitude, hsys)
             cusps = list(cusp_result)
             ascendant = angle_result[0]
             midheaven = angle_result[1]
@@ -178,8 +179,18 @@ def calculate_natal_chart(
     asc_sign, asc_deg = longitude_to_sign(ascendant)
     mc_sign, mc_deg = longitude_to_sign(midheaven)
     angles = [
-        {"name": "Ascendant", "sign": asc_sign, "degree": round(asc_deg, 2), "longitude": round(ascendant, 2)},
-        {"name": "Midheaven", "sign": mc_sign, "degree": round(mc_deg, 2), "longitude": round(midheaven, 2)},
+        {
+            "name": "Ascendant",
+            "sign": asc_sign,
+            "degree": round(asc_deg, 2),
+            "longitude": round(ascendant, 2),
+        },
+        {
+            "name": "Midheaven",
+            "sign": mc_sign,
+            "degree": round(mc_deg, 2),
+            "longitude": round(midheaven, 2),
+        },
     ]
 
     # Calculate natal aspects (natal-to-natal)
@@ -221,7 +232,7 @@ def calculate_transit_to_natal_aspects(
 
     for transit_name, transit_data in transit_positions.items():
         t_lon = transit_data["longitude"]
-        t_speed = transit_data.get("speed_deg_day", 0.0)
+        transit_data.get("speed_deg_day", 0.0)
 
         for natal_name, natal_data in natal_by_name.items():
             n_lon = natal_data["longitude"]
@@ -234,13 +245,15 @@ def calculate_transit_to_natal_aspects(
                 orb = abs(dist - aspect_angle)
 
                 if orb <= orb_limit:
-                    aspects_found.append({
-                        "transit_body": transit_name,
-                        "natal_body": natal_name,
-                        "type": aspect_name,
-                        "orb_degrees": round(orb, 4),
-                        "significance": aspect_significance(aspect_name),
-                    })
+                    aspects_found.append(
+                        {
+                            "transit_body": transit_name,
+                            "natal_body": natal_name,
+                            "type": aspect_name,
+                            "orb_degrees": round(orb, 4),
+                            "significance": aspect_significance(aspect_name),
+                        }
+                    )
 
     sig_order = {"major": 0, "moderate": 1, "minor": 2}
     aspects_found.sort(key=lambda a: (sig_order.get(a["significance"], 3), a["orb_degrees"]))

@@ -1,6 +1,6 @@
 """Tests for aspect detection."""
 
-from ephemeris.aspects import angular_distance, find_aspects, _is_applying
+from ephemeris.aspects import _is_applying, angular_distance, find_aspects
 
 
 def test_angular_distance():

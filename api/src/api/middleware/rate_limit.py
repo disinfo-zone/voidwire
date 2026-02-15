@@ -1,4 +1,5 @@
 """Rate limiting middleware."""
+
 from __future__ import annotations
 
 import logging
@@ -106,7 +107,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if auth_limit and request.method == "POST":
             try:
                 r = await self._get_redis_client(request)
-                auth_key = f"ratelimit:auth:{request.url.path}:{client_ip}:{int(time.time()//3600)}"
+                auth_key = (
+                    f"ratelimit:auth:{request.url.path}:{client_ip}:{int(time.time() // 3600)}"
+                )
                 auth_count = await r.incr(auth_key)
                 if auth_count == 1:
                     await r.expire(auth_key, 3600)
@@ -123,7 +126,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         try:
             r = await self._get_redis_client(request)
-            key = f"ratelimit:{client_ip}:{int(time.time()//3600)}"
+            key = f"ratelimit:{client_ip}:{int(time.time() // 3600)}"
             count = await r.incr(key)
             if count == 1:
                 await r.expire(key, 3600)

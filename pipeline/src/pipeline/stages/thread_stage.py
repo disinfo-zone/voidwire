@@ -1,10 +1,12 @@
 """Thread tracking stage."""
+
 from __future__ import annotations
+
 import logging
 import math
 import uuid
 from datetime import date, timedelta
-from typing import Any
+
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.models import CulturalThread, ThreadSignal
@@ -35,11 +37,13 @@ async def run_thread_stage(
 ) -> list[dict]:
     ts = settings or ThreadSettings()
     # Fetch all threads (active and recently deactivated for reactivation)
-    reactivation_cutoff = date_context - timedelta(days=ts.deactivation_days * ts.reactivation_multiplier)
+    reactivation_cutoff = date_context - timedelta(
+        days=ts.deactivation_days * ts.reactivation_multiplier
+    )
     result = await session.execute(
         select(CulturalThread).where(
-            (CulturalThread.active == True) |
-            ((CulturalThread.active == False) & (CulturalThread.last_seen >= reactivation_cutoff))
+            (CulturalThread.active)
+            | ((not CulturalThread.active) & (CulturalThread.last_seen >= reactivation_cutoff))
         )
     )
     all_threads = list(result.scalars().all())
@@ -57,7 +61,11 @@ async def run_thread_stage(
         for thread in search_pool:
             if thread.centroid_embedding is None:
                 continue
-            centroid = list(thread.centroid_embedding) if hasattr(thread.centroid_embedding, '__iter__') else []
+            centroid = (
+                list(thread.centroid_embedding)
+                if hasattr(thread.centroid_embedding, "__iter__")
+                else []
+            )
             if not centroid:
                 continue
             sim = _cosine_similarity(emb, centroid)
@@ -73,16 +81,24 @@ async def run_thread_stage(
                 if best_match not in active_threads:
                     active_threads.append(best_match)
                     inactive_threads = [t for t in inactive_threads if t.id != best_match.id]
-                logger.info("Reactivated thread %s: %s", best_match.id, best_match.canonical_summary[:60])
+                logger.info(
+                    "Reactivated thread %s: %s", best_match.id, best_match.canonical_summary[:60]
+                )
 
             best_match.last_seen = date_context
             best_match.appearances += 1
 
             # Recency-weighted centroid update
             if best_match.centroid_embedding is not None:
-                old_centroid = list(best_match.centroid_embedding) if hasattr(best_match.centroid_embedding, '__iter__') else []
+                old_centroid = (
+                    list(best_match.centroid_embedding)
+                    if hasattr(best_match.centroid_embedding, "__iter__")
+                    else []
+                )
                 if old_centroid and len(old_centroid) == len(emb):
-                    best_match.centroid_embedding = _recency_weighted_centroid(old_centroid, emb, ts.centroid_decay)
+                    best_match.centroid_embedding = _recency_weighted_centroid(
+                        old_centroid, emb, ts.centroid_decay
+                    )
 
             # Update canonical summary only when match is very high
             # (signal is clearly the same story in updated form)
@@ -90,12 +106,14 @@ async def run_thread_stage(
                 best_match.canonical_summary = signal.get("summary", best_match.canonical_summary)
 
             if signal.get("id"):
-                session.add(ThreadSignal(
-                    thread_id=best_match.id,
-                    signal_id=signal["id"],
-                    date_seen=date_context,
-                    similarity_score=best_score,
-                ))
+                session.add(
+                    ThreadSignal(
+                        thread_id=best_match.id,
+                        signal_id=signal["id"],
+                        date_seen=date_context,
+                        similarity_score=best_score,
+                    )
+                )
         else:
             # Create new thread
             new_thread = CulturalThread(
@@ -113,12 +131,12 @@ async def run_thread_stage(
     cutoff = date_context - timedelta(days=ts.deactivation_days)
     await session.execute(
         update(CulturalThread)
-        .where(CulturalThread.active == True, CulturalThread.last_seen < cutoff)
+        .where(CulturalThread.active, CulturalThread.last_seen < cutoff)
         .values(active=False)
     )
 
     # Return active thread snapshot
-    result = await session.execute(select(CulturalThread).where(CulturalThread.active == True))
+    result = await session.execute(select(CulturalThread).where(CulturalThread.active))
     return [
         {
             "id": str(t.id),

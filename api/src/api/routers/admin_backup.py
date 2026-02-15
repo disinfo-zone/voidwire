@@ -1,4 +1,5 @@
 """Admin backup management -- local and S3-compatible storage."""
+
 from __future__ import annotations
 
 import asyncio
@@ -153,7 +154,9 @@ def _merge_storage_update(current: dict, req: BackupStorageUpdateRequest) -> dic
             try:
                 merged["s3_access_key_encrypted"] = encrypt_value(access)
             except Exception as exc:
-                raise HTTPException(status_code=400, detail="Could not encrypt S3 access key. Check ENCRYPTION_KEY.") from exc
+                raise HTTPException(
+                    status_code=400, detail="Could not encrypt S3 access key. Check ENCRYPTION_KEY."
+                ) from exc
         else:
             merged["s3_access_key_encrypted"] = ""
     if req.s3_secret_key is not None:
@@ -162,7 +165,9 @@ def _merge_storage_update(current: dict, req: BackupStorageUpdateRequest) -> dic
             try:
                 merged["s3_secret_key_encrypted"] = encrypt_value(secret)
             except Exception as exc:
-                raise HTTPException(status_code=400, detail="Could not encrypt S3 secret key. Check ENCRYPTION_KEY.") from exc
+                raise HTTPException(
+                    status_code=400, detail="Could not encrypt S3 secret key. Check ENCRYPTION_KEY."
+                ) from exc
         else:
             merged["s3_secret_key_encrypted"] = ""
 
@@ -196,7 +201,9 @@ def _build_s3_client(config: dict):
     bucket = str(config.get("s3_bucket", "")).strip()
     region = str(config.get("s3_region", "us-east-1")).strip() or "us-east-1"
     if not endpoint or not bucket:
-        raise HTTPException(status_code=400, detail="S3 backup storage is missing endpoint or bucket")
+        raise HTTPException(
+            status_code=400, detail="S3 backup storage is missing endpoint or bucket"
+        )
 
     access = ""
     secret = ""
@@ -206,10 +213,14 @@ def _build_s3_client(config: dict):
         if config.get("s3_secret_key_encrypted"):
             secret = decrypt_value(str(config.get("s3_secret_key_encrypted")))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail="S3 backup credentials could not be decrypted") from exc
+        raise HTTPException(
+            status_code=500, detail="S3 backup credentials could not be decrypted"
+        ) from exc
 
     if not access or not secret:
-        raise HTTPException(status_code=400, detail="S3 backup storage is missing access key or secret key")
+        raise HTTPException(
+            status_code=400, detail="S3 backup storage is missing access key or secret key"
+        )
 
     client = boto3.client(
         "s3",
@@ -294,9 +305,11 @@ async def list_backups(
             continue
         backups.append(
             {
-                "filename": key[len(prefix):] if prefix and key.startswith(prefix) else key,
+                "filename": key[len(prefix) :] if prefix and key.startswith(prefix) else key,
                 "size_bytes": int(item.get("Size", 0)),
-                "created_at": item.get("LastModified").isoformat() if item.get("LastModified") else None,
+                "created_at": item.get("LastModified").isoformat()
+                if item.get("LastModified")
+                else None,
             }
         )
     backups.sort(key=lambda b: b.get("created_at") or "", reverse=True)
@@ -370,9 +383,12 @@ async def create_backup(
     # PostgreSQL custom archive format compatible with pg_restore.
     pg_dump_cmd = [
         "pg_dump",
-        "-h", params["host"],
-        "-p", params["port"],
-        "-U", params["user"],
+        "-h",
+        params["host"],
+        "-p",
+        params["port"],
+        "-U",
+        params["user"],
         "-Fc",
         params["dbname"],
     ]
@@ -452,7 +468,9 @@ async def restore_backup(
             obj = await asyncio.to_thread(client.get_object, Bucket=bucket, Key=key)
             body = await asyncio.to_thread(obj["Body"].read)
         except Exception as exc:
-            raise HTTPException(status_code=404, detail=f"S3 backup file not found: {safe}") from exc
+            raise HTTPException(
+                status_code=404, detail=f"S3 backup file not found: {safe}"
+            ) from exc
         fd, tmp_name = tempfile.mkstemp(prefix="voidwire_restore_", suffix=".dump")
         os.close(fd)
         tmp_path = Path(tmp_name)
@@ -461,10 +479,14 @@ async def restore_backup(
 
     pg_restore_cmd = [
         "pg_restore",
-        "-h", params["host"],
-        "-p", params["port"],
-        "-U", params["user"],
-        "-d", params["dbname"],
+        "-h",
+        params["host"],
+        "-p",
+        params["port"],
+        "-U",
+        params["user"],
+        "-d",
+        params["dbname"],
         "--clean",
         "--if-exists",
         str(restore_path),

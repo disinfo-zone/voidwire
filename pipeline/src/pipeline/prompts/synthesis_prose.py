@@ -1,8 +1,9 @@
 """Synthesis Pass B prompt builder."""
+
 from __future__ import annotations
+
 import json
 from datetime import date
-from typing import Any
 
 
 def build_prose_prompt(
@@ -22,7 +23,14 @@ def build_prose_prompt(
 ) -> str:
     std_range = standard_word_range or [400, 600]
     ext_range = extended_word_range or [1200, 1800]
-    banned = banned_phrases or ["buckle up", "wild ride", "cosmic", "universe has plans", "energy", "vibe"]
+    banned = banned_phrases or [
+        "buckle up",
+        "wild ride",
+        "cosmic",
+        "universe has plans",
+        "energy",
+        "vibe",
+    ]
     plan_str = json.dumps(interpretive_plan, indent=2) if interpretive_plan else "(no plan)"
     titles = ephemeris_data.get("recent_titles", [])
     titles_str = ", ".join(f'"{t}"' for t in titles) if titles else "(none)"
@@ -44,11 +52,17 @@ def build_prose_prompt(
     if not sky_only and selected_signals:
         for s in selected_signals:
             wild = " [WILD CARD]" if s.get("was_wild_card") else ""
-            signals_str += f"\n- [{s.get('id','?')}] ({s.get('domain','?')}/{s.get('intensity','?')}) {s.get('summary','')}{wild}"
+            signals_str += (
+                f"\n- [{s.get('id', '?')}] "
+                f"({s.get('domain', '?')}/{s.get('intensity', '?')}) "
+                f"{s.get('summary', '')}{wild}"
+            )
 
     threads_str = ""
     for t in (thread_snapshot or [])[:thread_display_limit]:
-        threads_str += f"\n- {t.get('canonical_summary','')} ({t.get('domain','')}, {t.get('appearances',0)} appearances)"
+        threads_str += (
+            f"\n- {t.get('canonical_summary', '')} ({t.get('domain', '')}, {t.get('appearances', 0)} appearances)"
+        )
 
     sky_note = "\nThe cultural signal is absent today. Read only the planetary weather.\n" if sky_only else ""
     event_block = ""
@@ -82,9 +96,10 @@ HARD CONSTRAINTS (violation = rejection):
 - Use proper em-dashes (\u2014) for parenthetical asides, never hyphens or en-dashes.
 - Use cultural signals as subtext and allusion, not direct commentary.
 - Do not use reportorial framing ("according to", "reported that", "headlines say", "news says").
-- Standard reading body: {std_range[0]}\u2013{std_range[1]} words. Extended reading: {ext_range[0]}\u2013{ext_range[1]} words.
+- Standard reading body: {std_range[0]}\u2013{std_range[1]} words.
+- Extended reading body: {ext_range[0]}\u2013{ext_range[1]} words.
 - Title must not resemble any of: {titles_str}
-- Do not use the words: {', '.join(f'"{p}"' for p in banned)}
+- Do not use the words: {", ".join(f'"{p}"' for p in banned)}
 - Every transit annotation must reference a specific aspect from the transit data.
 - If EVENT CONTEXT is present, keep it as the dominant frame throughout the reading.
 - Explicit mention policy:

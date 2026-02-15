@@ -24,7 +24,9 @@ def upgrade() -> None:
         sa.Column("pro_override", sa.Boolean(), nullable=False, server_default=sa.text("FALSE")),
     )
     op.add_column("users", sa.Column("pro_override_reason", sa.Text(), nullable=True))
-    op.add_column("users", sa.Column("pro_override_until", sa.DateTime(timezone=True), nullable=True))
+    op.add_column(
+        "users", sa.Column("pro_override_until", sa.DateTime(timezone=True), nullable=True)
+    )
     op.create_index(
         "idx_users_pro_override_until",
         "users",
@@ -58,8 +60,18 @@ def upgrade() -> None:
             sa.ForeignKey("admin_users.id", ondelete="SET NULL"),
             nullable=True,
         ),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("NOW()"),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("NOW()"),
+        ),
         sa.CheckConstraint(
             "duration IN ('once','forever','repeating')",
             name="ck_discount_code_duration",

@@ -21,12 +21,8 @@ class AdminUser(Base):
     email: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     totp_secret: Mapped[str | None] = mapped_column(Text)
-    role: Mapped[str] = mapped_column(
-        Text, nullable=False, server_default=text("'owner'")
-    )
-    token_version: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default=text("0")
-    )
+    role: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'owner'"))
+    token_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("TRUE"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("NOW()")

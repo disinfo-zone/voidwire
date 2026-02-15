@@ -1,16 +1,21 @@
 """Admin LLM configuration management."""
+
 from __future__ import annotations
+
 import time
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from voidwire.models import LLMConfig, AdminUser, AuditLog
+from voidwire.models import AdminUser, AuditLog, LLMConfig
 from voidwire.services.encryption import encrypt_value
+
 from api.dependencies import get_db, require_admin
 from api.services.llm_slots import ensure_default_llm_slots
 
 router = APIRouter()
+
 
 class LLMSlotUpdateRequest(BaseModel):
     provider_name: str | None = None
@@ -38,12 +43,14 @@ def _slot_dict(c: LLMConfig) -> dict:
     if c.api_key_encrypted:
         try:
             from voidwire.services.encryption import decrypt_value
+
             key = decrypt_value(c.api_key_encrypted)
             masked_key = f"****{key[-4:]}" if len(key) >= 4 else "****"
         except Exception:
             masked_key = "****"
     return {
-        "id": str(c.id), "slot": c.slot,
+        "id": str(c.id),
+        "slot": c.slot,
         "provider_name": c.provider_name,
         "api_endpoint": c.api_endpoint,
         "model_id": c.model_id,
@@ -55,21 +62,31 @@ def _slot_dict(c: LLMConfig) -> dict:
         "updated_at": c.updated_at.isoformat() if c.updated_at else None,
     }
 
+
 @router.get("/")
 async def list_slots(db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
     slots = await ensure_default_llm_slots(db)
     return [_slot_dict(c) for c in slots]
 
+
 @router.get("/{slot}")
-async def get_slot(slot: str, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
+async def get_slot(
+    slot: str, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)
+):
     result = await db.execute(select(LLMConfig).where(LLMConfig.slot == slot))
     config = result.scalars().first()
     if not config:
         raise HTTPException(status_code=404, detail="Slot not found")
     return _slot_dict(config)
 
+
 @router.put("/{slot}")
-async def update_slot(slot: str, req: LLMSlotUpdateRequest, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
+async def update_slot(
+    slot: str,
+    req: LLMSlotUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(require_admin),
+):
     result = await db.execute(select(LLMConfig).where(LLMConfig.slot == slot))
     config = result.scalars().first()
     if not config:
@@ -111,8 +128,11 @@ async def update_slot(slot: str, req: LLMSlotUpdateRequest, db: AsyncSession = D
     )
     return {"status": "ok"}
 
+
 @router.post("/{slot}/test")
-async def test_slot(slot: str, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
+async def test_slot(
+    slot: str, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)
+):
     result = await db.execute(select(LLMConfig).where(LLMConfig.slot == slot))
     config = result.scalars().first()
     if not config:
@@ -120,13 +140,19 @@ async def test_slot(slot: str, db: AsyncSession = Depends(get_db), user: AdminUs
     if not config.is_active:
         return {"status": "error", "error": "Slot is inactive"}
     from voidwire.services.llm_client import LLMClient, LLMSlotConfig
+
     client = LLMClient(timeout=30.0)
-    client.configure_slot(LLMSlotConfig(
-        slot=slot, provider_name=config.provider_name,
-        api_endpoint=config.api_endpoint, model_id=config.model_id,
-        api_key_encrypted=config.api_key_encrypted,
-        max_tokens=config.max_tokens, temperature=config.temperature or 0.7,
-    ))
+    client.configure_slot(
+        LLMSlotConfig(
+            slot=slot,
+            provider_name=config.provider_name,
+            api_endpoint=config.api_endpoint,
+            model_id=config.model_id,
+            api_key_encrypted=config.api_key_encrypted,
+            max_tokens=config.max_tokens,
+            temperature=config.temperature or 0.7,
+        )
+    )
     start = time.monotonic()
     try:
         if slot == "embedding":

@@ -1,4 +1,5 @@
 """Pipeline orchestrator - main daily pipeline runner."""
+
 from __future__ import annotations
 
 import asyncio
@@ -11,7 +12,8 @@ from datetime import UTC, date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select, text as sa_text
+from sqlalchemy import func, select
+from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.config import get_settings
 from voidwire.database import get_engine, get_session
@@ -23,11 +25,11 @@ from pipeline.stages.distillation_stage import run_distillation_stage
 from pipeline.stages.embedding_stage import run_embedding_stage
 from pipeline.stages.ephemeris_stage import run_ephemeris_stage
 from pipeline.stages.ingestion_stage import run_ingestion_stage
+from pipeline.stages.personal_reading_stage import run_personal_reading_stage
 from pipeline.stages.publish_stage import run_publish_stage
 from pipeline.stages.selection_stage import run_selection_stage
 from pipeline.stages.synthesis_stage import SILENCE_READING, run_synthesis_stage
 from pipeline.stages.thread_stage import run_thread_stage
-from pipeline.stages.personal_reading_stage import run_personal_reading_stage
 
 logger = logging.getLogger(__name__)
 
@@ -84,11 +86,7 @@ def _signals_have_embeddings(signals: list[dict[str, Any]]) -> bool:
 def _strip_signal_embeddings(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
     stripped: list[dict[str, Any]] = []
     for signal in signals:
-        cleaned = {
-            key: value
-            for key, value in signal.items()
-            if key not in {"embedding", "_wild_card_distance"}
-        }
+        cleaned = {key: value for key, value in signal.items() if key not in {"embedding", "_wild_card_distance"}}
         entities = cleaned.get("entities")
         if isinstance(entities, list):
             cleaned["entities"] = [str(entity).strip() for entity in entities if str(entity).strip()]
@@ -270,9 +268,7 @@ async def run_pipeline(
     run_id = uuid.uuid4()
     seed = _generate_seed(date_context, run_id)
     run: PipelineRun | None = None
-    lock_key = (
-        int(hashlib.sha256(date_context.isoformat().encode()).hexdigest()[:15], 16) % (2**31)
-    )
+    lock_key = int(hashlib.sha256(date_context.isoformat().encode()).hexdigest()[:15], 16) % (2**31)
     engine = get_engine()
 
     # Hold a transaction-scoped advisory lock on a dedicated connection so it cannot leak
@@ -304,10 +300,7 @@ async def run_pipeline(
                         seed = int(parent_run.seed)
 
                     existing = await session.execute(
-                        sa_text(
-                            "SELECT COALESCE(MAX(run_number), 0) "
-                            "FROM pipeline_runs WHERE date_context = :dc"
-                        ),
+                        sa_text("SELECT COALESCE(MAX(run_number), 0) FROM pipeline_runs WHERE date_context = :dc"),
                         {"dc": date_context},
                     )
                     run_number = existing.scalar() + 1
@@ -315,16 +308,26 @@ async def run_pipeline(
                     initial_reused_artifacts: dict[str, Any] = {"trigger_source": trigger_source}
                     initial_reused_artifacts.update(normalized_trigger_metadata)
                     run = PipelineRun(
-                        id=run_id, date_context=date_context, run_number=run_number,
-                        started_at=datetime.now(UTC), status="running",
-                        code_version=_get_code_version(), seed=seed,
-                        template_versions={}, model_config_json=ps.model_dump(),
+                        id=run_id,
+                        date_context=date_context,
+                        run_number=run_number,
+                        started_at=datetime.now(UTC),
+                        status="running",
+                        code_version=_get_code_version(),
+                        seed=seed,
+                        template_versions={},
+                        model_config_json=ps.model_dump(),
                         regeneration_mode=regeneration_mode.value if regeneration_mode else None,
                         parent_run_id=parent_run_ref,
                         reused_artifacts=initial_reused_artifacts,
-                        ephemeris_json={}, distilled_signals={}, selected_signals={},
-                        thread_snapshot={}, prompt_payloads={},
-                        ephemeris_hash="", distillation_hash="", selection_hash="",
+                        ephemeris_json={},
+                        distilled_signals={},
+                        selected_signals={},
+                        thread_snapshot={},
+                        prompt_payloads={},
+                        ephemeris_hash="",
+                        distillation_hash="",
+                        selection_hash="",
                     )
                     session.add(run)
                     await session.flush()
@@ -357,7 +360,10 @@ async def run_pipeline(
                                 reused_artifacts["source_event_id"] = source_event_id
 
                     # Stage 1: Ephemeris
-                    if regeneration_mode in (RegenerationMode.PROSE_ONLY, RegenerationMode.RESELECT):
+                    if regeneration_mode in (
+                        RegenerationMode.PROSE_ONLY,
+                        RegenerationMode.RESELECT,
+                    ):
                         if parent_run is None:
                             raise ValueError("Regeneration requested without a valid parent run.")
                         ephemeris_data = _coerce_object(parent_run.ephemeris_json)
@@ -374,7 +380,10 @@ async def run_pipeline(
 
                     # Stage 2/3: Ingestion + Distillation
                     sky_only = False
-                    if regeneration_mode in (RegenerationMode.PROSE_ONLY, RegenerationMode.RESELECT):
+                    if regeneration_mode in (
+                        RegenerationMode.PROSE_ONLY,
+                        RegenerationMode.RESELECT,
+                    ):
                         if parent_run is None:
                             raise ValueError("Regeneration requested without a valid parent run.")
                         distilled = _coerce_object_list(parent_run.distilled_signals)
@@ -383,7 +392,10 @@ async def run_pipeline(
                         reused_artifacts["distillation_hash"] = run.distillation_hash
                         sky_only = not bool(distilled)
                     else:
-                        if trigger_source == "manual_event" and event_mode in {"ephemeris_only", "thread_only"}:
+                        if trigger_source == "manual_event" and event_mode in {
+                            "ephemeris_only",
+                            "thread_only",
+                        }:
                             sky_only = True
                             distilled = []
                             logger.info(
@@ -404,7 +416,11 @@ async def run_pipeline(
                                     distilled = []
                                 else:
                                     distilled = await run_distillation_stage(
-                                        raw_articles, run_id, date_context, session, settings=ps.distillation,
+                                        raw_articles,
+                                        run_id,
+                                        date_context,
+                                        session,
+                                        settings=ps.distillation,
                                     )
                             except Exception as e:
                                 logger.error("Ingestion/distillation failed: %s", e)
@@ -419,9 +435,7 @@ async def run_pipeline(
                     if regeneration_mode == RegenerationMode.PROSE_ONLY:
                         if parent_run is None:
                             raise ValueError("prose_only regeneration requested without a parent run.")
-                        selected = _strip_signal_embeddings(
-                            _coerce_object_list(parent_run.selected_signals)
-                        )
+                        selected = _strip_signal_embeddings(_coerce_object_list(parent_run.selected_signals))
                         run.selected_signals = selected
                         run.selection_hash = parent_run.selection_hash or _content_hash(
                             {"selected": selected, "seed": seed}
@@ -448,8 +462,7 @@ async def run_pipeline(
                             elif event_mode == "near_event":
                                 if bool(ps.events.major_signals_only_near_event):
                                     major_only = [
-                                        s for s in selected
-                                        if str(s.get("intensity", "")).strip().lower() == "major"
+                                        s for s in selected if str(s.get("intensity", "")).strip().lower() == "major"
                                     ]
                                     if major_only:
                                         selected = major_only
@@ -469,9 +482,11 @@ async def run_pipeline(
                             thread_snapshot = []
                         else:
                             try:
-                                thread_seed_signals = [] if (
-                                    trigger_source == "manual_event" and event_mode == "thread_only"
-                                ) else distilled
+                                thread_seed_signals = (
+                                    []
+                                    if (trigger_source == "manual_event" and event_mode == "thread_only")
+                                    else distilled
+                                )
                                 thread_snapshot = await run_thread_stage(
                                     thread_seed_signals,
                                     date_context,
@@ -513,7 +528,8 @@ async def run_pipeline(
                     await session.commit()
                     synthesis_started_at = datetime.now(UTC)
                     logger.info(
-                        "Synthesis started run_id=%s date=%s source=%s fast_mode=%s timeout=%ss sky_only=%s selected=%d threads=%d",
+                        "Synthesis started run_id=%s date=%s source=%s fast_mode=%s timeout=%ss "
+                        "sky_only=%s selected=%d threads=%d",
                         run_id,
                         date_context,
                         trigger_source,
@@ -526,7 +542,12 @@ async def run_pipeline(
                     try:
                         synthesis_result = await asyncio.wait_for(
                             run_synthesis_stage(
-                                ephemeris_data, selected, thread_snapshot, date_context, synthesis_sky_only, session,
+                                ephemeris_data,
+                                selected,
+                                thread_snapshot,
+                                date_context,
+                                synthesis_sky_only,
+                                session,
                                 settings=ps.synthesis,
                                 allow_guard_relaxation=synthesis_fast_mode,
                                 event_context=event_context,
@@ -551,7 +572,9 @@ async def run_pipeline(
                             run.error_detail = "Synthesis fell back to silence output after retries."
 
                         reading = Reading(
-                            run_id=run_id, date_context=date_context, status="pending",
+                            run_id=run_id,
+                            date_context=date_context,
+                            status="pending",
                             generated_standard=synthesis_result.get("standard_reading", SILENCE_READING),
                             generated_extended=synthesis_result.get(
                                 "extended_reading",
@@ -571,7 +594,9 @@ async def run_pipeline(
                     except Exception as e:
                         elapsed = int((datetime.now(UTC) - synthesis_started_at).total_seconds())
                         reading = Reading(
-                            run_id=run_id, date_context=date_context, status="pending",
+                            run_id=run_id,
+                            date_context=date_context,
+                            status="pending",
                             generated_standard=SILENCE_READING,
                             generated_extended={
                                 "title": "",
@@ -640,9 +665,7 @@ async def run_pipeline(
 
                     # Stage 9: Personal readings (non-fatal)
                     try:
-                        personal_count = await run_personal_reading_stage(
-                            run.date_context, session
-                        )
+                        personal_count = await run_personal_reading_stage(run.date_context, session)
                         if personal_count:
                             logger.info("Stage 9: Generated %d personal readings", personal_count)
                             await session.commit()
@@ -662,7 +685,11 @@ async def run_pipeline(
                                 persisted_run.ended_at = datetime.now(UTC)
                                 await session.commit()
                         except Exception as persist_error:
-                            logger.error("Could not persist failed run state for %s: %s", run_id, persist_error)
+                            logger.error(
+                                "Could not persist failed run state for %s: %s",
+                                run_id,
+                                persist_error,
+                            )
                     raise
         finally:
             if lock_tx.is_active:

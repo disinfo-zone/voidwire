@@ -1,10 +1,10 @@
 """Tests for ephemeris calculator."""
 
-import pytest
 from datetime import date
 
+import pytest
+from ephemeris.bodies import SIGNS, get_effective_orb, longitude_to_sign
 from ephemeris.calculator import calculate_day
-from ephemeris.bodies import SIGNS, longitude_to_sign, get_effective_orb
 
 
 def test_longitude_to_sign():
@@ -45,8 +45,14 @@ async def test_calculate_day_returns_valid_output():
     assert "sun" in result.positions
     assert "moon" in result.positions
     assert result.lunar.phase_name in [
-        "new_moon", "waxing_crescent", "first_quarter", "waxing_gibbous",
-        "full_moon", "waning_gibbous", "last_quarter", "waning_crescent",
+        "new_moon",
+        "waxing_crescent",
+        "first_quarter",
+        "waxing_gibbous",
+        "full_moon",
+        "waning_gibbous",
+        "last_quarter",
+        "waning_crescent",
     ]
     assert 0.0 <= result.lunar.phase_pct <= 1.0
 

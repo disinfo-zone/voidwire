@@ -236,13 +236,8 @@ def main() -> None:
 
     failures: list[str] = []
     if args.max_natal_p95_ms > 0 and metrics["natal_p95_ms"] > args.max_natal_p95_ms:
-        failures.append(
-            f"natal_chart p95 {metrics['natal_p95_ms']}ms > {args.max_natal_p95_ms}ms"
-        )
-    if (
-        args.max_personal_p95_ms > 0
-        and metrics["personal_p95_ms"] > args.max_personal_p95_ms
-    ):
+        failures.append(f"natal_chart p95 {metrics['natal_p95_ms']}ms > {args.max_natal_p95_ms}ms")
+    if args.max_personal_p95_ms > 0 and metrics["personal_p95_ms"] > args.max_personal_p95_ms:
         failures.append(
             f"personal_reading p95 {metrics['personal_p95_ms']}ms > {args.max_personal_p95_ms}ms"
         )

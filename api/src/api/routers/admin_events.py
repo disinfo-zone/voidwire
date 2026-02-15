@@ -1,16 +1,20 @@
 """Admin events management."""
+
 from __future__ import annotations
+
 import asyncio
 import logging
 from datetime import UTC, date, datetime
 from typing import Literal
 from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.database import get_session
-from voidwire.models import AstronomicalEvent, AuditLog, AdminUser, PipelineRun, Reading
+from voidwire.models import AdminUser, AstronomicalEvent, AuditLog, PipelineRun, Reading
+
 from api.dependencies import get_db, require_admin
 
 router = APIRouter()
@@ -37,6 +41,7 @@ class EventCreateRequest(BaseModel):
     significance: Significance = "moderate"
     ephemeris_data: dict | None = None
 
+
 class EventUpdateRequest(BaseModel):
     event_type: EventType | None = None
     body: str | None = None
@@ -54,7 +59,9 @@ def _ensure_aware(dt: datetime) -> datetime:
 def _parse_event_datetime(value: str) -> datetime:
     raw = str(value or "").strip()
     if not raw:
-        raise HTTPException(status_code=400, detail="Field 'at' is required and must be a valid datetime.")
+        raise HTTPException(
+            status_code=400, detail="Field 'at' is required and must be a valid datetime."
+        )
     candidate = raw.replace("Z", "+00:00")
     if len(candidate) == 16 and "T" in candidate:
         # Browser datetime-local commonly omits seconds: YYYY-MM-DDTHH:MM
@@ -68,11 +75,15 @@ def _parse_event_datetime(value: str) -> datetime:
         ) from exc
     return _ensure_aware(parsed)
 
+
 def _event_dict(e: AstronomicalEvent) -> dict:
     return {
-        "id": str(e.id), "event_type": e.event_type,
-        "body": e.body, "sign": e.sign,
-        "at": e.at.isoformat(), "significance": e.significance,
+        "id": str(e.id),
+        "event_type": e.event_type,
+        "body": e.body,
+        "sign": e.sign,
+        "at": e.at.isoformat(),
+        "significance": e.significance,
         "ephemeris_data": e.ephemeris_data,
         "reading_status": e.reading_status,
         "reading_title": e.reading_title,
@@ -159,22 +170,39 @@ async def _run_event_pipeline_background(event_id: UUID, date_context: date) -> 
 
 
 @router.get("/")
-async def list_events(limit: int = Query(default=50), db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
-    result = await db.execute(select(AstronomicalEvent).order_by(AstronomicalEvent.at.desc()).limit(limit))
+async def list_events(
+    limit: int = Query(default=50),
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(require_admin),
+):
+    result = await db.execute(
+        select(AstronomicalEvent).order_by(AstronomicalEvent.at.desc()).limit(limit)
+    )
     return [_event_dict(e) for e in result.scalars().all()]
 
+
 @router.get("/{event_id}")
-async def get_event(event_id: UUID, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
+async def get_event(
+    event_id: UUID, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)
+):
     e = await db.get(AstronomicalEvent, event_id)
     if not e:
         raise HTTPException(status_code=404, detail="Event not found")
     return _event_dict(e)
 
+
 @router.post("/")
-async def create_event(req: EventCreateRequest, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
+async def create_event(
+    req: EventCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(require_admin),
+):
     e = AstronomicalEvent(
-        event_type=req.event_type, body=req.body, sign=req.sign,
-        at=_parse_event_datetime(req.at), significance=req.significance,
+        event_type=req.event_type,
+        body=req.body,
+        sign=req.sign,
+        at=_parse_event_datetime(req.at),
+        significance=req.significance,
         ephemeris_data=req.ephemeris_data,
     )
     db.add(e)
@@ -193,8 +221,14 @@ async def create_event(req: EventCreateRequest, db: AsyncSession = Depends(get_d
     )
     return {"id": str(e.id), "status": "created"}
 
+
 @router.patch("/{event_id}")
-async def update_event(event_id: UUID, req: EventUpdateRequest, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
+async def update_event(
+    event_id: UUID,
+    req: EventUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(require_admin),
+):
     e = await db.get(AstronomicalEvent, event_id)
     if not e:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -215,8 +249,11 @@ async def update_event(event_id: UUID, req: EventUpdateRequest, db: AsyncSession
     )
     return {"status": "ok"}
 
+
 @router.delete("/{event_id}")
-async def delete_event(event_id: UUID, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
+async def delete_event(
+    event_id: UUID, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)
+):
     e = await db.get(AstronomicalEvent, event_id)
     if not e:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -232,8 +269,11 @@ async def delete_event(event_id: UUID, db: AsyncSession = Depends(get_db), user:
     )
     return {"status": "deleted"}
 
+
 @router.post("/{event_id}/generate-reading")
-async def generate_event_reading(event_id: UUID, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
+async def generate_event_reading(
+    event_id: UUID, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)
+):
     e = await db.get(AstronomicalEvent, event_id)
     if not e:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -244,12 +284,16 @@ async def generate_event_reading(event_id: UUID, db: AsyncSession = Depends(get_
         )
     )
     if running.scalars().first() is not None:
-        raise HTTPException(status_code=409, detail="A pipeline run for this event date is already in progress.")
+        raise HTTPException(
+            status_code=409, detail="A pipeline run for this event date is already in progress."
+        )
 
     from api.routers.admin_pipeline import _is_pipeline_lock_available
 
     if not await _is_pipeline_lock_available(db, e.at.date()):
-        raise HTTPException(status_code=409, detail="A pipeline run for this event date is already in progress.")
+        raise HTTPException(
+            status_code=409, detail="A pipeline run for this event date is already in progress."
+        )
 
     e.reading_status = "pending"
     e.published_at = None

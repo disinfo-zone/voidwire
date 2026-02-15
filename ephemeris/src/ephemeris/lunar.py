@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 
 from ephemeris.bodies import SIGNS, longitude_to_sign
 
@@ -77,7 +77,7 @@ def calculate_void_of_course(
 
     # Check if Moon will make any major aspects before leaving sign
     will_aspect = False
-    from ephemeris.aspects import angular_distance, ASPECTS
+    from ephemeris.aspects import ASPECTS, angular_distance
 
     for body_name, body_data in positions.items():
         if body_name == "moon" or body_name == "north_node":

@@ -259,8 +259,7 @@ async def send_transactional_email(
         return False
     if not smtp_is_configured(config):
         logger.warning(
-            "SMTP is enabled but not fully configured; "
-            "skipping transactional email send"
+            "SMTP is enabled but not fully configured; skipping transactional email send"
         )
         return False
 

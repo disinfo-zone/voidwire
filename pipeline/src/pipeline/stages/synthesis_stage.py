@@ -1,16 +1,20 @@
 """Two-pass synthesis stage with fallback ladder."""
+
 from __future__ import annotations
+
 import asyncio
 import json
 import logging
 import re
 from datetime import date, datetime
 from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.models import PromptTemplate
 from voidwire.services.llm_client import generate_with_validation
 from voidwire.services.pipeline_settings import SynthesisSettings
+
 from pipeline.prompts.synthesis_plan import build_plan_prompt
 from pipeline.prompts.synthesis_prose import build_prose_prompt
 
@@ -59,7 +63,9 @@ def _truncate_text(value: Any, limit: int) -> str:
     return f"{text[:limit].rstrip()}..."
 
 
-def _prepare_signal_context(selected_signals: list[dict], *, limit: int = 20) -> list[dict[str, Any]]:
+def _prepare_signal_context(
+    selected_signals: list[dict], *, limit: int = 20
+) -> list[dict[str, Any]]:
     compact: list[dict[str, Any]] = []
     for signal in selected_signals[:limit]:
         if not isinstance(signal, dict):
@@ -120,8 +126,22 @@ def _prepare_thread_context(
 
 def _collect_guarded_entities(selected_signals: list[dict], limit: int = 40) -> list[str]:
     stopwords = {
-        "us", "we", "they", "them", "our", "their", "his", "her", "its", "you", "it",
-        "government", "state", "country", "market", "economy",
+        "us",
+        "we",
+        "they",
+        "them",
+        "our",
+        "their",
+        "his",
+        "her",
+        "its",
+        "you",
+        "it",
+        "government",
+        "state",
+        "country",
+        "market",
+        "economy",
     }
     seen: set[str] = set()
     ordered: list[str] = []
@@ -184,7 +204,9 @@ def _derive_mention_policy(
         return base
 
     # Escalation gate: explicit naming only when at least one major signal exists.
-    has_major = any(str(s.get("intensity", "")).lower() == "major" for s in (selected_signals or []))
+    has_major = any(
+        str(s.get("intensity", "")).lower() == "major" for s in (selected_signals or [])
+    )
     if not has_major:
         return base
 
@@ -192,7 +214,8 @@ def _derive_mention_policy(
         "explicit_allowed": True,
         "explicit_budget": 1,
         "allowed_entities": allowed_intersection[:1],
-        "rationale": str(candidate.get("rationale", "")).strip() or "Plan-approved explicit reference for a major, unavoidable signal.",
+        "rationale": str(candidate.get("rationale", "")).strip()
+        or "Plan-approved explicit reference for a major, unavoidable signal.",
     }
 
 
@@ -286,11 +309,7 @@ def _find_active_template(
             return hit
 
     prefix_lc = prefix.lower()
-    prefix_matches = [
-        tpl
-        for name, tpl in active_templates.items()
-        if name.startswith(prefix_lc)
-    ]
+    prefix_matches = [tpl for name, tpl in active_templates.items() if name.startswith(prefix_lc)]
     if not prefix_matches:
         return None
 
@@ -305,7 +324,7 @@ def _find_active_template(
 
 
 async def _load_active_templates(session: AsyncSession) -> dict[str, PromptTemplate]:
-    result = await session.execute(select(PromptTemplate).where(PromptTemplate.is_active == True))
+    result = await session.execute(select(PromptTemplate).where(PromptTemplate.is_active))
     active: dict[str, PromptTemplate] = {}
     for template in result.scalars().all():
         name = str(template.template_name).strip().lower()
@@ -330,6 +349,7 @@ async def run_synthesis_stage(
 ) -> dict:
     ss = settings or SynthesisSettings()
     from pipeline.stages.distillation_stage import _get_llm_client
+
     fast_mode = allow_guard_relaxation
     # Event-linked runs should resolve quickly and avoid expensive repair loops.
     llm_timeout = 90.0 if fast_mode else 120.0
@@ -416,7 +436,11 @@ async def run_synthesis_stage(
                 },
             )
             usage = _template_usage(plan_template)
-            plan_key = "synthesis_plan_event" if "event" in str(plan_template.template_name).lower() else "synthesis_plan"
+            plan_key = (
+                "synthesis_plan_event"
+                if "event" in str(plan_template.template_name).lower()
+                else "synthesis_plan"
+            )
             template_versions[plan_key] = usage
             prompt_payloads["pass_a_template"] = usage
         else:
@@ -440,7 +464,8 @@ async def run_synthesis_stage(
                     temp,
                 )
                 interpretive_plan = await generate_with_validation(
-                    client, "synthesis",
+                    client,
+                    "synthesis",
                     [{"role": "user", "content": plan_prompt}],
                     _validate_plan,
                     temperature=temp,
@@ -491,13 +516,24 @@ async def run_synthesis_stage(
             },
         )
         usage = _template_usage(prose_template)
-        prose_key = "synthesis_prose_event" if "event" in str(prose_template.template_name).lower() else "synthesis_prose"
+        prose_key = (
+            "synthesis_prose_event"
+            if "event" in str(prose_template.template_name).lower()
+            else "synthesis_prose"
+        )
         template_versions[prose_key] = usage
         prompt_payloads["pass_b_template"] = usage
     else:
         prose_prompt = build_prose_prompt(
-            ephemeris_data, prompt_signals, prompt_threads,
-            date_context, event_context, interpretive_plan, mention_policy, guarded_entities, sky_only,
+            ephemeris_data,
+            prompt_signals,
+            prompt_threads,
+            date_context,
+            event_context,
+            interpretive_plan,
+            mention_policy,
+            guarded_entities,
+            sky_only,
             standard_word_range=ss.standard_word_range,
             extended_word_range=ss.extended_word_range,
             banned_phrases=ss.banned_phrases,
@@ -528,7 +564,8 @@ async def run_synthesis_stage(
                 not fast_mode,
             )
             result = await generate_with_validation(
-                client, "synthesis",
+                client,
+                "synthesis",
                 [{"role": "user", "content": prose_prompt}],
                 validate_fn,
                 temperature=temperature,
@@ -573,9 +610,7 @@ async def run_synthesis_stage(
                     await client.close()
                     raise
                 except Exception as relaxed_exc:
-                    logger.warning(
-                        "Pass B relaxed validation attempt failed: %s", relaxed_exc
-                    )
+                    logger.warning("Pass B relaxed validation attempt failed: %s", relaxed_exc)
                     # Move directly to sky-only fallback instead of exhausting retries.
                     break
 
@@ -605,8 +640,15 @@ async def run_synthesis_stage(
             )
         else:
             sky_prompt = build_prose_prompt(
-                ephemeris_data, [], prompt_threads,
-                date_context, event_context, interpretive_plan, fallback_policy, [], sky_only=True,
+                ephemeris_data,
+                [],
+                prompt_threads,
+                date_context,
+                event_context,
+                interpretive_plan,
+                fallback_policy,
+                [],
+                sky_only=True,
                 standard_word_range=ss.standard_word_range,
                 extended_word_range=ss.extended_word_range,
                 banned_phrases=ss.banned_phrases,
@@ -615,22 +657,25 @@ async def run_synthesis_stage(
         _record_prompt_metric(prompt_metrics, "pass_b_fallback", sky_prompt)
         prompt_payloads["pass_b_fallback"] = sky_prompt
         try:
-                logger.info(
-                    "Synthesis pass_b fallback temp=%.2f repair_retry=%s",
-                    ss.fallback_temp,
-                    not fast_mode,
-                )
-                result = await generate_with_validation(
-                    client, "synthesis",
-                    [{"role": "user", "content": sky_prompt}],
-                    _validate_prose_structure if fast_mode else lambda data: _validate_prose(
-                        data,
-                        mention_policy=fallback_policy,
-                        guarded_entities=[],
-                    ),
-                    temperature=ss.fallback_temp,
-                    repair_retry=not fast_mode,
-                )
+            logger.info(
+                "Synthesis pass_b fallback temp=%.2f repair_retry=%s",
+                ss.fallback_temp,
+                not fast_mode,
+            )
+            result = await generate_with_validation(
+                client,
+                "synthesis",
+                [{"role": "user", "content": sky_prompt}],
+                _validate_prose_structure
+                if fast_mode
+                else lambda data: _validate_prose(
+                    data,
+                    mention_policy=fallback_policy,
+                    guarded_entities=[],
+                ),
+                temperature=ss.fallback_temp,
+                repair_retry=not fast_mode,
+            )
         except asyncio.CancelledError:
             logger.warning("Synthesis pass_b fallback cancelled")
             await client.close()
@@ -655,7 +700,9 @@ async def run_synthesis_stage(
 
     return {
         "standard_reading": result.get("standard_reading", {}),
-        "extended_reading": result.get("extended_reading", {"title": "", "subtitle": "", "sections": [], "word_count": 0}),
+        "extended_reading": result.get(
+            "extended_reading", {"title": "", "subtitle": "", "sections": [], "word_count": 0}
+        ),
         "annotations": result.get("transit_annotations", []),
         "interpretive_plan": interpretive_plan,
         "generated_output": result,
@@ -690,7 +737,9 @@ def _validate_prose(
     if not explicit_allowed:
         explicit_budget = 0
 
-    allowed_entities = {str(e).strip().lower() for e in (policy.get("allowed_entities", []) or []) if str(e).strip()}
+    allowed_entities = {
+        str(e).strip().lower() for e in (policy.get("allowed_entities", []) or []) if str(e).strip()
+    }
     guarded = [str(e).strip() for e in (guarded_entities or []) if str(e).strip()]
     if not guarded:
         return

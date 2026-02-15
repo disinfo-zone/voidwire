@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 class NatalPosition(BaseModel):
     """Position of a body in a natal chart."""
+
     body: str
     sign: str
     degree: float
@@ -18,6 +19,7 @@ class NatalPosition(BaseModel):
 
 class NatalAngle(BaseModel):
     """An angular point (ASC, MC, etc.)."""
+
     name: str
     sign: str
     degree: float
@@ -26,6 +28,7 @@ class NatalAngle(BaseModel):
 
 class NatalAspect(BaseModel):
     """An aspect in the natal chart."""
+
     body1: str
     body2: str
     type: str
@@ -36,6 +39,7 @@ class NatalAspect(BaseModel):
 
 class NatalChart(BaseModel):
     """Complete natal chart data."""
+
     positions: list[NatalPosition]
     angles: list[NatalAngle]
     house_cusps: list[float] = Field(default_factory=list)

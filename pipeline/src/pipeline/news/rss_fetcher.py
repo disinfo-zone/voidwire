@@ -1,7 +1,10 @@
 """RSS feed fetcher with optional full-text extraction."""
+
 from __future__ import annotations
+
 import logging
 from typing import Any
+
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -31,16 +34,18 @@ async def fetch_rss(
         if allow_fulltext and link:
             full_text = await _extract_fulltext(link, fulltext_timeout)
 
-        articles.append({
-            "source_id": source_id,
-            "title": getattr(entry, "title", ""),
-            "summary": getattr(entry, "summary", ""),
-            "full_text": full_text,
-            "url": link,
-            "published_at": getattr(entry, "published", None),
-            "domain": domain,
-            "weight": weight,
-        })
+        articles.append(
+            {
+                "source_id": source_id,
+                "title": getattr(entry, "title", ""),
+                "summary": getattr(entry, "summary", ""),
+                "full_text": full_text,
+                "url": link,
+                "published_at": getattr(entry, "published", None),
+                "domain": domain,
+                "weight": weight,
+            }
+        )
     return articles
 
 

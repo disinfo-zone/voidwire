@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from voidwire.models import SiteSetting
 
 CONTENT_SETTING_PREFIX = "content.page."
@@ -119,7 +118,8 @@ DEFAULT_CONTENT_PAGES: dict[str, dict[str, Any]] = {
             {
                 "heading": "Subscriptions",
                 "body": (
-                    "Pro access is subscription-based unless manually overridden by administration for support/testing. "
+                    "Pro access is subscription-based unless manually overridden by "
+                    "administration for support/testing. "
                     "Promotions and discount code validity are subject to configured expiration and redemption limits."
                 ),
             },
@@ -239,7 +239,7 @@ async def save_content_page(session: AsyncSession, slug: str, payload: dict[str,
         raise KeyError(f"Unknown content slug: {slug}")
 
     normalized = normalize_content_payload(slug, payload)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     setting = await session.get(SiteSetting, _setting_key(slug))
     if setting is None:
         setting = SiteSetting(
@@ -258,8 +258,6 @@ async def save_content_page(session: AsyncSession, slug: str, payload: dict[str,
     await session.flush()
 
     normalized["updated_at"] = (
-        setting.updated_at.isoformat()
-        if getattr(setting, "updated_at", None) is not None
-        else None
+        setting.updated_at.isoformat() if getattr(setting, "updated_at", None) is not None else None
     )
     return normalized

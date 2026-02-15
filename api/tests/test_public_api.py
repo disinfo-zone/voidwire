@@ -1,10 +1,12 @@
 """Tests for public API."""
-from datetime import date, datetime, timezone
-from unittest.mock import MagicMock
+
 import uuid
+from datetime import UTC, date, datetime
+from unittest.mock import MagicMock
 
 import pytest
 from httpx import AsyncClient
+
 
 @pytest.mark.asyncio
 async def test_health(client: AsyncClient):
@@ -28,7 +30,7 @@ async def test_reading_today_includes_normalized_extended_payload(client: AsyncC
     reading.generated_extended = {"title": "", "subtitle": "", "sections": [], "word_count": 0}
     reading.published_annotations = [{"aspect": "Sun trine Moon"}]
     reading.generated_annotations = []
-    reading.published_at = datetime(2026, 2, 14, 10, 0, tzinfo=timezone.utc)
+    reading.published_at = datetime(2026, 2, 14, 10, 0, tzinfo=UTC)
 
     run = MagicMock()
     run.reused_artifacts = {"trigger_source": "scheduler"}
@@ -49,7 +51,9 @@ async def test_reading_today_includes_normalized_extended_payload(client: AsyncC
 
 
 @pytest.mark.asyncio
-async def test_reading_by_date_reports_no_extended_when_content_is_empty(client: AsyncClient, mock_db):
+async def test_reading_by_date_reports_no_extended_when_content_is_empty(
+    client: AsyncClient, mock_db
+):
     reading = MagicMock()
     reading.date_context = date(2026, 2, 14)
     reading.published_standard = {"title": "Daily Reading", "body": "Body", "word_count": 500}
@@ -78,23 +82,31 @@ async def test_reading_by_date_reports_no_extended_when_content_is_empty(client:
 async def test_reading_today_skips_event_triggered_readings(client: AsyncClient, mock_db):
     event_reading = MagicMock()
     event_reading.date_context = date(2026, 2, 14)
-    event_reading.published_standard = {"title": "Event Reading", "body": "Event body", "word_count": 450}
+    event_reading.published_standard = {
+        "title": "Event Reading",
+        "body": "Event body",
+        "word_count": 450,
+    }
     event_reading.generated_standard = {}
     event_reading.published_extended = {}
     event_reading.generated_extended = {}
     event_reading.published_annotations = []
     event_reading.generated_annotations = []
-    event_reading.published_at = datetime(2026, 2, 14, 10, 0, tzinfo=timezone.utc)
+    event_reading.published_at = datetime(2026, 2, 14, 10, 0, tzinfo=UTC)
 
     normal_reading = MagicMock()
     normal_reading.date_context = date(2026, 2, 14)
-    normal_reading.published_standard = {"title": "Daily Reading", "body": "Daily body", "word_count": 500}
+    normal_reading.published_standard = {
+        "title": "Daily Reading",
+        "body": "Daily body",
+        "word_count": 500,
+    }
     normal_reading.generated_standard = {}
     normal_reading.published_extended = {}
     normal_reading.generated_extended = {}
     normal_reading.published_annotations = []
     normal_reading.generated_annotations = []
-    normal_reading.published_at = datetime(2026, 2, 14, 11, 0, tzinfo=timezone.utc)
+    normal_reading.published_at = datetime(2026, 2, 14, 11, 0, tzinfo=UTC)
 
     event_run = MagicMock()
     event_run.reused_artifacts = {"trigger_source": "manual_event"}
@@ -123,7 +135,7 @@ async def test_events_list_includes_event_reading_link(client: AsyncClient, mock
     event.event_type = "full_moon"
     event.body = "Moon"
     event.sign = "Virgo"
-    event.at = datetime(2026, 3, 14, 12, 0, tzinfo=timezone.utc)
+    event.at = datetime(2026, 3, 14, 12, 0, tzinfo=UTC)
     event.significance = "major"
     event.reading_status = "generated"
     event.reading_title = None

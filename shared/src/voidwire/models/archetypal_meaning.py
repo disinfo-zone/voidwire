@@ -29,9 +29,7 @@ class ArchetypalMeaning(Base):
     domain_affinities: Mapped[list[str]] = mapped_column(
         ARRAY(Text), nullable=False, server_default=text("'{}'")
     )
-    source: Mapped[str] = mapped_column(
-        Text, nullable=False, server_default=text("'generated'")
-    )
+    source: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'generated'"))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("NOW()")
     )

@@ -1,19 +1,21 @@
 """Admin CRUD for PlanetaryKeyword and AspectKeyword tables."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from voidwire.models import AdminUser
-from voidwire.models.archetypal_meaning import PlanetaryKeyword, AspectKeyword
+from voidwire.models.archetypal_meaning import AspectKeyword, PlanetaryKeyword
+
 from api.dependencies import get_db, require_admin
 
 router = APIRouter()
 
 
 # ── Pydantic schemas ──────────────────────────────────────────────
+
 
 class PlanetaryKeywordRequest(BaseModel):
     keywords: list[str]
@@ -27,6 +29,7 @@ class AspectKeywordRequest(BaseModel):
 
 
 # ── Helpers ───────────────────────────────────────────────────────
+
 
 def _planetary_dict(pk: PlanetaryKeyword) -> dict:
     return {
@@ -46,6 +49,7 @@ def _aspect_dict(ak: AspectKeyword) -> dict:
 
 
 # ── Planetary Keywords ────────────────────────────────────────────
+
 
 @router.get("/planetary")
 async def list_planetary(
@@ -106,6 +110,7 @@ async def delete_planetary(
 
 
 # ── Aspect Keywords ───────────────────────────────────────────────
+
 
 @router.get("/aspect")
 async def list_aspect(

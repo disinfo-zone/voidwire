@@ -1,8 +1,9 @@
 """Synthesis Pass A prompt builder."""
+
 from __future__ import annotations
+
 import json
 from datetime import date
-from typing import Any
 
 
 def build_plan_prompt(
@@ -19,11 +20,19 @@ def build_plan_prompt(
         for s in selected_signals:
             wild = " [WILD CARD]" if s.get("was_wild_card") else ""
             weight = f" w={s.get('selection_weight', 0):.2f}" if s.get("selection_weight") is not None else ""
-            signals_str += f"\n- [{s.get('id','?')}] ({s.get('domain','?')}/{s.get('intensity','?')}{weight}) {s.get('summary','')}{wild}"
+            signals_str += (
+                f"\n- [{s.get('id', '?')}] "
+                f"({s.get('domain', '?')}/{s.get('intensity', '?')}{weight}) "
+                f"{s.get('summary', '')}{wild}"
+            )
 
     threads_str = ""
     for t in (thread_snapshot or [])[:thread_display_limit]:
-        threads_str += f"\n- {t.get('canonical_summary','')} ({t.get('domain','')}, {t.get('appearances',0)} appearances, since {t.get('first_surfaced','')})"
+        threads_str += (
+            f"\n- {t.get('canonical_summary', '')} "
+            f"({t.get('domain', '')}, {t.get('appearances', 0)} appearances, "
+            f"since {t.get('first_surfaced', '')})"
+        )
 
     sky_note = "\nThe cultural signal is absent today. Read only the planetary weather.\n" if sky_only else ""
     event_block = ""

@@ -16,9 +16,7 @@ def normalize_discount_code(raw: str) -> str:
     """Normalize and validate a user-facing discount code."""
     code = raw.strip().upper()
     if not CODE_PATTERN.fullmatch(code):
-        raise ValueError(
-            "Code must be 3-32 chars and only use letters, numbers, '-' or '_'"
-        )
+        raise ValueError("Code must be 3-32 chars and only use letters, numbers, '-' or '_'")
     return code
 
 

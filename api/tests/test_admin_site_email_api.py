@@ -62,4 +62,3 @@ async def test_send_smtp_test_email(client: AsyncClient):
         )
     assert response.status_code == 200
     assert response.json()["status"] == "sent"
-

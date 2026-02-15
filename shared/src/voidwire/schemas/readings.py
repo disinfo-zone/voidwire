@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+
 from pydantic import BaseModel, Field
 
 
 class StandardReading(BaseModel):
     """Standard reading output (~400-600 words)."""
+
     title: str
     body: str
     word_count: int = 0
@@ -15,12 +17,14 @@ class StandardReading(BaseModel):
 
 class ExtendedSection(BaseModel):
     """A section in the extended reading."""
+
     heading: str | None = None
     body: str
 
 
 class ExtendedReading(BaseModel):
     """Extended reading output (~1200-1800 words)."""
+
     title: str
     subtitle: str | None = None
     sections: list[ExtendedSection]
@@ -29,6 +33,7 @@ class ExtendedReading(BaseModel):
 
 class TransitAnnotation(BaseModel):
     """Annotation for a transit in the visualization."""
+
     aspect: str
     gloss: str
     cultural_resonance: str | None = None
@@ -37,6 +42,7 @@ class TransitAnnotation(BaseModel):
 
 class InterpretivePlan(BaseModel):
     """Pass A output - structured interpretive outline."""
+
     title: str
     opening_strategy: str
     closing_strategy: str
@@ -47,6 +53,7 @@ class InterpretivePlan(BaseModel):
 
 class SynthesisOutput(BaseModel):
     """Complete Pass B output."""
+
     standard_reading: StandardReading
     extended_reading: ExtendedReading
     transit_annotations: list[TransitAnnotation] = Field(default_factory=list)
@@ -54,6 +61,7 @@ class SynthesisOutput(BaseModel):
 
 class PublicReading(BaseModel):
     """Reading as served by the public API."""
+
     date_context: date
     title: str
     body: str

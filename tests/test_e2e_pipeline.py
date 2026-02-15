@@ -1,9 +1,8 @@
 """End-to-end pipeline tests (with mocked LLM)."""
 
-import pytest
 from datetime import date
 
-from pipeline.orchestrator import _content_hash, _generate_seed, SILENCE_READING
+from pipeline.orchestrator import SILENCE_READING, _content_hash, _generate_seed
 
 
 def test_silence_reading_has_required_fields():
@@ -32,6 +31,7 @@ def test_content_hash_order_independent():
 def test_seed_generation():
     """Test that seed generation is deterministic and unique."""
     import uuid
+
     d = date(2026, 2, 13)
     run1 = uuid.UUID("11111111-1111-1111-1111-111111111111")
     run2 = uuid.UUID("22222222-2222-2222-2222-222222222222")
@@ -41,6 +41,6 @@ def test_seed_generation():
     seed2 = _generate_seed(d, run2)
 
     assert seed1a == seed1b  # Same inputs -> same seed
-    assert seed1a != seed2   # Different run_id -> different seed
+    assert seed1a != seed2  # Different run_id -> different seed
     assert isinstance(seed1a, int)
     assert seed1a > 0

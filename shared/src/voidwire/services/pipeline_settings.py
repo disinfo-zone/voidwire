@@ -1,4 +1,5 @@
 """Pipeline settings service -- typed Pydantic models backed by site_settings table."""
+
 from __future__ import annotations
 
 import logging
@@ -20,9 +21,7 @@ class SelectionSettings(BaseModel):
     intensity_scores: dict[str, float] = Field(
         default={"major": 3.0, "moderate": 2.0, "minor": 1.0}
     )
-    wild_card_excluded_domains: list[str] = Field(
-        default=["anomalous", "health"]
-    )
+    wild_card_excluded_domains: list[str] = Field(default=["anomalous", "health"])
     quality_floor: float = 0.5
     min_text_length: int = 20
 
@@ -52,8 +51,12 @@ class SynthesisSettings(BaseModel):
     max_stage_seconds: int = 600
     banned_phrases: list[str] = Field(
         default=[
-            "buckle up", "wild ride", "cosmic", "universe has plans",
-            "energy", "vibe",
+            "buckle up",
+            "wild ride",
+            "cosmic",
+            "universe has plans",
+            "energy",
+            "vibe",
         ]
     )
 
@@ -99,9 +102,7 @@ async def load_pipeline_settings(session: AsyncSession) -> PipelineSettings:
 
     Keys use dotted paths like ``pipeline.selection.n_select``.
     """
-    result = await session.execute(
-        select(SiteSetting).where(SiteSetting.category == "pipeline")
-    )
+    result = await session.execute(select(SiteSetting).where(SiteSetting.category == "pipeline"))
     rows = result.scalars().all()
 
     overrides: dict[str, Any] = {}
@@ -109,7 +110,7 @@ async def load_pipeline_settings(session: AsyncSession) -> PipelineSettings:
         # Keys stored as "pipeline.selection.n_select" -> nested dict
         key = row.key
         if key.startswith("pipeline."):
-            key = key[len("pipeline."):]
+            key = key[len("pipeline.") :]
         parts = key.split(".")
         if len(parts) == 2:
             group, field = parts

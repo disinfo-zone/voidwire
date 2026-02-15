@@ -31,8 +31,7 @@ async def run_retention_cleanup(
     password_deleted = (
         await db.execute(
             delete(PasswordResetToken).where(
-                (PasswordResetToken.expires_at <= now)
-                | (PasswordResetToken.used_at.is_not(None))
+                (PasswordResetToken.expires_at <= now) | (PasswordResetToken.used_at.is_not(None))
             )
         )
     ).rowcount or 0
@@ -50,9 +49,7 @@ async def run_retention_cleanup(
 
     analytics_cutoff = now - timedelta(days=max(1, int(settings.analytics_retention_days)))
     analytics_deleted = (
-        await db.execute(
-            delete(AnalyticsEvent).where(AnalyticsEvent.created_at < analytics_cutoff)
-        )
+        await db.execute(delete(AnalyticsEvent).where(AnalyticsEvent.created_at < analytics_cutoff))
     ).rowcount or 0
 
     summary = {
@@ -68,4 +65,3 @@ async def run_retention_cleanup(
     }
     db.add(AnalyticsEvent(event_type="retention.cleanup", metadata_json=summary))
     return summary
-

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import date
 from pydantic import BaseModel, Field
 
 
 class RawArticle(BaseModel):
     """A raw article from news ingestion."""
+
     source_id: str
     title: str
     summary: str
@@ -20,6 +20,7 @@ class RawArticle(BaseModel):
 
 class DistilledSignal(BaseModel):
     """A distilled cultural signal from LLM processing."""
+
     summary: str
     domain: str
     intensity: str
@@ -30,6 +31,7 @@ class DistilledSignal(BaseModel):
 
 class SignalWithEmbedding(BaseModel):
     """A signal with its embedding vector."""
+
     id: str
     summary: str
     domain: str

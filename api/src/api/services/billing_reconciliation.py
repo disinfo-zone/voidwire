@@ -123,4 +123,3 @@ async def run_billing_reconciliation(
     }
     db.add(AnalyticsEvent(event_type="billing.reconciliation.run", metadata_json=summary))
     return summary
-

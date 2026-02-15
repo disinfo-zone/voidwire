@@ -108,7 +108,6 @@ DEFAULT_ASPECT_KEYWORDS: dict[str, dict[str, Any]] = {
 }
 
 
-
 async def lookup_meaning(
     body1: str,
     body2: str | None,
@@ -193,7 +192,9 @@ def compose_meaning(
         keywords = b1_keywords[:2] + a_keywords[:2] + b2_keywords[:2]
         domains.extend(b2_data.get("domain_affinities", []))
     elif event_type == "retrograde":
-        core = f"{body1.title()} stations retrograde. {b1_archetype} The principle turns inward, revisiting and revising."
+        core = (
+            f"{body1.title()} stations retrograde. {b1_archetype} The principle turns inward, revisiting and revising."
+        )
         keywords = b1_keywords + ["reversal", "review", "internalization"]
     elif event_type == "station":
         core = f"{body1.title()} stations direct. {b1_archetype} The stalled principle resumes forward motion."
@@ -202,7 +203,7 @@ def compose_meaning(
         core = f"{body1.title()} enters a new sign. {b1_archetype} The mode of expression shifts."
         keywords = b1_keywords + ["transition", "new mode", "shift"]
     elif event_type == "lunar_phase":
-        core = f"Lunar phase event. The emotional and instinctual body marks a turning point."
+        core = "Lunar phase event. The emotional and instinctual body marks a turning point."
         keywords = ["emotion", "instinct", "cycle", "turning point"]
     else:
         core = f"{body1.title()}: {b1_archetype}"

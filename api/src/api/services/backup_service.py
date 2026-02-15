@@ -1,9 +1,10 @@
 """Backup service -- delegates to pg_dump/pg_restore via subprocess."""
+
 from __future__ import annotations
 
 import asyncio
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -35,7 +36,7 @@ async def create_backup() -> dict:
     """Run pg_dump and save to backup directory. Returns backup metadata."""
     params = get_db_params()
     backup_dir = get_backup_dir()
-    timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
     filename = f"voidwire_{timestamp}.sql.gz"
     filepath = backup_dir / filename
 
@@ -45,9 +46,12 @@ async def create_backup() -> dict:
 
     proc = await asyncio.create_subprocess_exec(
         "pg_dump",
-        "-h", params["host"],
-        "-p", params["port"],
-        "-U", params["user"],
+        "-h",
+        params["host"],
+        "-p",
+        params["port"],
+        "-U",
+        params["user"],
         "-Fc",
         params["dbname"],
         stdout=asyncio.subprocess.PIPE,
@@ -65,7 +69,7 @@ async def create_backup() -> dict:
     return {
         "filename": filepath.name,
         "size_bytes": stat.st_size,
-        "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+        "created_at": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
     }
 
 
@@ -84,10 +88,14 @@ async def restore_backup(filename: str) -> None:
 
     proc = await asyncio.create_subprocess_exec(
         "pg_restore",
-        "-h", params["host"],
-        "-p", params["port"],
-        "-U", params["user"],
-        "-d", params["dbname"],
+        "-h",
+        params["host"],
+        "-p",
+        params["port"],
+        "-U",
+        params["user"],
+        "-d",
+        params["dbname"],
         "--clean",
         "--if-exists",
         str(filepath),

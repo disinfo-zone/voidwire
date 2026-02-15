@@ -79,4 +79,3 @@ async def save_site_config(session: AsyncSession, payload: dict[str, Any]) -> di
     await session.flush()
     normalized["updated_at"] = row.updated_at.isoformat() if row.updated_at else None
     return normalized
-

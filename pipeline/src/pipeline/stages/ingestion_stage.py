@@ -1,4 +1,5 @@
 """News ingestion stage."""
+
 from __future__ import annotations
 
 import logging
@@ -16,6 +17,7 @@ from pipeline.news.rss_fetcher import fetch_rss
 
 logger = logging.getLogger(__name__)
 
+
 async def run_ingestion_stage(
     date_context: date,
     session: AsyncSession,
@@ -31,10 +33,14 @@ async def run_ingestion_stage(
         try:
             if source.source_type == "rss":
                 articles = await fetch_rss(
-                    source_id=str(source.id), url=source.url,
-                    max_articles=source.max_articles, domain=source.domain,
-                    weight=source.weight, allow_fulltext=source.allow_fulltext_extract,
-                    fulltext_timeout=ing.fulltext_timeout, rss_timeout=ing.rss_timeout,
+                    source_id=str(source.id),
+                    url=source.url,
+                    max_articles=source.max_articles,
+                    domain=source.domain,
+                    weight=source.weight,
+                    allow_fulltext=source.allow_fulltext_extract,
+                    fulltext_timeout=ing.fulltext_timeout,
+                    rss_timeout=ing.rss_timeout,
                 )
                 all_articles.extend(articles)
             source.last_fetch_at = datetime.now(UTC)

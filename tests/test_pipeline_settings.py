@@ -1,18 +1,18 @@
 """Tests for PipelineSettings service -- Pydantic models, defaults, schema, and merging."""
 
 from voidwire.services.pipeline_settings import (
-    SelectionSettings,
-    ThreadSettings,
-    SynthesisSettings,
-    IngestionSettings,
     DistillationSettings,
+    IngestionSettings,
     PipelineSettings,
-    pipeline_settings_schema,
+    SelectionSettings,
+    SynthesisSettings,
+    ThreadSettings,
     load_pipeline_settings,
+    pipeline_settings_schema,
 )
 
-
 # ---------- Default values ----------
+
 
 class TestSelectionSettingsDefaults:
     def test_defaults(self):
@@ -103,6 +103,7 @@ class TestDistillationSettingsDefaults:
 
 # ---------- PipelineSettings composite ----------
 
+
 class TestPipelineSettings:
     def test_all_submodels_present(self):
         ps = PipelineSettings()
@@ -138,6 +139,7 @@ class TestPipelineSettings:
 
 
 # ---------- JSON Schema ----------
+
 
 class TestPipelineSettingsSchema:
     def test_schema_returns_dict(self):
@@ -182,6 +184,7 @@ class TestPipelineSettingsSchema:
 
 
 # ---------- load_pipeline_settings ----------
+
 
 class TestLoadPipelineSettings:
     async def test_no_overrides_returns_defaults(self):

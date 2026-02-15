@@ -1,5 +1,7 @@
 """Admin pipeline management."""
+
 from __future__ import annotations
+
 import asyncio
 import hashlib
 import logging
@@ -10,11 +12,13 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import select, text as sa_text
+from sqlalchemy import select
+from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.config import get_settings
-from voidwire.models import PipelineRun, SiteSetting, AuditLog, AdminUser, Reading
+from voidwire.models import AdminUser, AuditLog, PipelineRun, Reading, SiteSetting
 from voidwire.schemas.pipeline import RegenerationMode
+
 from api.dependencies import get_db, require_admin
 
 router = APIRouter()
@@ -24,6 +28,7 @@ SCHEDULE_SETTING_KEY = "pipeline.schedule"
 TIMEZONE_SETTING_KEY = "pipeline.timezone"
 RUN_ON_START_SETTING_KEY = "pipeline.run_on_start"
 AUTO_PUBLISH_SETTING_KEY = "pipeline.auto_publish"
+
 
 class TriggerRequest(BaseModel):
     regeneration_mode: str | None = None
@@ -86,8 +91,10 @@ def _trigger_source(r: PipelineRun) -> str:
 def _run_summary(r: PipelineRun, reading: dict[str, Any] | None = None) -> dict:
     reading = reading or {}
     return {
-        "id": str(r.id), "date_context": r.date_context.isoformat(),
-        "run_number": r.run_number, "status": r.status,
+        "id": str(r.id),
+        "date_context": r.date_context.isoformat(),
+        "run_number": r.run_number,
+        "status": r.status,
         "started_at": r.started_at.isoformat() if r.started_at else None,
         "ended_at": r.ended_at.isoformat() if r.ended_at else None,
         "regeneration_mode": r.regeneration_mode,
@@ -191,16 +198,22 @@ async def _load_scheduler_overrides(db: AsyncSession) -> tuple[str, str, bool]:
 
     result = await db.execute(
         select(SiteSetting).where(
-            SiteSetting.key.in_([SCHEDULE_SETTING_KEY, TIMEZONE_SETTING_KEY, RUN_ON_START_SETTING_KEY])
+            SiteSetting.key.in_(
+                [SCHEDULE_SETTING_KEY, TIMEZONE_SETTING_KEY, RUN_ON_START_SETTING_KEY]
+            )
         )
     )
     by_key = {row.key: row for row in result.scalars().all()}
 
-    schedule_override = str(_setting_value_dict(by_key.get(SCHEDULE_SETTING_KEY)).get("cron", "")).strip()
+    schedule_override = str(
+        _setting_value_dict(by_key.get(SCHEDULE_SETTING_KEY)).get("cron", "")
+    ).strip()
     if schedule_override:
         schedule = schedule_override
 
-    timezone_override = str(_setting_value_dict(by_key.get(TIMEZONE_SETTING_KEY)).get("value", "")).strip()
+    timezone_override = str(
+        _setting_value_dict(by_key.get(TIMEZONE_SETTING_KEY)).get("value", "")
+    ).strip()
     if timezone_override:
         timezone_name = timezone_override
 
@@ -236,7 +249,9 @@ async def _reading_summary_by_run_id(
     }
 
 
-async def _upsert_setting(db: AsyncSession, key: str, value: dict, category: str = "pipeline") -> None:
+async def _upsert_setting(
+    db: AsyncSession, key: str, value: dict, category: str = "pipeline"
+) -> None:
     setting = await db.get(SiteSetting, key)
     if setting:
         setting.value = value
@@ -271,19 +286,26 @@ async def _run_pipeline_background(
 
 
 @router.get("/runs")
-async def list_runs(page: int = Query(default=1, ge=1), db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
+async def list_runs(
+    page: int = Query(default=1, ge=1),
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(require_admin),
+):
     result = await db.execute(
         select(PipelineRun)
         .order_by(PipelineRun.started_at.desc())
-        .offset((page-1)*20)
+        .offset((page - 1) * 20)
         .limit(20)
     )
     runs = result.scalars().all()
     reading_map = await _reading_summary_by_run_id(db, [r.id for r in runs])
     return [_run_summary(r, reading_map.get(r.id)) for r in runs]
 
+
 @router.get("/runs/{run_id}")
-async def get_run(run_id: UUID, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
+async def get_run(
+    run_id: UUID, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)
+):
     run = await db.get(PipelineRun, run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -291,7 +313,8 @@ async def get_run(run_id: UUID, db: AsyncSession = Depends(get_db), user: AdminU
     reading = reading_map.get(run_id, {})
     return {
         **_run_summary(run, reading),
-        "seed": run.seed, "code_version": run.code_version,
+        "seed": run.seed,
+        "code_version": run.code_version,
         "model_config_json": run.model_config_json,
         "template_versions": run.template_versions,
         "selected_signals": run.selected_signals,
@@ -302,9 +325,15 @@ async def get_run(run_id: UUID, db: AsyncSession = Depends(get_db), user: AdminU
 
 
 @router.get("/schedule")
-async def get_schedule(db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
+async def get_schedule(
+    db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)
+):
     settings = get_settings()
-    effective_schedule, effective_timezone, effective_run_on_start = await _load_scheduler_overrides(db)
+    (
+        effective_schedule,
+        effective_timezone,
+        effective_run_on_start,
+    ) = await _load_scheduler_overrides(db)
     auto_publish_enabled = await _load_auto_publish_enabled(db)
     next_run = None
     parse_error = None
@@ -317,11 +346,13 @@ async def get_schedule(db: AsyncSession = Depends(get_db), user: AdminUser = Dep
         "timezone": effective_timezone,
         "pipeline_run_on_start": effective_run_on_start,
         "auto_publish": auto_publish_enabled,
-        "source": "database_override" if (
+        "source": "database_override"
+        if (
             effective_schedule != settings.pipeline_schedule
             or effective_timezone != settings.timezone
             or effective_run_on_start != settings.pipeline_run_on_start
-        ) else "environment",
+        )
+        else "environment",
         "env_defaults": {
             "pipeline_schedule": settings.pipeline_schedule,
             "timezone": settings.timezone,
@@ -387,7 +418,9 @@ async def update_schedule(
 
 
 @router.get("/runs/{run_id}/artifacts")
-async def get_run_artifacts(run_id: UUID, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
+async def get_run_artifacts(
+    run_id: UUID, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)
+):
     run = await db.get(PipelineRun, run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -404,6 +437,7 @@ async def get_run_artifacts(run_id: UUID, db: AsyncSession = Depends(get_db), us
         "distillation_hash": run.distillation_hash,
         "selection_hash": run.selection_hash,
     }
+
 
 @router.post("/trigger")
 async def trigger_pipeline(
@@ -434,9 +468,13 @@ async def trigger_pipeline(
         )
     )
     if running.scalars().first() is not None:
-        raise HTTPException(status_code=409, detail="A pipeline run for this date is already in progress.")
+        raise HTTPException(
+            status_code=409, detail="A pipeline run for this date is already in progress."
+        )
     if not await _is_pipeline_lock_available(db, target_date):
-        raise HTTPException(status_code=409, detail="A pipeline run for this date is already in progress.")
+        raise HTTPException(
+            status_code=409, detail="A pipeline run for this date is already in progress."
+        )
 
     db.add(
         AuditLog(
@@ -480,7 +518,9 @@ async def trigger_pipeline(
         )
     except RuntimeError as exc:
         if "advisory lock" in str(exc).lower():
-            raise HTTPException(status_code=409, detail="A pipeline run for this date is already in progress.") from exc
+            raise HTTPException(
+                status_code=409, detail="A pipeline run for this date is already in progress."
+            ) from exc
         raise HTTPException(status_code=500, detail=f"Pipeline execution failed: {exc}") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -1,5 +1,7 @@
 """Distillation prompt builder."""
+
 from __future__ import annotations
+
 from typing import Any
 
 
@@ -14,7 +16,7 @@ def build_distillation_prompt(
         content = a.get("full_text") or a.get("summary", "")
         if len(content) > content_truncation:
             content = content[:content_truncation] + "..."
-        article_text += f"\n[{i}] {a.get('title','Untitled')}\n{content}\n"
+        article_text += f"\n[{i}] {a.get('title', 'Untitled')}\n{content}\n"
     return f"""You are a cultural analyst extracting archetypal currents from today's news.
 For each significant development, extract:
 1. A thematic summary (1-2 sentences, archetypal quality)

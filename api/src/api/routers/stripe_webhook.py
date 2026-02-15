@@ -102,9 +102,7 @@ async def _register_webhook_event(
 ) -> bool:
     """Persist webhook event ID; return False if already processed."""
     existing = await db.execute(
-        select(StripeWebhookEvent.id).where(
-            StripeWebhookEvent.stripe_event_id == stripe_event_id
-        )
+        select(StripeWebhookEvent.id).where(StripeWebhookEvent.stripe_event_id == stripe_event_id)
     )
     if existing.scalars().first() is not None:
         return False
@@ -193,9 +191,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 
             # Pre-create subscription record so we can link it
             result = await db.execute(
-                select(Subscription).where(
-                    Subscription.stripe_subscription_id == stripe_sub_id
-                )
+                select(Subscription).where(Subscription.stripe_subscription_id == stripe_sub_id)
             )
             if not result.scalars().first():
                 sub = Subscription(

@@ -1,13 +1,18 @@
 """Admin audit log."""
+
 from __future__ import annotations
+
 from datetime import datetime
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from voidwire.models import AuditLog, AdminUser
+from voidwire.models import AdminUser, AuditLog
+
 from api.dependencies import get_db, require_admin
 
 router = APIRouter()
+
 
 @router.get("/")
 async def list_audit(
@@ -31,12 +36,15 @@ async def list_audit(
         query = query.where(AuditLog.created_at >= datetime.fromisoformat(date_from))
     if date_to:
         query = query.where(AuditLog.created_at <= datetime.fromisoformat(date_to))
-    result = await db.execute(query.offset((page-1)*50).limit(50))
+    result = await db.execute(query.offset((page - 1) * 50).limit(50))
     return [
         {
-            "id": str(e.id), "user_id": str(e.user_id) if e.user_id else None,
-            "action": e.action, "target_type": e.target_type,
-            "target_id": e.target_id, "detail": e.detail,
+            "id": str(e.id),
+            "user_id": str(e.user_id) if e.user_id else None,
+            "action": e.action,
+            "target_type": e.target_type,
+            "target_id": e.target_id,
+            "detail": e.detail,
             "ip_address": str(e.ip_address) if e.ip_address else None,
             "created_at": e.created_at.isoformat() if e.created_at else None,
         }

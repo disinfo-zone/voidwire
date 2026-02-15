@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger,
@@ -12,15 +13,18 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     Text,
     UniqueConstraint,
-    Integer,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from voidwire.models.base import Base
+
+if TYPE_CHECKING:
+    from voidwire.models.reading import Reading
 
 
 class PipelineRun(Base):
@@ -33,9 +37,7 @@ class PipelineRun(Base):
     run_number: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    status: Mapped[str] = mapped_column(
-        Text, nullable=False, server_default=text("'running'")
-    )
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'running'"))
 
     # Reproducibility inputs
     code_version: Mapped[str] = mapped_column(Text, nullable=False)
@@ -43,9 +45,7 @@ class PipelineRun(Base):
     template_versions: Mapped[dict] = mapped_column(JSONB, nullable=False)
     model_config_json: Mapped[dict] = mapped_column("model_config", JSONB, nullable=False)
     regeneration_mode: Mapped[str | None] = mapped_column(Text)
-    parent_run_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("pipeline_runs.id")
-    )
+    parent_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("pipeline_runs.id"))
     reused_artifacts: Mapped[dict | None] = mapped_column(JSONB)
 
     # Persisted artifacts
@@ -69,7 +69,7 @@ class PipelineRun(Base):
     pruned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Relationships
-    readings: Mapped[list["Reading"]] = relationship(back_populates="run", foreign_keys="Reading.run_id")
+    readings: Mapped[list[Reading]] = relationship(back_populates="run", foreign_keys="Reading.run_id")
 
     __table_args__ = (
         UniqueConstraint("date_context", "run_number"),

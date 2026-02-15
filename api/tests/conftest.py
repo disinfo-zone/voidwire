@@ -11,6 +11,7 @@ from httpx import ASGITransport, AsyncClient
 
 class FakeAdminUser:
     """Minimal stand-in for AdminUser model."""
+
     id = "test-admin-id"
     username = "testadmin"
     email = "admin@test.local"

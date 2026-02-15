@@ -78,4 +78,3 @@ async def update_page(
         )
     )
     return page
-

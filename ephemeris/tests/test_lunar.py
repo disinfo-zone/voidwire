@@ -1,6 +1,6 @@
 """Tests for lunar calculations."""
 
-from ephemeris.lunar import calculate_lunar_phase, PHASE_NAMES
+from ephemeris.lunar import calculate_lunar_phase
 
 
 def test_new_moon():
@@ -29,4 +29,6 @@ def test_phase_pct_range():
     for sun_lon in range(0, 360, 30):
         for moon_lon in range(0, 360, 30):
             _, pct = calculate_lunar_phase(float(sun_lon), float(moon_lon))
-            assert 0.0 <= pct < 1.0, f"Phase pct {pct} out of range for sun={sun_lon}, moon={moon_lon}"
+            assert 0.0 <= pct < 1.0, (
+                f"Phase pct {pct} out of range for sun={sun_lon}, moon={moon_lon}"
+            )

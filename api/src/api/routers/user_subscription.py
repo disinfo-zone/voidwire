@@ -103,8 +103,7 @@ async def get_subscription_status(
             "status": active_sub.status,
             "billing_interval": active_sub.billing_interval,
             "current_period_end": (
-                active_sub.current_period_end.isoformat()
-                if active_sub.current_period_end else None
+                active_sub.current_period_end.isoformat() if active_sub.current_period_end else None
             ),
             "cancel_at_period_end": active_sub.cancel_at_period_end,
         },

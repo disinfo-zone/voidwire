@@ -37,12 +37,8 @@ class User(Base):
     )
     pro_override_reason: Mapped[str | None] = mapped_column(Text)
     pro_override_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    token_version: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default=text("0")
-    )
-    is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("TRUE")
-    )
+    token_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("TRUE"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("NOW()")
     )
@@ -52,9 +48,7 @@ class User(Base):
     profile: Mapped[UserProfile] = relationship(
         back_populates="user", uselist=False, lazy="selectin"
     )
-    subscriptions: Mapped[list[Subscription]] = relationship(
-        back_populates="user", lazy="selectin"
-    )
+    subscriptions: Mapped[list[Subscription]] = relationship(back_populates="user", lazy="selectin")
     personal_readings: Mapped[list[PersonalReading]] = relationship(
         back_populates="user", lazy="noload"
     )

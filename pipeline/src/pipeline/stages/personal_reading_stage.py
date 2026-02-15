@@ -106,16 +106,18 @@ async def run_personal_reading_stage(
 
     # Build LLM client
     client = LLMClient()
-    client.configure_slot(LLMSlotConfig(
-        slot=llm_config.slot,
-        provider_name=llm_config.provider_name,
-        api_endpoint=llm_config.api_endpoint,
-        model_id=llm_config.model_id,
-        api_key_encrypted=llm_config.api_key_encrypted,
-        max_tokens=llm_config.max_tokens,
-        temperature=llm_config.temperature or 0.7,
-        extra_params=llm_config.extra_params or {},
-    ))
+    client.configure_slot(
+        LLMSlotConfig(
+            slot=llm_config.slot,
+            provider_name=llm_config.provider_name,
+            api_endpoint=llm_config.api_endpoint,
+            model_id=llm_config.model_id,
+            api_key_encrypted=llm_config.api_key_encrypted,
+            max_tokens=llm_config.max_tokens,
+            temperature=llm_config.temperature or 0.7,
+            extra_params=llm_config.extra_params or {},
+        )
+    )
 
     generated = 0
     try:

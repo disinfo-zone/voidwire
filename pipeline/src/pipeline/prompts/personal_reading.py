@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import date
 
 
@@ -31,7 +30,9 @@ def _format_current_transits(positions: dict) -> str:
     lines = []
     for body, data in positions.items():
         retro = " (R)" if data.get("retrograde") else ""
-        lines.append(f"  {body.title()}: {data.get('degree', 0):.1f}° {data.get('sign', '?')}{retro}")
+        lines.append(
+            f"  {body.title()}: {data.get('degree', 0):.1f}° {data.get('sign', '?')}{retro}"
+        )
     return "\n".join(lines)
 
 

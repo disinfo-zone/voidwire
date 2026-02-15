@@ -44,9 +44,7 @@ def _jsonable_detail(payload: dict) -> dict:
     for key, value in payload.items():
         if isinstance(value, datetime):
             normalized_datetime = _as_utc(value)
-            normalized[key] = (
-                normalized_datetime.isoformat() if normalized_datetime else None
-            )
+            normalized[key] = normalized_datetime.isoformat() if normalized_datetime else None
         else:
             normalized[key] = value
     return normalized
@@ -234,9 +232,7 @@ async def list_users(
         .group_by(Subscription.user_id)
     )
     active_sub_user_ids = {row[0] for row in active_subs_result.all()}
-    return [
-        _serialize_user(u, has_active_subscription=u.id in active_sub_user_ids) for u in users
-    ]
+    return [_serialize_user(u, has_active_subscription=u.id in active_sub_user_ids) for u in users]
 
 
 @router.get("/admin-users")
@@ -345,9 +341,7 @@ async def update_user_pro_override(
             detail={
                 "enabled": user.pro_override,
                 "expires_at": (
-                    user.pro_override_until.isoformat()
-                    if user.pro_override_until
-                    else None
+                    user.pro_override_until.isoformat() if user.pro_override_until else None
                 ),
                 "reason": user.pro_override_reason,
             },

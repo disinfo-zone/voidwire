@@ -92,4 +92,3 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             )
 
         return await call_next(request)
-

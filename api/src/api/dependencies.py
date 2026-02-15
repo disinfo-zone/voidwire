@@ -1,4 +1,5 @@
 """FastAPI dependency injection."""
+
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
@@ -67,9 +68,7 @@ def _extract_cookie_token(request: Request, cookie_name: str) -> str | None:
 def _decode_token(request: Request, *, cookie_name: str) -> dict:
     """Decode JWT from Authorization header or designated auth cookie."""
     settings = get_settings()
-    raw_token = _extract_bearer_token(request) or _extract_cookie_token(
-        request, cookie_name
-    )
+    raw_token = _extract_bearer_token(request) or _extract_cookie_token(request, cookie_name)
     if not raw_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
     try:

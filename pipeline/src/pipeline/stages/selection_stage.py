@@ -1,9 +1,10 @@
 """Stochastic signal selection stage."""
+
 from __future__ import annotations
+
 import logging
 import math
 import random
-from typing import Any
 
 from voidwire.services.pipeline_settings import SelectionSettings
 
@@ -63,19 +64,23 @@ async def run_selection_stage(
             chosen["was_selected"] = True
             chosen["selection_weight"] = cw
             selected.append(chosen)
-            domain_counts[chosen.get("domain", "")] = domain_counts.get(chosen.get("domain", ""), 0) + 1
+            domain_counts[chosen.get("domain", "")] = (
+                domain_counts.get(chosen.get("domain", ""), 0) + 1
+            )
     # Wild card: select signal with maximum cosine distance from major centroid
     if n_wild > 0 and non_major:
         wild_cands = [sig for sig in non_major if not sig.get("was_selected")]
         # Quality floor: moderate+ intensity or source weight >= quality_floor
-        wild_cands = [sig for sig in wild_cands
-                      if sig.get("intensity") in ("major", "moderate") or sig.get("weight", 0) >= quality_floor]
+        wild_cands = [
+            sig
+            for sig in wild_cands
+            if sig.get("intensity") in ("major", "moderate")
+            or sig.get("weight", 0) >= quality_floor
+        ]
         # Domain exclusion
-        wild_cands = [sig for sig in wild_cands
-                      if sig.get("domain") not in wild_card_excluded]
+        wild_cands = [sig for sig in wild_cands if sig.get("domain") not in wild_card_excluded]
         # Minimum text length check
-        wild_cands = [sig for sig in wild_cands
-                      if len(sig.get("summary", "")) >= min_text_length]
+        wild_cands = [sig for sig in wild_cands if len(sig.get("summary", "")) >= min_text_length]
         if wild_cands:
             wild = _select_wild_card_by_distance(wild_cands, major, rng)
             wild["was_selected"] = True
@@ -85,7 +90,9 @@ async def run_selection_stage(
     return selected
 
 
-def _select_wild_card_by_distance(candidates: list[dict], majors: list[dict], rng: random.Random) -> dict:
+def _select_wild_card_by_distance(
+    candidates: list[dict], majors: list[dict], rng: random.Random
+) -> dict:
     """Select wild card as signal most distant from major centroid."""
     major_embeddings = [m.get("embedding") for m in majors if m.get("embedding")]
     if not major_embeddings:

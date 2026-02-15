@@ -1,24 +1,35 @@
 """Admin signal browsing."""
+
 from __future__ import annotations
+
 from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from voidwire.models import CulturalSignal, AdminUser
+from voidwire.models import AdminUser, CulturalSignal
+
 from api.dependencies import get_db, require_admin
 
 router = APIRouter()
 
+
 def _signal_dict(s: CulturalSignal) -> dict:
     return {
-        "id": s.id, "date_context": s.date_context.isoformat(),
+        "id": s.id,
+        "date_context": s.date_context.isoformat(),
         "run_id": str(s.run_id) if s.run_id else None,
-        "summary": s.summary, "domain": s.domain,
-        "intensity": s.intensity, "directionality": s.directionality,
-        "entities": s.entities, "source_refs": s.source_refs,
-        "was_selected": s.was_selected, "was_wild_card": s.was_wild_card,
+        "summary": s.summary,
+        "domain": s.domain,
+        "intensity": s.intensity,
+        "directionality": s.directionality,
+        "entities": s.entities,
+        "source_refs": s.source_refs,
+        "was_selected": s.was_selected,
+        "was_wild_card": s.was_wild_card,
         "selection_weight": s.selection_weight,
     }
+
 
 @router.get("/")
 async def list_signals(
@@ -41,9 +52,10 @@ async def list_signals(
     if intensity:
         query = query.where(CulturalSignal.intensity == intensity)
     if selected_only:
-        query = query.where(CulturalSignal.was_selected == True)
-    result = await db.execute(query.offset((page-1)*50).limit(50))
+        query = query.where(CulturalSignal.was_selected)
+    result = await db.execute(query.offset((page - 1) * 50).limit(50))
     return [_signal_dict(s) for s in result.scalars().all()]
+
 
 @router.get("/stats")
 async def signal_stats(
@@ -76,7 +88,8 @@ async def signal_stats(
 
     # Total count
     total_result = await db.execute(
-        select(func.count()).select_from(CulturalSignal)
+        select(func.count())
+        .select_from(CulturalSignal)
         .where(base.whereclause if base.whereclause is not None else True)
     )
     total = total_result.scalar() or 0
@@ -87,8 +100,11 @@ async def signal_stats(
         "by_intensity": intensity_stats,
     }
 
+
 @router.get("/{signal_id}")
-async def get_signal(signal_id: str, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
+async def get_signal(
+    signal_id: str, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)
+):
     s = await db.get(CulturalSignal, signal_id)
     if not s:
         raise HTTPException(status_code=404, detail="Signal not found")

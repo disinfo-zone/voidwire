@@ -1,14 +1,19 @@
 """Admin news source management."""
+
 from __future__ import annotations
+
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from voidwire.models import NewsSource, AuditLog, AdminUser
+from voidwire.models import AdminUser, AuditLog, NewsSource
+
 from api.dependencies import get_db, require_admin
 
 router = APIRouter()
+
 
 class SourceCreateRequest(BaseModel):
     name: str
@@ -20,6 +25,7 @@ class SourceCreateRequest(BaseModel):
     allow_fulltext: bool = False
     config: dict = {}
 
+
 class SourceUpdateRequest(BaseModel):
     name: str | None = None
     url: str | None = None
@@ -30,35 +36,58 @@ class SourceUpdateRequest(BaseModel):
     allow_fulltext: bool | None = None
     config: dict | None = None
 
+
 def _source_dict(s: NewsSource) -> dict:
     return {
-        "id": str(s.id), "name": s.name, "source_type": s.source_type,
-        "url": s.url, "domain": s.domain, "weight": s.weight,
-        "status": s.status, "max_articles": s.max_articles,
+        "id": str(s.id),
+        "name": s.name,
+        "source_type": s.source_type,
+        "url": s.url,
+        "domain": s.domain,
+        "weight": s.weight,
+        "status": s.status,
+        "max_articles": s.max_articles,
         "allow_fulltext": s.allow_fulltext_extract,
         "config": s.config,
         "last_fetch_at": s.last_fetch_at.isoformat() if s.last_fetch_at else None,
-        "last_error": s.last_error, "error_count_7d": s.error_count_7d,
+        "last_error": s.last_error,
+        "error_count_7d": s.error_count_7d,
     }
 
+
 @router.get("/")
-async def list_sources(db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
+async def list_sources(
+    db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)
+):
     result = await db.execute(select(NewsSource).order_by(NewsSource.name))
     return [_source_dict(s) for s in result.scalars().all()]
 
+
 @router.get("/{source_id}")
-async def get_source(source_id: UUID, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
+async def get_source(
+    source_id: UUID, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)
+):
     source = await db.get(NewsSource, source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
     return _source_dict(source)
 
+
 @router.post("/")
-async def create_source(req: SourceCreateRequest, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
+async def create_source(
+    req: SourceCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(require_admin),
+):
     source = NewsSource(
-        name=req.name, source_type=req.source_type, url=req.url,
-        domain=req.domain, weight=req.weight, max_articles=req.max_articles,
-        allow_fulltext_extract=req.allow_fulltext, config=req.config,
+        name=req.name,
+        source_type=req.source_type,
+        url=req.url,
+        domain=req.domain,
+        weight=req.weight,
+        max_articles=req.max_articles,
+        allow_fulltext_extract=req.allow_fulltext,
+        config=req.config,
     )
     db.add(source)
     await db.flush()
@@ -73,8 +102,14 @@ async def create_source(req: SourceCreateRequest, db: AsyncSession = Depends(get
     )
     return {"id": str(source.id), "status": "created"}
 
+
 @router.patch("/{source_id}")
-async def update_source(source_id: UUID, req: SourceUpdateRequest, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
+async def update_source(
+    source_id: UUID,
+    req: SourceUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(require_admin),
+):
     source = await db.get(NewsSource, source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
@@ -95,8 +130,11 @@ async def update_source(source_id: UUID, req: SourceUpdateRequest, db: AsyncSess
     )
     return {"status": "ok"}
 
+
 @router.delete("/{source_id}")
-async def delete_source(source_id: UUID, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
+async def delete_source(
+    source_id: UUID, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)
+):
     source = await db.get(NewsSource, source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
@@ -112,19 +150,26 @@ async def delete_source(source_id: UUID, db: AsyncSession = Depends(get_db), use
     )
     return {"status": "deleted"}
 
+
 @router.post("/{source_id}/test-fetch")
-async def test_fetch(source_id: UUID, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)):
+async def test_fetch(
+    source_id: UUID, db: AsyncSession = Depends(get_db), user: AdminUser = Depends(require_admin)
+):
     source = await db.get(NewsSource, source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
     if source.source_type != "rss":
         raise HTTPException(status_code=400, detail="Test fetch only supported for RSS sources")
     from pipeline.news.rss_fetcher import fetch_rss
+
     try:
         articles = await fetch_rss(
-            source_id=str(source.id), url=source.url,
-            max_articles=3, domain=source.domain,
-            weight=source.weight, allow_fulltext=source.allow_fulltext_extract,
+            source_id=str(source.id),
+            url=source.url,
+            max_articles=3,
+            domain=source.domain,
+            weight=source.weight,
+            allow_fulltext=source.allow_fulltext_extract,
         )
         db.add(
             AuditLog(

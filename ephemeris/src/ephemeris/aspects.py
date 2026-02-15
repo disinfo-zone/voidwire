@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 
 from ephemeris.bodies import (
-    ASPECTS,
     ASPECT_BODIES,
+    ASPECTS,
     aspect_significance,
     get_effective_orb,
 )
@@ -43,7 +43,7 @@ def find_aspects(
     bodies = [b for b in ASPECT_BODIES if b in positions]
 
     for i, body1 in enumerate(bodies):
-        for body2 in bodies[i + 1:]:
+        for body2 in bodies[i + 1 :]:
             lon1 = positions[body1]["longitude"]
             lon2 = positions[body2]["longitude"]
 
@@ -67,18 +67,20 @@ def find_aspects(
                             lon1, lon2, speed1, speed2, aspect_angle, base_dt
                         )
 
-                    aspects_found.append({
-                        "body1": body1,
-                        "body2": body2,
-                        "type": aspect_name,
-                        "orb_degrees": round(orb, 4),
-                        "applying": applying,
-                        "perfects_at": perfects_at,
-                        "entered_orb_at": None,  # TODO: binary search for orb entry
-                        "significance": aspect_significance(aspect_name),
-                        "core_meaning": "",
-                        "domain_affinities": [],
-                    })
+                    aspects_found.append(
+                        {
+                            "body1": body1,
+                            "body2": body2,
+                            "type": aspect_name,
+                            "orb_degrees": round(orb, 4),
+                            "applying": applying,
+                            "perfects_at": perfects_at,
+                            "entered_orb_at": None,  # TODO: binary search for orb entry
+                            "significance": aspect_significance(aspect_name),
+                            "core_meaning": "",
+                            "domain_affinities": [],
+                        }
+                    )
 
     # Sort by significance then orb
     sig_order = {"major": 0, "moderate": 1, "minor": 2}
@@ -107,8 +109,12 @@ def _is_applying(
 
 
 def _estimate_perfection(
-    lon1: float, lon2: float, speed1: float, speed2: float,
-    aspect_angle: float, base_dt: datetime,
+    lon1: float,
+    lon2: float,
+    speed1: float,
+    speed2: float,
+    aspect_angle: float,
+    base_dt: datetime,
 ) -> datetime | None:
     """Estimate when an applying aspect will perfect."""
     dist = angular_distance(lon1, lon2)

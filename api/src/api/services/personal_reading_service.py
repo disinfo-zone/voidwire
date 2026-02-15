@@ -72,16 +72,18 @@ async def _build_llm_client(db: AsyncSession, slot_name: str) -> LLMClient | Non
         return None
 
     client = LLMClient()
-    client.configure_slot(LLMSlotConfig(
-        slot=config.slot,
-        provider_name=config.provider_name,
-        api_endpoint=config.api_endpoint,
-        model_id=config.model_id,
-        api_key_encrypted=config.api_key_encrypted,
-        max_tokens=config.max_tokens,
-        temperature=config.temperature or 0.7,
-        extra_params=config.extra_params or {},
-    ))
+    client.configure_slot(
+        LLMSlotConfig(
+            slot=config.slot,
+            provider_name=config.provider_name,
+            api_endpoint=config.api_endpoint,
+            model_id=config.model_id,
+            api_key_encrypted=config.api_key_encrypted,
+            max_tokens=config.max_tokens,
+            temperature=config.temperature or 0.7,
+            extra_params=config.extra_params or {},
+        )
+    )
     return client
 
 
@@ -111,8 +113,11 @@ class PersonalReadingService:
                     data = json.loads(cached)
                     # Return a transient object for display
                     return PersonalReading(
-                        user_id=user.id, tier="free", date_context=today,
-                        week_key=week_key, content=data,
+                        user_id=user.id,
+                        tier="free",
+                        date_context=today,
+                        week_key=week_key,
+                        content=data,
                         house_system_used=profile.house_system,
                         llm_slot_used="personal_free",
                     )
@@ -176,9 +181,7 @@ class PersonalReadingService:
             return existing
 
         # Generate on-demand (batch may not have run yet)
-        return await PersonalReadingService._generate_reading(
-            user, profile, db, "pro", today
-        )
+        return await PersonalReadingService._generate_reading(user, profile, db, "pro", today)
 
     @staticmethod
     async def _generate_reading(

@@ -5,18 +5,18 @@ from __future__ import annotations
 # Celestial body IDs for pyswisseph
 # These map to swisseph constants
 BODY_IDS: dict[str, int] = {
-    "sun": 0,       # SE_SUN
-    "moon": 1,      # SE_MOON
-    "mercury": 2,   # SE_MERCURY
-    "venus": 3,     # SE_VENUS
-    "mars": 4,      # SE_MARS
-    "jupiter": 5,   # SE_JUPITER
-    "saturn": 6,    # SE_SATURN
-    "uranus": 7,    # SE_URANUS
-    "neptune": 8,   # SE_NEPTUNE
-    "pluto": 9,     # SE_PLUTO
+    "sun": 0,  # SE_SUN
+    "moon": 1,  # SE_MOON
+    "mercury": 2,  # SE_MERCURY
+    "venus": 3,  # SE_VENUS
+    "mars": 4,  # SE_MARS
+    "jupiter": 5,  # SE_JUPITER
+    "saturn": 6,  # SE_SATURN
+    "uranus": 7,  # SE_URANUS
+    "neptune": 8,  # SE_NEPTUNE
+    "pluto": 9,  # SE_PLUTO
     "north_node": 11,  # SE_TRUE_NODE (true node, not mean)
-    "chiron": 15,   # SE_CHIRON
+    "chiron": 15,  # SE_CHIRON
 }
 
 # Bodies to include in position calculations (all)
@@ -27,9 +27,18 @@ ASPECT_BODIES = [b for b in ALL_BODIES if b != "north_node"]
 
 # Zodiac signs in order
 SIGNS = [
-    "Aries", "Taurus", "Gemini", "Cancer",
-    "Leo", "Virgo", "Libra", "Scorpio",
-    "Sagittarius", "Capricorn", "Aquarius", "Pisces",
+    "Aries",
+    "Taurus",
+    "Gemini",
+    "Cancer",
+    "Leo",
+    "Virgo",
+    "Libra",
+    "Scorpio",
+    "Sagittarius",
+    "Capricorn",
+    "Aquarius",
+    "Pisces",
 ]
 
 # Aspect definitions: name -> exact angle

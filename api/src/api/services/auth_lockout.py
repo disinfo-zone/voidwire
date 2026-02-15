@@ -54,4 +54,3 @@ async def clear_login_failures(scope: str, identifier: str) -> None:
     key = f"{scope}:{identifier}"
     _failures.pop(key, None)
     _blocked_until.pop(key, None)
-

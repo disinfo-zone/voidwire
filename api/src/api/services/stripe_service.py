@@ -34,9 +34,7 @@ async def get_or_create_customer(user: User, db: AsyncSession) -> str:
     stripe_client = _get_stripe_client()
 
     # Check if user already has a subscription with a customer ID
-    result = await db.execute(
-        select(Subscription).where(Subscription.user_id == user.id).limit(1)
-    )
+    result = await db.execute(select(Subscription).where(Subscription.user_id == user.id).limit(1))
     existing = result.scalars().first()
     if existing:
         return existing.stripe_customer_id
@@ -143,9 +141,7 @@ def create_coupon_and_promotion_code(
         promo_payload["max_redemptions"] = max_redemptions
     if expires_at is not None:
         normalized = (
-            expires_at.astimezone(UTC)
-            if expires_at.tzinfo
-            else expires_at.replace(tzinfo=UTC)
+            expires_at.astimezone(UTC) if expires_at.tzinfo else expires_at.replace(tzinfo=UTC)
         )
         promo_payload["expires_at"] = int(normalized.timestamp())
 

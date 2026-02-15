@@ -21,7 +21,9 @@ async def test_setup_create_admin_blocked_when_already_complete(client, mock_db)
 
 
 async def test_setup_status_reports_complete_state(client, mock_db):
-    mock_db.get.return_value = SimpleNamespace(is_complete=True, steps_completed=["db_init", "admin_created"])
+    mock_db.get.return_value = SimpleNamespace(
+        is_complete=True, steps_completed=["db_init", "admin_created"]
+    )
     response = await client.get("/setup/status")
     assert response.status_code == 200
     payload = response.json()

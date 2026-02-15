@@ -1,12 +1,16 @@
 """Tests for pipeline orchestrator."""
+
 import uuid
 from datetime import date
+
 from pipeline.orchestrator import _content_hash, _generate_seed, _strip_signal_embeddings
+
 
 def test_content_hash():
     h1 = _content_hash({"a": 1, "b": 2})
     h2 = _content_hash({"b": 2, "a": 1})
     assert h1 == h2
+
 
 def test_generate_seed():
     run_id = uuid.UUID("12345678-1234-5678-1234-567812345678")

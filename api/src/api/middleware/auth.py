@@ -1,6 +1,9 @@
 """JWT + TOTP authentication."""
+
 from __future__ import annotations
-from datetime import datetime, timedelta, timezone
+
+from datetime import UTC, datetime, timedelta
+
 import bcrypt
 import pyotp
 from jose import jwt
@@ -28,8 +31,10 @@ def _coerce_token_version(value: object) -> int:
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
+
 def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode(), hashed.encode())
+
 
 def create_access_token(
     user_id: str,
@@ -38,7 +43,7 @@ def create_access_token(
     token_version: int = 0,
 ) -> str:
     settings = get_settings()
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=settings.jwt_expire_minutes))
+    expire = datetime.now(UTC) + (expires_delta or timedelta(minutes=settings.jwt_expire_minutes))
     payload = {
         "sub": user_id,
         "exp": expire,
@@ -47,11 +52,14 @@ def create_access_token(
     }
     return jwt.encode(payload, settings.secret_key, algorithm=settings.jwt_algorithm)
 
+
 def generate_totp_secret() -> str:
     return pyotp.random_base32()
 
+
 def get_totp_uri(secret: str, email: str) -> str:
     return pyotp.totp.TOTP(secret).provisioning_uri(name=email, issuer_name="Voidwire")
+
 
 def verify_totp(secret: str, code: str) -> bool:
     return pyotp.TOTP(secret).verify(code)

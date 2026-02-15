@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
@@ -19,6 +20,9 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from voidwire.models.base import Base
+
+if TYPE_CHECKING:
+    from voidwire.models.user import User
 
 
 class PersonalReading(Base):
@@ -37,12 +41,10 @@ class PersonalReading(Base):
     house_system_used: Mapped[str] = mapped_column(Text, nullable=False)
     llm_slot_used: Mapped[str] = mapped_column(Text, nullable=False)
     generation_metadata: Mapped[dict | None] = mapped_column(JSONB)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=text("NOW()")
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
 
     # Relationships
-    user: Mapped["User"] = relationship(back_populates="personal_readings")
+    user: Mapped[User] = relationship(back_populates="personal_readings")
 
     __table_args__ = (
         CheckConstraint("tier IN ('free','pro')", name="ck_personal_reading_tier"),

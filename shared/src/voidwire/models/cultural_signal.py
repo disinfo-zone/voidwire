@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 
-import uuid
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -48,8 +48,12 @@ class CulturalSignal(Base):
     )
 
     embedding = mapped_column(Vector(1536) if Vector else Text, nullable=True)
-    was_selected: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("FALSE"))
-    was_wild_card: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("FALSE"))
+    was_selected: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("FALSE")
+    )
+    was_wild_card: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("FALSE")
+    )
     selection_weight: Mapped[float | None] = mapped_column(Float)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -73,10 +77,13 @@ class CulturalSignal(Base):
         Index("idx_signals_date", "date_context", postgresql_using="btree"),
     ]
     if Vector:
-        _base_args.append(Index(
-            "idx_signals_embedding", "embedding",
-            postgresql_using="hnsw",
-            postgresql_with={"m": 16, "ef_construction": 64},
-            postgresql_ops={"embedding": "vector_cosine_ops"},
-        ))
+        _base_args.append(
+            Index(
+                "idx_signals_embedding",
+                "embedding",
+                postgresql_using="hnsw",
+                postgresql_with={"m": 16, "ef_construction": 64},
+                postgresql_ops={"embedding": "vector_cosine_ops"},
+            )
+        )
     __table_args__ = tuple(_base_args)

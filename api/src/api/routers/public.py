@@ -1,12 +1,16 @@
 """Public API endpoints."""
+
 from __future__ import annotations
-from datetime import date, datetime, timezone
+
+from datetime import UTC, date, datetime
 from uuid import UUID
 from zoneinfo import ZoneInfo
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from voidwire.models import Reading, AstronomicalEvent, PipelineRun
+from voidwire.models import AstronomicalEvent, PipelineRun, Reading
+
 from api.dependencies import get_db
 from api.services.content_pages import get_content_page
 from api.services.site_config import load_site_config
@@ -91,7 +95,7 @@ async def _today_for_site_timezone(db: AsyncSession) -> date:
     try:
         tz = ZoneInfo(tz_name)
     except Exception:
-        tz = timezone.utc
+        tz = UTC
     return datetime.now(tz).date()
 
 
@@ -116,6 +120,7 @@ async def get_today_reading(db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="No published reading for today")
     return _reading_payload(reading)
 
+
 @router.get("/reading/today/extended")
 async def get_today_extended(db: AsyncSession = Depends(get_db)):
     today = await _today_for_site_timezone(db)
@@ -127,6 +132,7 @@ async def get_today_extended(db: AsyncSession = Depends(get_db)):
         "extended": _normalize_extended_payload(reading),
         "annotations": reading.published_annotations or reading.generated_annotations or [],
     }
+
 
 @router.get("/reading/{date_str}")
 async def get_reading_by_date(date_str: str, db: AsyncSession = Depends(get_db)):
@@ -165,14 +171,20 @@ async def get_public_site_config(db: AsyncSession = Depends(get_db)):
         "tracking_body": cfg.get("tracking_body", ""),
     }
 
+
 @router.get("/ephemeris/today")
 async def get_today_ephemeris(db: AsyncSession = Depends(get_db)):
     today = await _today_for_site_timezone(db)
-    result = await db.execute(select(PipelineRun).where(PipelineRun.date_context == today, PipelineRun.status == "completed").order_by(PipelineRun.run_number.desc()))
+    result = await db.execute(
+        select(PipelineRun)
+        .where(PipelineRun.date_context == today, PipelineRun.status == "completed")
+        .order_by(PipelineRun.run_number.desc())
+    )
     run = result.scalars().first()
     if not run:
         raise HTTPException(status_code=404, detail="No ephemeris data for today")
     return run.ephemeris_json
+
 
 @router.get("/ephemeris/{date_str}")
 async def get_ephemeris_by_date(date_str: str, db: AsyncSession = Depends(get_db)):
@@ -180,15 +192,20 @@ async def get_ephemeris_by_date(date_str: str, db: AsyncSession = Depends(get_db
         target = date.fromisoformat(date_str)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format")
-    result = await db.execute(select(PipelineRun).where(PipelineRun.date_context == target, PipelineRun.status == "completed").order_by(PipelineRun.run_number.desc()))
+    result = await db.execute(
+        select(PipelineRun)
+        .where(PipelineRun.date_context == target, PipelineRun.status == "completed")
+        .order_by(PipelineRun.run_number.desc())
+    )
     run = result.scalars().first()
     if not run:
         raise HTTPException(status_code=404, detail="No ephemeris data for this date")
     return run.ephemeris_json
 
+
 @router.get("/events")
 async def get_events(limit: int = Query(default=10, le=50), db: AsyncSession = Depends(get_db)):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     result = await db.execute(
         select(AstronomicalEvent)
         .where(AstronomicalEvent.at >= now)
@@ -205,7 +222,11 @@ async def get_events(limit: int = Query(default=10, le=50), db: AsyncSession = D
     payload = []
     for event in events:
         reading = reading_by_run.get(event.run_id) if event.run_id else None
-        content = (reading.published_standard if reading else None) or (reading.generated_standard if reading else None) or {}
+        content = (
+            (reading.published_standard if reading else None)
+            or (reading.generated_standard if reading else None)
+            or {}
+        )
         payload.append(
             {
                 "id": str(event.id),
@@ -216,7 +237,9 @@ async def get_events(limit: int = Query(default=10, le=50), db: AsyncSession = D
                 "significance": event.significance,
                 "reading_status": reading.status if reading else event.reading_status,
                 "reading_available": reading is not None,
-                "reading_title": str(content.get("title", "")).strip() if content else (event.reading_title or ""),
+                "reading_title": str(content.get("title", "")).strip()
+                if content
+                else (event.reading_title or ""),
                 "reading_url": f"/events/{event.id}" if reading is not None else None,
             }
         )
@@ -256,8 +279,13 @@ async def get_event_with_reading(event_id: UUID, db: AsyncSession = Depends(get_
             payload["reading_title"] = str(content.get("title", "")).strip()
     return payload
 
+
 @router.get("/archive")
-async def get_archive(page: int = Query(default=1, ge=1), per_page: int = Query(default=30, le=100), db: AsyncSession = Depends(get_db)):
+async def get_archive(
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=30, le=100),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(
         select(Reading, PipelineRun)
         .join(PipelineRun, PipelineRun.id == Reading.run_id, isouter=True)
@@ -271,7 +299,9 @@ async def get_archive(page: int = Query(default=1, ge=1), per_page: int = Query(
     return [
         {
             "date_context": reading.date_context.isoformat(),
-            "title": (reading.published_standard or reading.generated_standard or {}).get("title", ""),
+            "title": (reading.published_standard or reading.generated_standard or {}).get(
+                "title", ""
+            ),
             "published_at": reading.published_at.isoformat() if reading.published_at else None,
         }
         for reading, _ in window

@@ -61,4 +61,3 @@ async def run_maintenance_worker(
                 pass
     finally:
         logger.info("Maintenance worker stopped")
-

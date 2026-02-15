@@ -11,8 +11,20 @@ def sample_ephemeris():
         "generated_at": "2026-02-13T05:01:12Z",
         "julian_day": 2461421.5,
         "positions": {
-            "sun": {"sign": "Aquarius", "degree": 24.73, "longitude": 324.73, "speed_deg_day": 1.01, "retrograde": False},
-            "moon": {"sign": "Scorpio", "degree": 18.41, "longitude": 228.41, "speed_deg_day": 13.2, "retrograde": False},
+            "sun": {
+                "sign": "Aquarius",
+                "degree": 24.73,
+                "longitude": 324.73,
+                "speed_deg_day": 1.01,
+                "retrograde": False,
+            },
+            "moon": {
+                "sign": "Scorpio",
+                "degree": 18.41,
+                "longitude": 228.41,
+                "speed_deg_day": 13.2,
+                "retrograde": False,
+            },
         },
         "lunar": {
             "phase_name": "waning_gibbous",

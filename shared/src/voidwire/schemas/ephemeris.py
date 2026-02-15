@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
 
 class PlanetPosition(BaseModel):
     """Position of a celestial body."""
+
     sign: str
     degree: float
     longitude: float
@@ -19,6 +19,7 @@ class PlanetPosition(BaseModel):
 
 class LunarData(BaseModel):
     """Lunar phase and void-of-course data."""
+
     phase_name: str
     phase_pct: float = Field(ge=0.0, le=1.0)
     void_of_course: bool
@@ -28,6 +29,7 @@ class LunarData(BaseModel):
 
 class Aspect(BaseModel):
     """An aspect between two bodies."""
+
     body1: str
     body2: str
     type: str
@@ -42,6 +44,7 @@ class Aspect(BaseModel):
 
 class StationOrIngress(BaseModel):
     """A station or sign ingress event."""
+
     type: str  # 'ingress', 'station_retrograde', 'station_direct'
     body: str
     sign: str | None = None
@@ -51,6 +54,7 @@ class StationOrIngress(BaseModel):
 
 class ForwardEvent(BaseModel):
     """A forward-looking ephemeris event."""
+
     at: datetime
     event: str
     significance: str = "moderate"
@@ -59,6 +63,7 @@ class ForwardEvent(BaseModel):
 
 class EphemerisOutput(BaseModel):
     """Complete ephemeris output for a given day."""
+
     date_context: date
     generated_at: datetime
     julian_day: float

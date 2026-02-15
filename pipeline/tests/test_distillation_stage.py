@@ -4,7 +4,6 @@ import uuid
 from datetime import date
 
 import pytest
-
 from pipeline.stages import distillation_stage
 from pipeline.stages.distillation_stage import _normalize_signal, _to_string_list
 

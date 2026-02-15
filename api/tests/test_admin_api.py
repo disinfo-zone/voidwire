@@ -1,15 +1,17 @@
 """Tests for admin API endpoints."""
+
 import asyncio
 import uuid
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-from httpx import AsyncClient
-from fastapi import HTTPException
 
+from fastapi import HTTPException
+from httpx import AsyncClient
 
 # ──────────────────────────────────────────────
 # Auth
 # ──────────────────────────────────────────────
+
 
 class TestAuth:
     async def test_unauthenticated_settings_returns_401(self, unauthenticated_client: AsyncClient):
@@ -28,6 +30,7 @@ class TestAuth:
 # ──────────────────────────────────────────────
 # Settings
 # ──────────────────────────────────────────────
+
 
 class TestSettingsAPI:
     async def test_schema_pipeline(self, client: AsyncClient):
@@ -62,20 +65,26 @@ class TestSettingsAPI:
         assert resp.json() == []
 
     async def test_put_setting(self, client: AsyncClient):
-        resp = await client.put("/admin/settings/", json={
-            "key": "pipeline.selection.n_select",
-            "value": {"v": 12},
-            "category": "pipeline",
-        })
+        resp = await client.put(
+            "/admin/settings/",
+            json={
+                "key": "pipeline.selection.n_select",
+                "value": {"v": 12},
+                "category": "pipeline",
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
 
     async def test_put_setting_allows_array_value(self, client: AsyncClient):
-        resp = await client.put("/admin/settings/", json={
-            "key": "pipeline.synthesis.banned_phrases",
-            "value": ["literal", "breaking news", "hot take"],
-            "category": "pipeline",
-        })
+        resp = await client.put(
+            "/admin/settings/",
+            json={
+                "key": "pipeline.synthesis.banned_phrases",
+                "value": ["literal", "breaking news", "hot take"],
+                "category": "pipeline",
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
 
@@ -98,6 +107,7 @@ class TestSettingsAPI:
 # ──────────────────────────────────────────────
 # Site Config + Backup Storage
 # ──────────────────────────────────────────────
+
 
 class TestSiteAndBackupSettingsAPI:
     async def test_get_site_config_defaults(self, client: AsyncClient):
@@ -143,11 +153,16 @@ class TestSiteAndBackupSettingsAPI:
 # Content
 # ──────────────────────────────────────────────
 
+
 class TestContentAPI:
     async def test_list_pages(self, client: AsyncClient):
         with patch(
             "api.routers.admin_content.list_content_pages",
-            AsyncMock(return_value=[{"slug": "about", "title": "About", "sections_count": 4, "updated_at": None}]),
+            AsyncMock(
+                return_value=[
+                    {"slug": "about", "title": "About", "sections_count": 4, "updated_at": None}
+                ]
+            ),
         ):
             resp = await client.get("/admin/content/pages")
         assert resp.status_code == 200
@@ -198,7 +213,9 @@ class TestContentAPI:
         assert body["sections"][0]["body"] == "Updated body"
 
     async def test_get_page_not_found(self, client: AsyncClient):
-        with patch("api.routers.admin_content.get_content_page", AsyncMock(side_effect=KeyError("missing"))):
+        with patch(
+            "api.routers.admin_content.get_content_page", AsyncMock(side_effect=KeyError("missing"))
+        ):
             resp = await client.get("/admin/content/pages/missing")
         assert resp.status_code == 404
 
@@ -206,6 +223,7 @@ class TestContentAPI:
 # ──────────────────────────────────────────────
 # Sources
 # ──────────────────────────────────────────────
+
 
 class TestSourcesAPI:
     async def test_list_empty(self, client: AsyncClient):
@@ -223,18 +241,22 @@ class TestSourcesAPI:
         fake_source.id = uuid.uuid4()
 
         original_add = mock_db.add
+
         def side_effect_add(obj):
             obj.id = fake_source.id
             original_add(obj)
 
         mock_db.add = MagicMock(side_effect=side_effect_add)
 
-        resp = await client.post("/admin/sources/", json={
-            "name": "Test RSS",
-            "url": "https://example.com/rss",
-            "domain": "technology",
-            "weight": 0.7,
-        })
+        resp = await client.post(
+            "/admin/sources/",
+            json={
+                "name": "Test RSS",
+                "url": "https://example.com/rss",
+                "domain": "technology",
+                "weight": 0.7,
+            },
+        )
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "created"
@@ -256,6 +278,7 @@ class TestSourcesAPI:
 # Dictionary
 # ──────────────────────────────────────────────
 
+
 class TestDictionaryAPI:
     async def test_list_empty(self, client: AsyncClient):
         resp = await client.get("/admin/dictionary/")
@@ -275,15 +298,18 @@ class TestDictionaryAPI:
 
         mock_db.add = MagicMock(side_effect=side_effect_add)
 
-        resp = await client.post("/admin/dictionary/", json={
-            "body1": "Mars",
-            "body2": "Saturn",
-            "aspect_type": "conjunction",
-            "event_type": "aspect",
-            "core_meaning": "Tension between action and restriction",
-            "keywords": ["conflict", "discipline"],
-            "domain_affinities": ["conflict"],
-        })
+        resp = await client.post(
+            "/admin/dictionary/",
+            json={
+                "body1": "Mars",
+                "body2": "Saturn",
+                "aspect_type": "conjunction",
+                "event_type": "aspect",
+                "core_meaning": "Tension between action and restriction",
+                "keywords": ["conflict", "discipline"],
+                "domain_affinities": ["conflict"],
+            },
+        )
         assert resp.status_code == 200
         body = resp.json()
         assert "id" in body
@@ -327,6 +353,7 @@ class TestDictionaryAPI:
 # Events
 # ──────────────────────────────────────────────
 
+
 class TestEventsAPI:
     async def test_list_empty(self, client: AsyncClient):
         resp = await client.get("/admin/events/")
@@ -341,13 +368,16 @@ class TestEventsAPI:
 
         mock_db.add = MagicMock(side_effect=side_effect_add)
 
-        resp = await client.post("/admin/events/", json={
-            "event_type": "new_moon",
-            "body": "Moon",
-            "sign": "Pisces",
-            "at": "2026-03-14T12:00:00",
-            "significance": "major",
-        })
+        resp = await client.post(
+            "/admin/events/",
+            json={
+                "event_type": "new_moon",
+                "body": "Moon",
+                "sign": "Pisces",
+                "at": "2026-03-14T12:00:00",
+                "significance": "major",
+            },
+        )
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "created"
@@ -361,24 +391,30 @@ class TestEventsAPI:
 
         mock_db.add = MagicMock(side_effect=side_effect_add)
 
-        resp = await client.post("/admin/events/", json={
-            "event_type": "full_moon",
-            "body": "Moon",
-            "sign": "Virgo",
-            "at": "2026-03-14T12:00",
-            "significance": "moderate",
-        })
+        resp = await client.post(
+            "/admin/events/",
+            json={
+                "event_type": "full_moon",
+                "body": "Moon",
+                "sign": "Virgo",
+                "at": "2026-03-14T12:00",
+                "significance": "moderate",
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["status"] == "created"
 
     async def test_create_event_invalid_datetime_returns_400(self, client: AsyncClient):
-        resp = await client.post("/admin/events/", json={
-            "event_type": "full_moon",
-            "body": "Moon",
-            "sign": "Virgo",
-            "at": "not-a-date",
-            "significance": "moderate",
-        })
+        resp = await client.post(
+            "/admin/events/",
+            json={
+                "event_type": "full_moon",
+                "body": "Moon",
+                "sign": "Virgo",
+                "at": "not-a-date",
+                "significance": "moderate",
+            },
+        )
         assert resp.status_code == 400
 
     async def test_get_not_found(self, client: AsyncClient):
@@ -403,10 +439,16 @@ class TestEventsAPI:
         event.at = datetime(2026, 3, 14, 12, 0)
         mock_db.get.return_value = event
 
-        with patch("api.routers.admin_pipeline._is_pipeline_lock_available", new=AsyncMock(return_value=True)), patch(
-            "api.routers.admin_events._run_event_pipeline_background",
-            new=AsyncMock(return_value=None),
-        ) as background_runner:
+        with (
+            patch(
+                "api.routers.admin_pipeline._is_pipeline_lock_available",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "api.routers.admin_events._run_event_pipeline_background",
+                new=AsyncMock(return_value=None),
+            ) as background_runner,
+        ):
             resp = await client.post(f"/admin/events/{event_id}/generate-reading")
             await asyncio.sleep(0)
 
@@ -420,6 +462,7 @@ class TestEventsAPI:
 # ──────────────────────────────────────────────
 # Threads
 # ──────────────────────────────────────────────
+
 
 class TestThreadsAPI:
     async def test_list_empty(self, client: AsyncClient):
@@ -454,6 +497,7 @@ class TestThreadsAPI:
 # ──────────────────────────────────────────────
 # Signals
 # ──────────────────────────────────────────────
+
 
 class TestSignalsAPI:
     async def test_list_empty(self, client: AsyncClient):
@@ -496,6 +540,7 @@ class TestSignalsAPI:
 # LLM Config
 # ──────────────────────────────────────────────
 
+
 class TestLLMConfigAPI:
     async def test_list_seeds_defaults(self, client: AsyncClient):
         resp = await client.get("/admin/llm/")
@@ -514,10 +559,13 @@ class TestLLMConfigAPI:
         assert resp.status_code == 404
 
     async def test_put_slot_not_found(self, client: AsyncClient):
-        resp = await client.put("/admin/llm/synthesis", json={
-            "provider_name": "openrouter",
-            "model_id": "anthropic/claude-3.5-sonnet",
-        })
+        resp = await client.put(
+            "/admin/llm/synthesis",
+            json={
+                "provider_name": "openrouter",
+                "model_id": "anthropic/claude-3.5-sonnet",
+            },
+        )
         assert resp.status_code == 404
 
     async def test_test_slot_not_found(self, client: AsyncClient):
@@ -559,13 +607,14 @@ class TestLLMConfigAPI:
 # Templates
 # ──────────────────────────────────────────────
 
+
 class TestTemplatesAPI:
     async def test_list_seeds_starter_template(self, client: AsyncClient, mock_db):
         seeded_templates: list[object] = []
 
         def side_effect_add(obj):
             obj.id = uuid.uuid4()
-            obj.created_at = datetime.now(timezone.utc)
+            obj.created_at = datetime.now(UTC)
             if getattr(obj, "template_name", None):
                 seeded_templates.append(obj)
 
@@ -606,15 +655,18 @@ class TestTemplatesAPI:
 
         def side_effect_add(obj):
             obj.id = fake_id
-            obj.created_at = datetime.now(timezone.utc)
+            obj.created_at = datetime.now(UTC)
 
         mock_db.add = MagicMock(side_effect=side_effect_add)
 
-        resp = await client.post("/admin/templates/", json={
-            "template_name": "synthesis_prose",
-            "content": "You are an astrologer. {{signals}}",
-            "author": "admin",
-        })
+        resp = await client.post(
+            "/admin/templates/",
+            json={
+                "template_name": "synthesis_prose",
+                "content": "You are an astrologer. {{signals}}",
+                "author": "admin",
+            },
+        )
         assert resp.status_code == 200
         body = resp.json()
         assert "id" in body
@@ -627,6 +679,7 @@ class TestTemplatesAPI:
 # ──────────────────────────────────────────────
 # Readings
 # ──────────────────────────────────────────────
+
 
 class TestReadingsAPI:
     async def test_list_empty(self, client: AsyncClient):
@@ -661,12 +714,15 @@ class TestReadingsAPI:
         reading.date_context = date(2026, 2, 14)
         mock_db.get.return_value = reading
 
-        with patch("api.routers.admin_readings._load_pipeline_runner") as loader, patch(
-            "api.routers.admin_readings.asyncio.create_task"
-        ) as create_task:
+        with (
+            patch("api.routers.admin_readings._load_pipeline_runner") as loader,
+            patch("api.routers.admin_readings.asyncio.create_task") as create_task,
+        ):
             loader.return_value = AsyncMock(return_value=uuid.uuid4())
             real_create_task = asyncio.tasks.create_task
-            create_task.side_effect = lambda coro, *args, **kwargs: real_create_task(coro, *args, **kwargs)
+            create_task.side_effect = lambda coro, *args, **kwargs: real_create_task(
+                coro, *args, **kwargs
+            )
             resp = await client.post(
                 f"/admin/readings/{reading_id}/regenerate",
                 json={"mode": "prose_only"},
@@ -678,11 +734,14 @@ class TestReadingsAPI:
         assert body["mode"] == "background"
         assert body["regeneration_mode"] == "prose_only"
         assert any(
-            getattr(getattr(call.args[0], "cr_code", None), "co_name", "") == "_run_pipeline_background"
+            getattr(getattr(call.args[0], "cr_code", None), "co_name", "")
+            == "_run_pipeline_background"
             for call in create_task.call_args_list
         )
 
-    async def test_regenerate_wait_for_completion_returns_run_id(self, client: AsyncClient, mock_db):
+    async def test_regenerate_wait_for_completion_returns_run_id(
+        self, client: AsyncClient, mock_db
+    ):
         reading_id = uuid.uuid4()
         reading = MagicMock()
         reading.id = reading_id
@@ -711,6 +770,7 @@ class TestReadingsAPI:
 # ──────────────────────────────────────────────
 # Pipeline
 # ──────────────────────────────────────────────
+
 
 class TestPipelineAPI:
     async def test_list_runs_empty(self, client: AsyncClient):
@@ -755,12 +815,15 @@ class TestPipelineAPI:
         assert runner.await_args.kwargs["trigger_source"] == "manual"
 
     async def test_trigger_pipeline_background_mode(self, client: AsyncClient):
-        with patch("api.routers.admin_pipeline._load_pipeline_runner") as loader, patch(
-            "api.routers.admin_pipeline.asyncio.create_task"
-        ) as create_task:
+        with (
+            patch("api.routers.admin_pipeline._load_pipeline_runner") as loader,
+            patch("api.routers.admin_pipeline.asyncio.create_task") as create_task,
+        ):
             loader.return_value = AsyncMock(return_value=uuid.uuid4())
             real_create_task = asyncio.tasks.create_task
-            create_task.side_effect = lambda coro, *args, **kwargs: real_create_task(coro, *args, **kwargs)
+            create_task.side_effect = lambda coro, *args, **kwargs: real_create_task(
+                coro, *args, **kwargs
+            )
             resp = await client.post(
                 "/admin/pipeline/trigger",
                 json={"wait_for_completion": False},
@@ -770,14 +833,18 @@ class TestPipelineAPI:
         assert body["status"] == "started"
         assert body["mode"] == "background"
         assert any(
-            getattr(getattr(call.args[0], "cr_code", None), "co_name", "") == "_run_pipeline_background"
+            getattr(getattr(call.args[0], "cr_code", None), "co_name", "")
+            == "_run_pipeline_background"
             for call in create_task.call_args_list
         )
 
     async def test_trigger_pipeline_dependency_missing_returns_503(self, client: AsyncClient):
         with patch(
             "api.routers.admin_pipeline._load_pipeline_runner",
-            side_effect=HTTPException(status_code=503, detail="Pipeline package is unavailable in API container. Rebuild API image."),
+            side_effect=HTTPException(
+                status_code=503,
+                detail="Pipeline package is unavailable in API container. Rebuild API image.",
+            ),
         ):
             resp = await client.post("/admin/pipeline/trigger", json={})
         assert resp.status_code == 503
@@ -785,7 +852,9 @@ class TestPipelineAPI:
 
     async def test_trigger_pipeline_lock_conflict_returns_409(self, client: AsyncClient):
         with patch("api.routers.admin_pipeline._load_pipeline_runner") as loader:
-            loader.return_value = AsyncMock(side_effect=RuntimeError("Could not acquire advisory lock for 2026-02-14"))
+            loader.return_value = AsyncMock(
+                side_effect=RuntimeError("Could not acquire advisory lock for 2026-02-14")
+            )
             resp = await client.post("/admin/pipeline/trigger", json={})
         assert resp.status_code == 409
         assert "already in progress" in resp.json()["detail"]
@@ -794,6 +863,7 @@ class TestPipelineAPI:
 # ──────────────────────────────────────────────
 # Audit
 # ──────────────────────────────────────────────
+
 
 class TestAuditAPI:
     async def test_list_empty(self, client: AsyncClient):
@@ -812,6 +882,7 @@ class TestAuditAPI:
 # Accounts + Billing
 # ──────────────────────────────────────────────
 
+
 class TestAccountsAPI:
     async def test_list_users(self, client: AsyncClient, mock_db):
         fake_user = MagicMock()
@@ -820,8 +891,8 @@ class TestAccountsAPI:
         fake_user.display_name = "Pro User"
         fake_user.email_verified = True
         fake_user.is_active = True
-        fake_user.created_at = datetime.now(timezone.utc)
-        fake_user.last_login_at = datetime.now(timezone.utc)
+        fake_user.created_at = datetime.now(UTC)
+        fake_user.last_login_at = datetime.now(UTC)
         fake_user.pro_override = False
         fake_user.pro_override_reason = None
         fake_user.pro_override_until = None
@@ -865,8 +936,8 @@ class TestAccountsAPI:
         def side_effect_add(obj):
             if getattr(obj, "code", None) == "TEST50":
                 obj.id = uuid.uuid4()
-                obj.created_at = datetime.now(timezone.utc)
-                obj.updated_at = datetime.now(timezone.utc)
+                obj.created_at = datetime.now(UTC)
+                obj.updated_at = datetime.now(UTC)
 
         mock_db.add = MagicMock(side_effect=side_effect_add)
 
@@ -901,8 +972,8 @@ class TestAccountsAPI:
         def side_effect_add(obj):
             if getattr(obj, "code", None) == "SAVE500":
                 obj.id = uuid.uuid4()
-                obj.created_at = datetime.now(timezone.utc)
-                obj.updated_at = datetime.now(timezone.utc)
+                obj.created_at = datetime.now(UTC)
+                obj.updated_at = datetime.now(UTC)
 
         mock_db.add = MagicMock(side_effect=side_effect_add)
 
@@ -944,8 +1015,8 @@ class TestAccountsAPI:
         discount.starts_at = None
         discount.expires_at = None
         discount.is_active = True
-        discount.created_at = datetime.now(timezone.utc)
-        discount.updated_at = datetime.now(timezone.utc)
+        discount.created_at = datetime.now(UTC)
+        discount.updated_at = datetime.now(UTC)
         discount.stripe_promotion_code_id = "promo_123"
         mock_db.get.return_value = discount
 
@@ -978,13 +1049,13 @@ class TestAccountsAPI:
 
     async def test_operational_health_endpoint(self, client: AsyncClient, mock_db):
         webhook_result = MagicMock()
-        webhook_result.scalars.return_value.first.return_value = datetime.now(timezone.utc)
+        webhook_result.scalars.return_value.first.return_value = datetime.now(UTC)
 
         count_result = MagicMock()
         count_result.scalar.return_value = 0
 
         latest_cleanup_result = MagicMock()
-        latest_cleanup_result.scalars.return_value.first.return_value = datetime.now(timezone.utc)
+        latest_cleanup_result.scalars.return_value.first.return_value = datetime.now(UTC)
 
         mock_db.execute = AsyncMock(
             side_effect=[
@@ -1011,6 +1082,7 @@ class TestAccountsAPI:
 # ──────────────────────────────────────────────
 # Route registration
 # ──────────────────────────────────────────────
+
 
 class TestRouteRegistration:
     """Verify all admin routers are mounted at the expected prefixes."""

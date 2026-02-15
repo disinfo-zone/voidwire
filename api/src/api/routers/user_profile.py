@@ -76,8 +76,7 @@ def _profile_payload(profile: UserProfile) -> dict:
         "birth_timezone": profile.birth_timezone,
         "house_system": profile.house_system,
         "natal_chart_computed_at": (
-            profile.natal_chart_computed_at.isoformat()
-            if profile.natal_chart_computed_at else None
+            profile.natal_chart_computed_at.isoformat() if profile.natal_chart_computed_at else None
         ),
     }
 

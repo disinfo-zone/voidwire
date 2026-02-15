@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from voidwire.schemas.ephemeris import (
     Aspect,
@@ -13,8 +13,9 @@ from voidwire.schemas.ephemeris import (
     PlanetPosition,
     StationOrIngress,
 )
-from ephemeris.bodies import ALL_BODIES, BODY_IDS, SIGNS, longitude_to_sign
+
 from ephemeris.aspects import find_aspects
+from ephemeris.bodies import ALL_BODIES, BODY_IDS, longitude_to_sign
 from ephemeris.lunar import (
     calculate_lunar_phase,
     calculate_next_ingress,
@@ -38,9 +39,8 @@ except ImportError:
 def _datetime_to_jd(dt: datetime) -> float:
     """Convert datetime to Julian Day number."""
     if _HAS_SWISSEPH:
-        utc = dt.astimezone(timezone.utc)
-        jd = swe.julday(utc.year, utc.month, utc.day,
-                        utc.hour + utc.minute / 60.0 + utc.second / 3600.0)
+        utc = dt.astimezone(UTC)
+        jd = swe.julday(utc.year, utc.month, utc.day, utc.hour + utc.minute / 60.0 + utc.second / 3600.0)
         return jd
     # Rough Julian Day calculation as fallback
     y = dt.year
@@ -49,9 +49,9 @@ def _datetime_to_jd(dt: datetime) -> float:
     if m <= 2:
         y -= 1
         m += 12
-    A = int(y / 100)
-    B = 2 - A + int(A / 4)
-    return int(365.25 * (y + 4716)) + int(30.6001 * (m + 1)) + d + B - 1524.5
+    a_term = int(y / 100)
+    b_term = 2 - a_term + int(a_term / 4)
+    return int(365.25 * (y + 4716)) + int(30.6001 * (m + 1)) + d + b_term - 1524.5
 
 
 def _calculate_position(body_name: str, jd: float) -> dict:
@@ -75,6 +75,7 @@ def _calculate_position(body_name: str, jd: float) -> dict:
             except Exception:
                 logger.warning("swisseph failed for %s, using placeholder", body_name)
                 import hashlib
+
                 h = int(hashlib.sha256(f"{body_name}{jd}".encode()).hexdigest()[:8], 16)
                 longitude = (h % 36000) / 100.0
                 speed = 1.0 if body_name in ("sun", "moon", "mercury", "venus") else 0.1
@@ -82,6 +83,7 @@ def _calculate_position(body_name: str, jd: float) -> dict:
         # Placeholder for when swisseph is not available
         # This produces deterministic but inaccurate positions
         import hashlib
+
         h = int(hashlib.sha256(f"{body_name}{jd}".encode()).hexdigest()[:8], 16)
         longitude = (h % 36000) / 100.0
         speed = 1.0 if body_name in ("sun", "moon", "mercury", "venus") else 0.1
@@ -113,8 +115,7 @@ async def calculate_day(
     Returns:
         EphemerisOutput with all positions, aspects, lunar data, etc.
     """
-    dt = datetime(target_date.year, target_date.month, target_date.day,
-                  12, 0, 0, tzinfo=timezone.utc)  # Noon UTC
+    dt = datetime(target_date.year, target_date.month, target_date.day, 12, 0, 0, tzinfo=UTC)  # Noon UTC
     jd = _datetime_to_jd(dt)
 
     # Calculate all positions
@@ -123,9 +124,7 @@ async def calculate_day(
         positions_raw[body_name] = _calculate_position(body_name, jd)
 
     # Convert to Pydantic models
-    positions = {
-        name: PlanetPosition(**data) for name, data in positions_raw.items()
-    }
+    positions = {name: PlanetPosition(**data) for name, data in positions_raw.items()}
 
     # Calculate aspects
     aspects_raw = find_aspects(positions_raw, base_dt=dt)
@@ -133,21 +132,21 @@ async def calculate_day(
     # Enrich aspects with meanings
     aspects = []
     for a in aspects_raw:
-        meaning = await lookup_meaning(
-            a["body1"], a["body2"], a["type"], "aspect", db_session
+        meaning = await lookup_meaning(a["body1"], a["body2"], a["type"], "aspect", db_session)
+        aspects.append(
+            Aspect(
+                body1=a["body1"],
+                body2=a["body2"],
+                type=a["type"],
+                orb_degrees=a["orb_degrees"],
+                applying=a["applying"],
+                perfects_at=a.get("perfects_at"),
+                entered_orb_at=a.get("entered_orb_at"),
+                significance=a["significance"],
+                core_meaning=meaning["core_meaning"],
+                domain_affinities=meaning["domain_affinities"],
+            )
         )
-        aspects.append(Aspect(
-            body1=a["body1"],
-            body2=a["body2"],
-            type=a["type"],
-            orb_degrees=a["orb_degrees"],
-            applying=a["applying"],
-            perfects_at=a.get("perfects_at"),
-            entered_orb_at=a.get("entered_orb_at"),
-            significance=a["significance"],
-            core_meaning=meaning["core_meaning"],
-            domain_affinities=meaning["domain_affinities"],
-        ))
 
     # Calculate lunar data
     sun_lon = positions_raw["sun"]["longitude"]
@@ -155,9 +154,7 @@ async def calculate_day(
     moon_speed = positions_raw["moon"]["speed_deg_day"]
 
     phase_name, phase_pct = calculate_lunar_phase(sun_lon, moon_lon)
-    void, void_starts = calculate_void_of_course(
-        moon_lon, moon_speed, positions_raw, dt
-    )
+    void, void_starts = calculate_void_of_course(moon_lon, moon_speed, positions_raw, dt)
     next_ingress = calculate_next_ingress(moon_lon, moon_speed, dt)
 
     lunar = LunarData(
@@ -169,16 +166,14 @@ async def calculate_day(
     )
 
     # Detect stations and ingresses (check +-1 day)
-    stations_and_ingresses = await _detect_stations_and_ingresses(
-        positions_raw, jd, dt, db_session
-    )
+    stations_and_ingresses = await _detect_stations_and_ingresses(positions_raw, jd, dt, db_session)
 
     # Forward ephemeris (5-day lookahead)
     forward = await _calculate_forward(positions_raw, jd, dt, db_session)
 
     return EphemerisOutput(
         date_context=target_date,
-        generated_at=datetime.now(timezone.utc),
+        generated_at=datetime.now(UTC),
         julian_day=round(jd, 6),
         positions=positions,
         lunar=lunar,
@@ -207,25 +202,29 @@ async def _detect_stations_and_ingresses(
         if abs(speed) < 0.01:
             event_type = "station_retrograde" if speed <= 0 else "station_direct"
             meaning = await lookup_meaning(body_name, None, None, "station", db_session)
-            events.append(StationOrIngress(
-                type=event_type,
-                body=body_name,
-                sign=positions[body_name]["sign"],
-                at=base_dt,
-                core_meaning=meaning["core_meaning"],
-            ))
+            events.append(
+                StationOrIngress(
+                    type=event_type,
+                    body=body_name,
+                    sign=positions[body_name]["sign"],
+                    at=base_dt,
+                    core_meaning=meaning["core_meaning"],
+                )
+            )
 
         # Check for sign ingress: degree near 0 or 30
         degree = positions[body_name]["degree"]
         if degree < 1.0 and speed > 0:
             meaning = await lookup_meaning(body_name, None, None, "ingress", db_session)
-            events.append(StationOrIngress(
-                type="ingress",
-                body=body_name,
-                sign=positions[body_name]["sign"],
-                at=base_dt,
-                core_meaning=meaning["core_meaning"],
-            ))
+            events.append(
+                StationOrIngress(
+                    type="ingress",
+                    body=body_name,
+                    sign=positions[body_name]["sign"],
+                    at=base_dt,
+                    core_meaning=meaning["core_meaning"],
+                )
+            )
 
     return events
 
@@ -254,26 +253,32 @@ async def _calculate_forward(
 
             if future_sign != prev_sign:
                 from datetime import timedelta
+
                 event_time = base_dt + timedelta(days=days_ahead)
-                forward.append(ForwardEvent(
-                    at=event_time,
-                    event=f"Moon enters {future_sign}",
-                    significance="minor",
-                ))
+                forward.append(
+                    ForwardEvent(
+                        at=event_time,
+                        event=f"Moon enters {future_sign}",
+                        significance="minor",
+                    )
+                )
 
     # Check applying major aspects for perfection
     from ephemeris.aspects import find_aspects
+
     for aspect in find_aspects(positions, base_dt=base_dt):
         if aspect["applying"] and aspect["perfects_at"] and aspect["significance"] == "major":
             perfects = aspect["perfects_at"]
             if isinstance(perfects, datetime):
                 days_out = (perfects - base_dt).total_seconds() / 86400.0
                 if 0 < days_out <= 5:
-                    forward.append(ForwardEvent(
-                        at=perfects,
-                        event=f"{aspect['body1'].title()} {aspect['type']} {aspect['body2'].title()} perfects",
-                        significance="major",
-                    ))
+                    forward.append(
+                        ForwardEvent(
+                            at=perfects,
+                            event=f"{aspect['body1'].title()} {aspect['type']} {aspect['body2'].title()} perfects",
+                            significance="major",
+                        )
+                    )
 
     # Sort by time
     forward.sort(key=lambda e: e.at)

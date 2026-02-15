@@ -45,6 +45,7 @@ USER_AUTH_COOKIE_PATH = "/"
 
 # --- Request / Response schemas ---
 
+
 def _validated_email(value: str) -> str:
     normalized = value.strip().lower()
     local, sep, domain = normalized.partition("@")
@@ -114,6 +115,7 @@ class DeleteAccountRequest(BaseModel):
 
 
 # --- Helpers ---
+
 
 def _create_user_token(user: User) -> dict:
     settings = get_settings()
@@ -220,8 +222,7 @@ async def _prune_token_tables(db: AsyncSession) -> None:
     password_deleted = (
         await db.execute(
             delete(PasswordResetToken).where(
-                (PasswordResetToken.expires_at <= now)
-                | (PasswordResetToken.used_at.is_not(None))
+                (PasswordResetToken.expires_at <= now) | (PasswordResetToken.used_at.is_not(None))
             )
         )
     ).rowcount or 0
@@ -290,7 +291,7 @@ async def _send_verification_email(db: AsyncSession, user: User, raw_token: str)
         ),
         html_body=(
             "<p>Welcome to Voidwire.</p>"
-            f"<p>Verify your email: <a href=\"{verify_link}\">{verify_link}</a></p>"
+            f'<p>Verify your email: <a href="{verify_link}">{verify_link}</a></p>'
             "<p>If the link does not work, use the provided token "
             "in the verify-email API endpoint.</p>"
         ),
@@ -317,7 +318,7 @@ async def _send_password_reset_email(db: AsyncSession, user: User, raw_token: st
         ),
         html_body=(
             "<p>We received a request to reset your Voidwire password.</p>"
-            f"<p><a href=\"{reset_link}\">Reset your password</a></p>"
+            f'<p><a href="{reset_link}">Reset your password</a></p>'
             "<p>If you did not request this, you can ignore this email.</p>"
         ),
     )
@@ -331,6 +332,7 @@ async def _send_password_reset_email(db: AsyncSession, user: User, raw_token: st
 
 # --- Endpoints ---
 
+
 @router.post("/register")
 async def register(
     req: RegisterRequest,
@@ -341,9 +343,7 @@ async def register(
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
     normalized_email = _normalize_email(req.email)
-    existing = await db.execute(
-        select(User).where(func.lower(User.email) == normalized_email)
-    )
+    existing = await db.execute(select(User).where(func.lower(User.email) == normalized_email))
     if existing.scalars().first():
         raise HTTPException(status_code=409, detail="Email already registered")
 
@@ -377,9 +377,7 @@ async def login(
             status_code=429,
             detail=f"Too many login attempts. Try again in {retry_after} seconds.",
         )
-    result = await db.execute(
-        select(User).where(func.lower(User.email) == normalized_email)
-    )
+    result = await db.execute(select(User).where(func.lower(User.email) == normalized_email))
     user = result.scalars().first()
     if not user or not user.is_active or not user.password_hash:
         await record_login_failure("user_login", identifier)
@@ -427,9 +425,7 @@ async def oauth_google(
 
     if not user and email:
         # Check if email already exists (link accounts)
-        result = await db.execute(
-            select(User).where(func.lower(User.email) == email)
-        )
+        result = await db.execute(select(User).where(func.lower(User.email) == email))
         user = result.scalars().first()
         if user:
             user.google_id = google_sub
@@ -496,6 +492,7 @@ async def oauth_apple(
         # Find matching key
         key = next(k for k in jwks["keys"] if k["kid"] == header["kid"])
         from jose import jwk as jose_jwk
+
         public_key = jose_jwk.construct(key, algorithm="RS256")
 
         claims = jose_jwt.decode(
@@ -517,9 +514,7 @@ async def oauth_apple(
     user = result.scalars().first()
 
     if not user and email:
-        result = await db.execute(
-            select(User).where(func.lower(User.email) == email)
-        )
+        result = await db.execute(select(User).where(func.lower(User.email) == email))
         user = result.scalars().first()
         if user:
             user.apple_id = apple_sub
@@ -569,9 +564,7 @@ async def forgot_password(req: ForgotPasswordRequest, db: AsyncSession = Depends
 
     # Always return 200 to avoid email enumeration
     normalized_email = _normalize_email(req.email)
-    result = await db.execute(
-        select(User).where(func.lower(User.email) == normalized_email)
-    )
+    result = await db.execute(select(User).where(func.lower(User.email) == normalized_email))
     user = result.scalars().first()
 
     if user and user.is_active:

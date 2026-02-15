@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -18,6 +17,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class LLMSlotConfig:
     """Configuration for a single LLM slot."""
+
     slot: str
     provider_name: str
     api_endpoint: str
@@ -61,11 +61,7 @@ class LLMClient:
                 body = response.json()
                 if isinstance(body, dict):
                     if isinstance(body.get("error"), dict):
-                        detail = (
-                            body["error"].get("message")
-                            or body["error"].get("code")
-                            or detail
-                        )
+                        detail = body["error"].get("message") or body["error"].get("code") or detail
                     elif body.get("error"):
                         detail = str(body["error"])
                     elif body.get("message"):
@@ -171,7 +167,7 @@ def strip_json_fencing(text: str) -> str:
     if text.startswith("```"):
         # Remove opening fence
         first_newline = text.index("\n")
-        text = text[first_newline + 1:]
+        text = text[first_newline + 1 :]
     if text.endswith("```"):
         text = text[:-3].rstrip()
     return text

@@ -152,8 +152,7 @@ async def get_operational_health(
     )
     stale_password_result = await db.execute(
         select(func.count(PasswordResetToken.id)).where(
-            (PasswordResetToken.expires_at <= now)
-            | (PasswordResetToken.used_at.is_not(None))
+            (PasswordResetToken.expires_at <= now) | (PasswordResetToken.used_at.is_not(None))
         )
     )
     stale_email_tokens = int(stale_email_result.scalar() or 0)
@@ -168,9 +167,7 @@ async def get_operational_health(
     )
     latest_cleanup_at = latest_cleanup_result.scalars().first()
     cleanup_age_minutes = (
-        round((now - latest_cleanup_at).total_seconds() / 60, 2)
-        if latest_cleanup_at
-        else None
+        round((now - latest_cleanup_at).total_seconds() / 60, 2) if latest_cleanup_at else None
     )
 
     token_cleanup_status = "ok"
@@ -243,9 +240,7 @@ async def get_operational_health(
         "slo": {
             "webhook_freshness_30m": {
                 "status": webhook_status,
-                "latest_webhook_at": (
-                    latest_webhook_at.isoformat() if latest_webhook_at else None
-                ),
+                "latest_webhook_at": (latest_webhook_at.isoformat() if latest_webhook_at else None),
                 "lag_minutes": webhook_lag_minutes,
             },
             "checkout_failure_rate_10pct_24h": {
