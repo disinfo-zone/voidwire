@@ -33,12 +33,9 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         <section id="reading-section" class="reading-section" style="display: none;">
           <div id="reading-status" class="reading-status" style="display: none;"></div>
           <div id="reading-content" class="reading-content">
-            <div class="loading">Loading your reading...</div>
+            <div class="loading">Tuning into the wire\u2026</div>
           </div>
-          <div id="reading-actions" class="reading-actions" style="display: none;" hidden aria-hidden="true">
-            <button id="refresh-reading-btn" class="action-button">Refresh</button>
-            <button id="generate-reading-btn" class="action-button">Generate Latest</button>
-          </div>
+          <div id="reading-actions" class="reading-actions" style="display: none;"></div>
         </section>
 
         <section id="settings-section" class="settings-section" style="display: none;">
@@ -210,15 +207,41 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
   function setReadingActionVisibility() {
     const readingActions = document.getElementById('reading-actions') as HTMLElement | null;
     if (!readingActions) return;
-    if (canManageReadings) {
-      readingActions.hidden = false;
-      readingActions.setAttribute('aria-hidden', 'false');
-      readingActions.style.display = 'flex';
+    if (!canManageReadings) {
+      readingActions.innerHTML = '';
+      readingActions.style.display = 'none';
       return;
     }
-    readingActions.hidden = true;
-    readingActions.setAttribute('aria-hidden', 'true');
-    readingActions.style.display = 'none';
+    if (!readingActions.querySelector('#refresh-reading-btn')) {
+      readingActions.innerHTML =
+        '<button id="refresh-reading-btn" class="action-button">Refresh</button>' +
+        '<button id="generate-reading-btn" class="action-button">Generate Latest</button>';
+      document.getElementById('refresh-reading-btn')?.addEventListener('click', () => {
+        if (!canManageReadings) return;
+        void startReadingFlow();
+      });
+      document.getElementById('generate-reading-btn')?.addEventListener('click', async () => {
+        if (!hasProfile || !canManageReadings) return;
+        stopReadingPolling();
+        activeJobId = null;
+        updateReadingStatus('Requesting a fresh transmission\u2026');
+        renderReadingMessage('Clearing the channel for a new transmission\u2026');
+        try {
+          activeJobId = await enqueueOrReuseReadingJob({ forceRefresh: true, reuseActive: false });
+          readingPollStartedAt = Date.now();
+          await pollReadingJob();
+          if (activeJobId) {
+            readingPollTimer = window.setInterval(() => {
+              void pollReadingJob();
+            }, 4000);
+          }
+        } catch (err) {
+          renderReadingMessage(err instanceof Error ? err.message : 'The reading could not be channeled');
+          updateReadingStatus('The signal was lost in the void.');
+        }
+      });
+    }
+    readingActions.style.display = 'flex';
   }
 
   async function loadBrandDomain() {
@@ -363,20 +386,20 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const elapsed = Math.max(Math.round((Date.now() - readingPollStartedAt) / 1000), 1);
     const statusRes = await authFetch(`/v1/user/readings/personal/jobs/${activeJobId}`);
     if (!statusRes.ok) {
-      updateReadingStatus('Unable to track reading status.');
+      updateReadingStatus('Lost contact with the signal.');
       return;
     }
     const job = await statusRes.json();
     const jobStatus = String(job?.status || 'queued');
     if (jobStatus === 'queued' || jobStatus === 'running') {
-      updateReadingStatus(`Generating reading... ${elapsed}s elapsed. Pro readings can take a few minutes.`);
+      updateReadingStatus(`Channeling the celestial signal\u2026 ${elapsed}s elapsed. Deep readings may take a few minutes.`);
       return;
     }
     if (jobStatus === 'failed') {
       stopReadingPolling();
-      const message = String(job?.error_message || 'Reading generation failed');
+      const message = String(job?.error_message || 'The reading could not be channeled');
       renderReadingMessage(message);
-      updateReadingStatus('Reading generation failed.');
+      updateReadingStatus('The signal was lost in the void.');
       return;
     }
     if (jobStatus === 'completed') {
@@ -385,15 +408,15 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       if (reading) {
         renderReading(reading);
       } else {
-        renderReadingMessage('Reading completed but is not visible yet. Refresh in a moment.');
-        updateReadingStatus('Reading completed. Awaiting refresh.');
+        renderReadingMessage('The transmission has arrived but has not yet materialized. Refresh in a moment.');
+        updateReadingStatus('Transmission received. Awaiting materialization.');
       }
     }
   }
 
   async function startReadingFlow() {
     if (!hasProfile) return;
-    updateReadingStatus('Checking for your latest reading...');
+    updateReadingStatus('Scanning the celestial wire\u2026');
     try {
       const reading = await fetchCurrentReading();
       if (reading) {
@@ -404,12 +427,12 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
       const readingContent = document.getElementById('reading-content');
       if (readingContent) {
-        readingContent.innerHTML = '<div class="loading">Preparing your personal reading...</div>';
+        readingContent.innerHTML = '<div class="loading">Attuning to your natal frequency\u2026</div>';
       }
       stopReadingPolling();
       activeJobId = await enqueueOrReuseReadingJob();
       readingPollStartedAt = Date.now();
-      updateReadingStatus('Queued reading generation...');
+      updateReadingStatus('Awaiting celestial alignment\u2026');
       await pollReadingJob();
       if (activeJobId) {
         readingPollTimer = window.setInterval(() => {
@@ -885,31 +908,6 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     setView('settings');
   });
 
-  document.getElementById('refresh-reading-btn')?.addEventListener('click', () => {
-    if (!canManageReadings) return;
-    void startReadingFlow();
-  });
-
-  document.getElementById('generate-reading-btn')?.addEventListener('click', async () => {
-    if (!hasProfile || !canManageReadings) return;
-    stopReadingPolling();
-    activeJobId = null;
-    updateReadingStatus('Requesting a fresh reading...');
-    renderReadingMessage('Preparing a fresh reading...');
-    try {
-      activeJobId = await enqueueOrReuseReadingJob({ forceRefresh: true, reuseActive: false });
-      readingPollStartedAt = Date.now();
-      await pollReadingJob();
-      if (activeJobId) {
-        readingPollTimer = window.setInterval(() => {
-          void pollReadingJob();
-        }, 4000);
-      }
-    } catch (err) {
-      renderReadingMessage(err instanceof Error ? err.message : 'Failed to generate reading');
-      updateReadingStatus('Reading generation failed.');
-    }
-  });
 
   document.getElementById('toggle-birth-form')?.addEventListener('click', () => {
     const birthFormWrapper = document.getElementById('birth-form-wrapper');
@@ -1027,6 +1025,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     font-family: var(--font-sans);
     font-size: 0.72rem;
     color: var(--text-muted);
+    text-align: center;
     margin-bottom: 1rem;
   }
 
