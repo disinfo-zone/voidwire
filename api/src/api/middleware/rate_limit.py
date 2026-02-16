@@ -37,6 +37,8 @@ _AUTH_RATE_LIMITS: dict[str, int] = {
     "/v1/user/auth/resend-verification": 5,
 }
 
+_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
 
 def _is_valid_ip(value: str) -> bool:
     try:
@@ -83,6 +85,22 @@ def _resolve_client_ip(request: Request) -> str:
     return remote_host
 
 
+def _should_apply_global_rate_limit(path: str, method: str) -> bool:
+    method_upper = str(method or "GET").upper()
+    if not str(path or "").startswith("/v1/"):
+        return False
+    if path in _EXEMPT_PATHS:
+        return False
+    # Read traffic can be frequent (SSR + client hydration + polling).
+    # Apply global limiter to mutating endpoints only.
+    if method_upper in _SAFE_METHODS:
+        return False
+    # Auth endpoints have explicit stricter rate limits above.
+    if method_upper == "POST" and path in _AUTH_RATE_LIMITS:
+        return False
+    return True
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
     async def _get_redis_client(self, request: Request):
         redis_client = getattr(request.app.state, "_rate_limit_redis", None)
@@ -95,21 +113,22 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return redis_client
 
     async def dispatch(self, request: Request, call_next):
-        if not request.url.path.startswith("/v1/"):
+        path = request.url.path
+        method = request.method.upper()
+
+        if not path.startswith("/v1/"):
             return await call_next(request)
-        if request.url.path in _EXEMPT_PATHS:
+        if path in _EXEMPT_PATHS:
             return await call_next(request)
         settings = get_settings()
         client_ip = _resolve_client_ip(request)
 
         # Stricter per-endpoint auth rate limits
-        auth_limit = _AUTH_RATE_LIMITS.get(request.url.path)
-        if auth_limit and request.method == "POST":
+        auth_limit = _AUTH_RATE_LIMITS.get(path)
+        if auth_limit and method == "POST":
             try:
                 r = await self._get_redis_client(request)
-                auth_key = (
-                    f"ratelimit:auth:{request.url.path}:{client_ip}:{int(time.time() // 3600)}"
-                )
+                auth_key = f"ratelimit:auth:{path}:{client_ip}:{int(time.time() // 3600)}"
                 auth_count = await r.incr(auth_key)
                 if auth_count == 1:
                     await r.expire(auth_key, 3600)
@@ -124,9 +143,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         if settings.rate_limit_per_hour <= 0:
             return await call_next(request)
+        if not _should_apply_global_rate_limit(path, method):
+            return await call_next(request)
         try:
             r = await self._get_redis_client(request)
-            key = f"ratelimit:{client_ip}:{int(time.time() // 3600)}"
+            key = f"ratelimit:{client_ip}:{method}:{path}:{int(time.time() // 3600)}"
             count = await r.incr(key)
             if count == 1:
                 await r.expire(key, 3600)

@@ -3,6 +3,7 @@ from api.middleware.rate_limit import (
     _extract_forwarded_client_ip,
     _is_trusted_proxy_host,
     _resolve_client_ip,
+    _should_apply_global_rate_limit,
 )
 from starlette.requests import Request
 
@@ -51,3 +52,17 @@ def test_auth_rate_limits_cover_sensitive_token_endpoints() -> None:
     assert "/v1/user/auth/reset-password" in _AUTH_RATE_LIMITS
     assert "/v1/user/auth/verify-email" in _AUTH_RATE_LIMITS
     assert "/v1/user/auth/resend-verification" in _AUTH_RATE_LIMITS
+
+
+def test_should_apply_global_rate_limit_skips_safe_reads() -> None:
+    assert _should_apply_global_rate_limit("/v1/reading/today", "GET") is False
+    assert _should_apply_global_rate_limit("/v1/user/auth/me", "GET") is False
+
+
+def test_should_apply_global_rate_limit_skips_auth_posts_with_dedicated_limits() -> None:
+    assert _should_apply_global_rate_limit("/v1/user/auth/login", "POST") is False
+
+
+def test_should_apply_global_rate_limit_applies_to_mutating_non_auth_paths() -> None:
+    assert _should_apply_global_rate_limit("/v1/user/subscription/checkout", "POST") is True
+    assert _should_apply_global_rate_limit("/v1/user/auth/me", "PUT") is True
