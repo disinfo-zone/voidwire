@@ -141,23 +141,24 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     Aquarius: '#90d0ff',
     Pisces: '#a0a6ff',
   };
+  const VS15 = '\uFE0E';
   const PLANET_GLYPHS: Record<string, string> = {
-    Sun: '\u2609', Moon: '\u263D', Mercury: '\u263F', Venus: '\u2640',
-    Mars: '\u2642', Jupiter: '\u2643', Saturn: '\u2644', Uranus: '\u2645',
-    Neptune: '\u2646', Pluto: '\u2647', Chiron: '\u26B7', 'North Node': '\u260A',
+    Sun: `\u2609${VS15}`, Moon: `\u263D${VS15}`, Mercury: `\u263F${VS15}`, Venus: `\u2640${VS15}`,
+    Mars: `\u2642${VS15}`, Jupiter: `\u2643${VS15}`, Saturn: `\u2644${VS15}`, Uranus: `\u2645${VS15}`,
+    Neptune: `\u2646${VS15}`, Pluto: `\u2647${VS15}`, Chiron: `\u26B7${VS15}`, 'North Node': `\u260A${VS15}`,
   };
   const SIGN_GLYPHS: Record<string, string> = {
-    Aries: '\u2648', Taurus: '\u2649', Gemini: '\u264A', Cancer: '\u264B',
-    Leo: '\u264C', Virgo: '\u264D', Libra: '\u264E', Scorpio: '\u264F',
-    Sagittarius: '\u2650', Capricorn: '\u2651', Aquarius: '\u2652', Pisces: '\u2653',
+    Aries: `\u2648${VS15}`, Taurus: `\u2649${VS15}`, Gemini: `\u264A${VS15}`, Cancer: `\u264B${VS15}`,
+    Leo: `\u264C${VS15}`, Virgo: `\u264D${VS15}`, Libra: `\u264E${VS15}`, Scorpio: `\u264F${VS15}`,
+    Sagittarius: `\u2650${VS15}`, Capricorn: `\u2651${VS15}`, Aquarius: `\u2652${VS15}`, Pisces: `\u2653${VS15}`,
   };
   const CHART_ASPECT_COLORS: Record<string, string> = {
     conjunction: '#d6af72', opposition: '#e07060', trine: '#5888c8',
     square: '#c04040', sextile: '#50a868',
   };
   const ASPECT_GLYPHS: Record<string, string> = {
-    conjunction: '\u260C', opposition: '\u260D', trine: '\u25B3',
-    square: '\u25A1', sextile: '\u26B9',
+    conjunction: `\u260C${VS15}`, opposition: `\u260D${VS15}`, trine: '\u25B3',
+    square: '\u25A1', sextile: `\u26B9${VS15}`,
   };
   const ELEMENT_MAP: Record<string, string> = {
     Aries: 'Fire', Taurus: 'Earth', Gemini: 'Air', Cancer: 'Water',
@@ -748,7 +749,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       const midA = longToAngle(signLongStart + 15);
       const glyphR = (R_OUTER + R_SIGN_INNER) / 2;
       ctx.fillStyle = signColor;
-      ctx.font = '400 28px "EB Garamond", Georgia, serif';
+      ctx.font = '400 34px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(SIGN_GLYPHS[sign] || '', Math.cos(midA) * glyphR, Math.sin(midA) * glyphR);
@@ -821,14 +822,14 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       return { ...pos, _longitude: lng, _angle: longToAngle(lng) };
     }).sort((a: any, b: any) => a._longitude - b._longitude);
 
-    const MIN_ANGLE_SEP = 8, BASE_ORBIT = 345, ORBIT_STEP = 28;
+    const MIN_ANGLE_SEP = 14, BASE_ORBIT = 340, ORBIT_STEP = 34;
     const displayData = planetData.map((p: any, idx: number) => {
       let stagger = 0;
       for (let j = 0; j < idx; j++) {
         const diff = Math.abs(p._longitude - planetData[j]._longitude);
         if (Math.min(diff, 360 - diff) < MIN_ANGLE_SEP) stagger++;
       }
-      return { ...p, _orbitR: BASE_ORBIT + (stagger % 3) * ORBIT_STEP };
+      return { ...p, _orbitR: BASE_ORBIT + (stagger % 4) * ORBIT_STEP };
     });
 
     for (const pos of displayData) {
@@ -839,47 +840,39 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       const sign = normalizeSign(pos.sign);
       const color = SIGN_COLORS[sign] || '#d6af72';
       const glyph = PLANET_GLYPHS[String(pos.body || '')] || '';
-      const deg = Number(pos.degree || 0).toFixed(1);
       const retro = Boolean(pos.retrograde);
 
-      ctx.strokeStyle = `${color}60`;
+      ctx.strokeStyle = `${color}50`;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(Math.cos(angle) * R_INNER, Math.sin(angle) * R_INNER);
       ctx.lineTo(x, y);
       ctx.stroke();
 
-      const glowG = ctx.createRadialGradient(x, y, 0, x, y, 22);
-      glowG.addColorStop(0, `${color}30`);
+      const glowG = ctx.createRadialGradient(x, y, 0, x, y, 26);
+      glowG.addColorStop(0, `${color}28`);
       glowG.addColorStop(1, `${color}00`);
       ctx.fillStyle = glowG;
-      ctx.beginPath(); ctx.arc(x, y, 22, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y, 26, 0, Math.PI * 2); ctx.fill();
 
       ctx.strokeStyle = color;
       ctx.lineWidth = 2.5;
-      ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.stroke();
       ctx.fillStyle = '#080c16';
-      ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI * 2); ctx.fill();
 
       ctx.fillStyle = '#f0f4ff';
-      ctx.font = '400 18px "EB Garamond", Georgia, serif';
+      ctx.font = '400 22px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(glyph, x, y);
 
-      const labelR = orbitR + 20;
-      ctx.fillStyle = '#b0b8cc';
-      ctx.font = '500 12px "Inter", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(`${deg}\u00B0`, Math.cos(angle) * labelR, Math.sin(angle) * labelR);
-
       if (retro) {
         ctx.fillStyle = '#e06050';
-        ctx.font = '500 13px "Inter", sans-serif';
+        ctx.font = '600 14px "Inter", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('\u211E', x + 14, y - 14);
+        ctx.fillText('R', x + 18, y - 16);
       }
     }
 
@@ -897,33 +890,21 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       const a = longToAngle(lng);
       const isMain = am.abbr === 'ASC' || am.abbr === 'MC';
 
-      ctx.strokeStyle = isMain ? BRASS : `${BRASS}80`;
-      ctx.lineWidth = isMain ? 2.5 : 1.5;
-      const outerR = R_OUTER + 20;
+      ctx.strokeStyle = isMain ? `${BRASS}70` : `${BRASS}35`;
+      ctx.lineWidth = isMain ? 1.8 : 1;
+      ctx.setLineDash(isMain ? [] : [8, 6]);
       ctx.beginPath();
       ctx.moveTo(0, 0);
-      ctx.lineTo(Math.cos(a) * outerR, Math.sin(a) * outerR);
+      ctx.lineTo(Math.cos(a) * R_SIGN_INNER, Math.sin(a) * R_SIGN_INNER);
       ctx.stroke();
+      ctx.setLineDash([]);
 
-      if (isMain) {
-        const tipR = outerR + 12;
-        const backR = outerR - 4;
-        const spread = 0.08;
-        ctx.fillStyle = BRASS;
-        ctx.beginPath();
-        ctx.moveTo(Math.cos(a) * tipR, Math.sin(a) * tipR);
-        ctx.lineTo(Math.cos(a - spread) * backR, Math.sin(a - spread) * backR);
-        ctx.lineTo(Math.cos(a + spread) * backR, Math.sin(a + spread) * backR);
-        ctx.closePath();
-        ctx.fill();
-      }
-
-      const lblR = R_OUTER + 44;
+      const lblR = R_INNER - 30;
       ctx.fillStyle = BRASS;
-      ctx.font = '600 16px "Inter", sans-serif';
+      ctx.font = `600 ${isMain ? 18 : 14}px "Inter", sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(`${am.abbr} ${Number(found.degree || 0).toFixed(1)}\u00B0`, Math.cos(a) * lblR, Math.sin(a) * lblR);
+      ctx.fillText(am.abbr, Math.cos(a) * lblR, Math.sin(a) * lblR);
     }
 
     ctx.restore();
@@ -933,10 +914,10 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     ctx.translate(CX, CY);
     for (let i = 0; i < 12; i++) {
       const midA = longToAngle(i * 30 + 15);
-      const labelR = R_OUTER + 55;
+      const labelR = R_OUTER + 72;
       const sign = SIGN_ORDER[i];
       ctx.fillStyle = SIGN_COLORS[sign] || '#9aa6c0';
-      ctx.font = '600 15px "Inter", sans-serif';
+      ctx.font = '600 22px "Inter", sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(sign.slice(0, 3).toUpperCase(), Math.cos(midA) * labelR, Math.sin(midA) * labelR);
@@ -948,28 +929,24 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     ctx.textBaseline = 'alphabetic';
 
     ctx.fillStyle = BRASS;
-    ctx.font = '600 18px "Inter", sans-serif';
+    ctx.font = '600 22px "Inter", sans-serif';
     ctx.fillText('V O I D W I R E', CX, 80);
 
     ctx.fillStyle = '#efe8d9';
-    ctx.font = '400 60px "EB Garamond", Georgia, serif';
-    ctx.fillText('Natal Chart', CX, 156);
+    ctx.font = '400 64px "EB Garamond", Georgia, serif';
+    ctx.fillText('Natal Chart', CX, 160);
 
     ctx.fillStyle = BRASS;
     ctx.save();
-    ctx.translate(CX, 192);
+    ctx.translate(CX, 200);
     ctx.rotate(Math.PI / 4);
     ctx.fillRect(-5, -5, 10, 10);
     ctx.restore();
 
     ctx.strokeStyle = `${BRASS}40`;
     ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(CX - 120, 192); ctx.lineTo(CX - 18, 192); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(CX + 18, 192); ctx.lineTo(CX + 120, 192); ctx.stroke();
-
-    ctx.fillStyle = '#8898b8';
-    ctx.font = '400 18px "JetBrains Mono", monospace';
-    ctx.fillText(new Date().toISOString().slice(0, 10), CX, 236);
+    ctx.beginPath(); ctx.moveTo(CX - 120, 200); ctx.lineTo(CX - 18, 200); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(CX + 18, 200); ctx.lineTo(CX + 120, 200); ctx.stroke();
 
     // --- Layer 11: Data panel ---
     const panelTop = 1380;
@@ -1003,14 +980,14 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
     // Col 1: PLACEMENTS
     ctx.fillStyle = BRASS;
-    ctx.font = '600 14px "Inter", sans-serif';
+    ctx.font = '600 16px "Inter", sans-serif';
     ctx.fillText('PLACEMENTS', col1X, panelTop + 50);
 
     const sortedPos = [...positions].sort(
       (a, b) => zodiacDegrees(a?.sign, a?.degree) - zodiacDegrees(b?.sign, b?.degree),
     );
-    let py = panelTop + 84;
-    const pRowH = 48;
+    let py = panelTop + 86;
+    const pRowH = 54;
     for (const pos of sortedPos) {
       if (py + pRowH > panelTop + panelHeight - 20) break;
       const body = String(pos?.body || '');
@@ -1023,26 +1000,26 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       const color = SIGN_COLORS[sign] || '#d6af72';
 
       ctx.fillStyle = '#e8e0d0';
-      ctx.font = '400 20px "EB Garamond", Georgia, serif';
+      ctx.font = '400 24px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
       ctx.fillText(glyph, col1X, py);
       ctx.fillStyle = color;
-      ctx.font = '600 15px "Inter", sans-serif';
-      ctx.fillText(body, col1X + 26, py);
+      ctx.font = '600 18px "Inter", sans-serif';
+      ctx.fillText(body, col1X + 30, py);
       if (retro) {
         ctx.fillStyle = '#e06050';
-        ctx.font = '500 12px "Inter", sans-serif';
-        ctx.fillText('\u211E', col1X + 26 + ctx.measureText(body).width + 5, py);
+        ctx.font = '600 13px "Inter", sans-serif';
+        ctx.fillText('R', col1X + 30 + ctx.measureText(body).width + 6, py);
       }
 
       ctx.fillStyle = '#8898b8';
-      ctx.font = '400 13px "Inter", sans-serif';
-      ctx.fillText(`${deg}\u00B0 ${signGlyph} ${sign}${house ? ' \u00B7 ' + house : ''}`, col1X + 26, py + 20);
+      ctx.font = '400 15px "Segoe UI Symbol", "Inter", sans-serif';
+      ctx.fillText(`${deg}\u00B0 ${signGlyph} ${sign}${house ? ' \u00B7 ' + house : ''}`, col1X + 30, py + 22);
       py += pRowH;
     }
 
     // Col 2: ASPECTS
     ctx.fillStyle = BRASS;
-    ctx.font = '600 14px "Inter", sans-serif';
+    ctx.font = '600 16px "Inter", sans-serif';
     ctx.fillText('ASPECTS', col2X, panelTop + 50);
 
     const sortedAspects = [...aspects]
@@ -1055,8 +1032,8 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         return Number(a?.orb_degrees || 0) - Number(b?.orb_degrees || 0);
       });
 
-    let ay = panelTop + 84;
-    const aRowH = 38;
+    let ay = panelTop + 86;
+    const aRowH = 42;
     for (const asp of sortedAspects) {
       if (ay + aRowH > panelTop + panelHeight - 20) break;
       const type = String(asp?.type || '').toLowerCase();
@@ -1069,44 +1046,45 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       const g2 = PLANET_GLYPHS[b2] || b2.slice(0, 2);
 
       ctx.fillStyle = color;
-      ctx.font = '400 18px "EB Garamond", Georgia, serif';
+      ctx.font = '400 22px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
       ctx.fillText(`${g1} ${aspectGlyph} ${g2}`, col2X, ay);
 
       ctx.fillStyle = '#8898b8';
-      ctx.font = '400 12px "Inter", sans-serif';
-      ctx.fillText(`${type} ${orb}\u00B0 ${applying ? 'app' : 'sep'}`, col2X, ay + 18);
+      ctx.font = '400 14px "Inter", sans-serif';
+      ctx.fillText(`${type} ${orb}\u00B0 ${applying ? 'app' : 'sep'}`, col2X, ay + 20);
       ay += aRowH;
     }
 
     // Col 3: CHART DETAILS
     ctx.fillStyle = BRASS;
-    ctx.font = '600 14px "Inter", sans-serif';
+    ctx.font = '600 16px "Inter", sans-serif';
     ctx.fillText('CHART DETAILS', col3X, panelTop + 50);
 
-    let dy = panelTop + 84;
+    let dy = panelTop + 86;
     for (const angle of angles) {
       const name = String(angle?.name || '');
       const sign = normalizeSign(angle?.sign);
       const deg = Number(angle?.degree || 0).toFixed(1);
       ctx.fillStyle = '#d0c8b8';
-      ctx.font = '600 14px "Inter", sans-serif';
+      ctx.font = '600 16px "Inter", sans-serif';
+      const nameW = ctx.measureText(name).width;
       ctx.fillText(name, col3X, dy);
       ctx.fillStyle = '#8898b8';
-      ctx.font = '400 13px "Inter", sans-serif';
-      ctx.fillText(`${deg}\u00B0 ${sign}`, col3X + ctx.measureText(name).width + 10, dy);
-      dy += 28;
+      ctx.font = '400 15px "Inter", sans-serif';
+      ctx.fillText(`${deg}\u00B0 ${sign}`, col3X + nameW + 12, dy);
+      dy += 30;
     }
 
-    dy += 10;
+    dy += 8;
     ctx.fillStyle = '#6f7a8e';
-    ctx.font = '400 12px "Inter", sans-serif';
+    ctx.font = '400 14px "Inter", sans-serif';
     ctx.fillText(`House System: ${houseSystem}`, col3X, dy);
-    dy += 32;
+    dy += 36;
 
     ctx.fillStyle = BRASS;
-    ctx.font = '600 13px "Inter", sans-serif';
+    ctx.font = '600 15px "Inter", sans-serif';
     ctx.fillText('ELEMENTS', col3X, dy);
-    dy += 22;
+    dy += 26;
 
     const elCounts: Record<string, number> = { Fire: 0, Earth: 0, Air: 0, Water: 0 };
     for (const pos of positions) { const el = ELEMENT_MAP[normalizeSign(pos?.sign)]; if (el) elCounts[el]++; }
@@ -1114,24 +1092,24 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const maxEl = Math.max(...Object.values(elCounts), 1);
     for (const [el, count] of Object.entries(elCounts)) {
       ctx.fillStyle = '#8898b8';
-      ctx.font = '400 12px "Inter", sans-serif';
+      ctx.font = '400 14px "Inter", sans-serif';
       ctx.fillText(el, col3X, dy);
-      const barX = col3X + 60;
+      const barX = col3X + 65;
       ctx.fillStyle = 'rgba(40, 48, 70, 0.6)';
-      ctx.fillRect(barX, dy - 10, colW - 80, 12);
+      ctx.fillRect(barX, dy - 11, colW - 85, 14);
       ctx.fillStyle = elColors[el] || '#888';
-      ctx.fillRect(barX, dy - 10, (count / maxEl) * (colW - 80), 12);
+      ctx.fillRect(barX, dy - 11, (count / maxEl) * (colW - 85), 14);
       ctx.fillStyle = '#d0d0d0';
-      ctx.font = '600 11px "Inter", sans-serif';
-      ctx.fillText(String(count), barX + colW - 78, dy);
-      dy += 24;
+      ctx.font = '600 13px "Inter", sans-serif';
+      ctx.fillText(String(count), barX + colW - 82, dy);
+      dy += 28;
     }
 
-    dy += 10;
+    dy += 12;
     ctx.fillStyle = BRASS;
-    ctx.font = '600 13px "Inter", sans-serif';
+    ctx.font = '600 15px "Inter", sans-serif';
     ctx.fillText('MODALITIES', col3X, dy);
-    dy += 22;
+    dy += 26;
 
     const modCounts: Record<string, number> = { Cardinal: 0, Fixed: 0, Mutable: 0 };
     for (const pos of positions) { const m = MODALITY_MAP[normalizeSign(pos?.sign)]; if (m) modCounts[m]++; }
@@ -1139,42 +1117,42 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const maxMod = Math.max(...Object.values(modCounts), 1);
     for (const [mod, count] of Object.entries(modCounts)) {
       ctx.fillStyle = '#8898b8';
-      ctx.font = '400 12px "Inter", sans-serif';
+      ctx.font = '400 14px "Inter", sans-serif';
       ctx.fillText(mod, col3X, dy);
-      const barX = col3X + 80;
+      const barX = col3X + 85;
       ctx.fillStyle = 'rgba(40, 48, 70, 0.6)';
-      ctx.fillRect(barX, dy - 10, colW - 100, 12);
+      ctx.fillRect(barX, dy - 11, colW - 105, 14);
       ctx.fillStyle = modColors[mod] || '#888';
-      ctx.fillRect(barX, dy - 10, (count / maxMod) * (colW - 100), 12);
+      ctx.fillRect(barX, dy - 11, (count / maxMod) * (colW - 105), 14);
       ctx.fillStyle = '#d0d0d0';
-      ctx.font = '600 11px "Inter", sans-serif';
-      ctx.fillText(String(count), barX + colW - 98, dy);
-      dy += 24;
+      ctx.font = '600 13px "Inter", sans-serif';
+      ctx.fillText(String(count), barX + colW - 102, dy);
+      dy += 28;
     }
 
-    dy += 16;
+    dy += 18;
     ctx.fillStyle = BRASS;
-    ctx.font = '600 13px "Inter", sans-serif';
+    ctx.font = '600 15px "Inter", sans-serif';
     ctx.fillText('CORE SIGNATURE', col3X, dy);
-    dy += 22;
+    dy += 26;
 
     const sun = positions.find((p: any) => String(p?.body || '').toLowerCase() === 'sun');
     const moon = positions.find((p: any) => String(p?.body || '').toLowerCase() === 'moon');
     const coreItems = [
-      sun ? { label: '\u2609 Sun', value: `${normalizeSign(sun.sign)} ${Number(sun.degree || 0).toFixed(1)}\u00B0` } : null,
-      moon ? { label: '\u263D Moon', value: `${normalizeSign(moon.sign)} ${Number(moon.degree || 0).toFixed(1)}\u00B0` } : null,
+      sun ? { label: `${PLANET_GLYPHS['Sun'] || ''} Sun`, value: `${normalizeSign(sun.sign)} ${Number(sun.degree || 0).toFixed(1)}\u00B0` } : null,
+      moon ? { label: `${PLANET_GLYPHS['Moon'] || ''} Moon`, value: `${normalizeSign(moon.sign)} ${Number(moon.degree || 0).toFixed(1)}\u00B0` } : null,
       ascAngle ? { label: 'ASC', value: `${normalizeSign(ascAngle.sign)} ${Number(ascAngle.degree || 0).toFixed(1)}\u00B0` } : null,
     ].filter(Boolean);
 
     for (const item of coreItems) {
       if (!item) continue;
       ctx.fillStyle = '#d0c8b8';
-      ctx.font = '600 13px "Inter", sans-serif';
+      ctx.font = '600 15px "Segoe UI Symbol", "Inter", sans-serif';
       ctx.fillText(item.label, col3X, dy);
       ctx.fillStyle = '#8898b8';
-      ctx.font = '400 13px "Inter", sans-serif';
-      ctx.fillText(item.value, col3X + 70, dy);
-      dy += 22;
+      ctx.font = '400 15px "Inter", sans-serif';
+      ctx.fillText(item.value, col3X + 80, dy);
+      dy += 26;
     }
 
     // --- Layer 12: Vignette + grain ---
@@ -1213,7 +1191,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     ctx.beginPath(); ctx.moveTo(W * 0.2, 2290); ctx.lineTo(W * 0.8, 2290); ctx.stroke();
 
     ctx.fillStyle = `${BRASS}90`;
-    ctx.font = '400 16px "JetBrains Mono", monospace';
+    ctx.font = '400 20px "JetBrains Mono", monospace';
     ctx.fillText(chartBrandDomain, CX, 2330);
 
     for (let i = -1; i <= 1; i++) {
@@ -1555,7 +1533,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     margin-top: 1rem;
   }
 
-  .action-button,
+  :global(.action-button),
   :global(.edit-button) {
     background: transparent;
     border: 1px solid var(--text-ghost);
@@ -1569,7 +1547,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     transition: all 0.3s ease;
   }
 
-  .action-button:hover,
+  :global(.action-button:hover),
   :global(.edit-button:hover) {
     border-color: var(--accent);
     color: var(--accent);

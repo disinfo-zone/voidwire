@@ -15,7 +15,6 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.config import Settings, get_settings
 from voidwire.models import (
-    AdminUser,
     AnalyticsEvent,
     EmailVerificationToken,
     PasswordResetToken,
@@ -714,14 +713,7 @@ async def me(
     from api.services.subscription_service import get_user_tier
 
     tier = await get_user_tier(user, db)
-    is_admin_flagged = bool(getattr(user, "is_admin_user", False))
-    admin_result = await db.execute(
-        select(AdminUser.id).where(
-            AdminUser.email == user.email,
-            AdminUser.is_active.is_(True),
-        )
-    )
-    is_admin_user = bool(is_admin_flagged or admin_result.scalars().first() is not None)
+    is_admin_user = bool(getattr(user, "is_admin_user", False))
     is_test_user = _is_test_user_account(user)
     return {
         "id": str(user.id),

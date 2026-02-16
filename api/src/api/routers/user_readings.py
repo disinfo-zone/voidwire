@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from voidwire.models import AdminUser, AsyncJob, PersonalReading, User
+from voidwire.models import AsyncJob, PersonalReading, User
 
 from api.dependencies import get_current_public_user, get_db
 from api.services.async_job_service import (
@@ -29,17 +29,9 @@ class PersonalReadingJobRequest(BaseModel):
 
 
 async def _can_force_refresh_reading(user: User, db: AsyncSession) -> bool:
-    if bool(getattr(user, "is_test_user", False)) or bool(getattr(user, "is_admin_user", False)):
-        return True
-    if not str(getattr(user, "email", "")).strip():
-        return False
-    admin_result = await db.execute(
-        select(AdminUser.id).where(
-            AdminUser.email == user.email,
-            AdminUser.is_active.is_(True),
-        )
+    return bool(getattr(user, "is_test_user", False)) or bool(
+        getattr(user, "is_admin_user", False)
     )
-    return admin_result.scalars().first() is not None
 
 
 def _coverage_window(reading: PersonalReading) -> tuple[date, date]:
