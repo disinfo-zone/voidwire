@@ -590,15 +590,13 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     await ensureFontsLoaded();
 
     // Pre-compute canvas height from data
-    const _filteredAspectCount = aspects.filter((a: any) =>
-      ['conjunction', 'opposition', 'trine', 'square', 'sextile'].includes(String(a?.type || '').toLowerCase()),
-    ).length;
     const _placementRows = Math.ceil(positions.length / 2);
-    const _aspectRows = Math.ceil(_filteredAspectCount / 2);
-    const _panelEst = 60 + (50 + _placementRows * 48 + 20) + 30
-      + (50 + _aspectRows * 56 + 20) + 30 + 50
-      + (angles.length * 40 + 12 + 44) + (38 + 4 * 42 + 24)
-      + (38 + 3 * 40 + 50);
+    const _panelEst = 60
+      + (50 + _placementRows * 62 + 24)   // placements
+      + 30                                  // divider
+      + (50 + 3 * 48 + 24)                // core signature
+      + 30                                  // divider
+      + 50;                                 // footer line
     const H = 1380 + _panelEst + 160;
 
     const canvas = document.createElement('canvas');
@@ -981,33 +979,19 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const sortedPos = [...positions].sort(
       (a, b) => zodiacDegrees(a?.sign, a?.degree) - zodiacDegrees(b?.sign, b?.degree),
     );
-    const sortedAspects = [...aspects]
-      .filter((a: any) => CHART_ASPECT_COLORS[String(a?.type || '').toLowerCase()] != null)
-      .sort((a: any, b: any) => {
-        const sigOrd: Record<string, number> = { major: 0, moderate: 1, minor: 2 };
-        const sa = sigOrd[String(a?.significance || 'moderate').toLowerCase()] ?? 1;
-        const sb = sigOrd[String(b?.significance || 'moderate').toLowerCase()] ?? 1;
-        if (sa !== sb) return sa - sb;
-        return Number(a?.orb_degrees || 0) - Number(b?.orb_degrees || 0);
-      });
 
-    // Layout constants — compact single-line rows
-    const placeRowH = 48;
-    const aspRowH = 56;
-    const barRowH = 42;
+    // Layout constants — generous sizing for phone readability
+    const placeRowH = 62;
+    const coreRowH = 48;
     const placementRows = Math.ceil(sortedPos.length / 2);
-    const aspectRows = Math.ceil(sortedAspects.length / 2);
 
     // Pre-compute panel height from data
     const panelHeight = 60
-      + 50 + placementRows * placeRowH + 20
-      + 30
-      + 50 + aspectRows * aspRowH + 20
-      + 30
-      + 50
-      + angles.length * 40 + 12 + 44
-      + 38 + 4 * barRowH + 24
-      + 38 + 3 * 40 + 50;
+      + 50 + placementRows * placeRowH + 24   // placements
+      + 30                                      // divider
+      + 50 + 3 * coreRowH + 24                // core signature
+      + 30                                      // divider
+      + 50;                                     // footer line
 
     // Draw panel background
     ctx.fillStyle = 'rgba(8, 12, 24, 0.8)';
@@ -1052,7 +1036,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     ctx.textBaseline = 'alphabetic';
     let panelY = panelTop + 60;
 
-    // ── PLACEMENTS (2 columns, single-line per planet) ──
+    // ── PLACEMENTS (2 columns, single-line per planet — large for phone) ──
     panelY = drawPanelHeader('PLACEMENTS', panelY);
     const placeColW = contentW / 2;
 
@@ -1074,158 +1058,33 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
       // Planet glyph
       ctx.fillStyle = color;
-      ctx.font = '400 30px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
+      ctx.font = '400 36px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
       ctx.fillText(glyph, colX, y);
 
-      // Planet name + degree/sign/house on single line
+      // Planet name
       ctx.fillStyle = '#e0d8c8';
-      ctx.font = '600 26px "EB Garamond", Georgia, serif';
+      ctx.font = '600 30px "EB Garamond", Georgia, serif';
       const bodyW = ctx.measureText(body).width;
-      ctx.fillText(body, colX + 38, y);
+      ctx.fillText(body, colX + 44, y);
 
       // Retrograde indicator — muted glyph, blended with palette
       if (retro) {
         ctx.fillStyle = '#8898b8';
-        ctx.font = '400 18px "EB Garamond", Georgia, serif';
-        ctx.fillText('\u211E', colX + 38 + bodyW + 4, y - 8);
+        ctx.font = '400 20px "EB Garamond", Georgia, serif';
+        ctx.fillText('\u211E', colX + 44 + bodyW + 5, y - 8);
       }
 
       // Degree · sign · house (inline after name)
       ctx.fillStyle = '#6f7a8e';
-      ctx.font = '400 24px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
-      const detailX = colX + 38 + bodyW + (retro ? 22 : 10);
+      ctx.font = '400 28px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
+      const detailX = colX + 44 + bodyW + (retro ? 24 : 12);
       ctx.fillText(`${deg}\u00B0 ${signGlyph} ${sign}${house ? ' \u00B7 ' + house : ''}`, detailX, y);
     }
-    panelY += placementRows * placeRowH + 20;
+    panelY += placementRows * placeRowH + 24;
 
-    // ── ASPECTS (2 columns — glyphs + detail on single line) ──
+    // ── CORE SIGNATURE ──
     panelY = drawPanelDivider(panelY);
-    panelY = drawPanelHeader('ASPECTS', panelY);
-    const aspColW = contentW / 2;
-
-    for (let i = 0; i < sortedAspects.length; i++) {
-      const asp = sortedAspects[i];
-      const colX = contentLeft + (i % 2) * aspColW;
-      const row = Math.floor(i / 2);
-      const y = panelY + row * aspRowH;
-
-      const type = String(asp?.type || '').toLowerCase();
-      const rawB1 = String(asp?.body1 || ''), rawB2 = String(asp?.body2 || '');
-      const b1 = displayBody(rawB1), b2 = displayBody(rawB2);
-      const orb = Number(asp?.orb_degrees || 0).toFixed(1);
-      const applying = Boolean(asp?.applying);
-      const color = CHART_ASPECT_COLORS[type] || '#888';
-      const aspectGlyph = ASPECT_GLYPHS[type] || '';
-      const g1 = PLANET_GLYPHS[b1] || PLANET_GLYPHS[rawB1] || b1.slice(0, 2);
-      const g2 = PLANET_GLYPHS[b2] || PLANET_GLYPHS[rawB2] || b2.slice(0, 2);
-
-      // Glyph line: ☉ ☌ ☽
-      ctx.fillStyle = color;
-      ctx.font = '400 30px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
-      ctx.fillText(`${g1} ${aspectGlyph} ${g2}`, colX, y);
-
-      // Detail line: conjunction 0.6° separating
-      const typeLabel = type.charAt(0).toUpperCase() + type.slice(1);
-      const appSep = applying ? 'applying' : 'separating';
-      ctx.fillStyle = '#6f7a8e';
-      ctx.font = '400 21px "EB Garamond", Georgia, serif';
-      ctx.fillText(`${typeLabel} ${orb}\u00B0 ${appSep}`, colX, y + 26);
-    }
-    panelY += aspectRows * aspRowH + 20;
-
-    // ── CHART DETAILS (full width) ──
-    panelY = drawPanelDivider(panelY);
-    panelY = drawPanelHeader('CHART DETAILS', panelY);
-
-    // Angles
-    for (const angle of angles) {
-      const rawName = String(angle?.name || '');
-      const name = displayBody(rawName);
-      const sign = normalizeSign(angle?.sign);
-      const deg = Number(angle?.degree || 0).toFixed(1);
-      ctx.fillStyle = '#d0c8b8';
-      ctx.font = '600 28px "EB Garamond", Georgia, serif';
-      const nameW = ctx.measureText(name).width;
-      ctx.fillText(name, contentLeft, panelY);
-      ctx.fillStyle = '#8898b8';
-      ctx.font = '400 26px "EB Garamond", Georgia, serif';
-      ctx.fillText(`${deg}\u00B0 ${sign}`, contentLeft + nameW + 16, panelY);
-      panelY += 40;
-    }
-
-    panelY += 12;
-    ctx.fillStyle = '#6f7a8e';
-    ctx.font = '400 24px "EB Garamond", Georgia, serif';
-    ctx.fillText(`House System: ${houseSystem}`, contentLeft, panelY);
-    panelY += 44;
-
-    // Elements + Modalities side by side
-    const halfW = contentW / 2;
-    const elLeft = contentLeft;
-    const modLeft = contentLeft + halfW + 20;
-
-    // ELEMENTS header
-    ctx.fillStyle = BRASS;
-    ctx.font = '600 28px "EB Garamond", Georgia, serif';
-    ctx.fillText('ELEMENTS', elLeft, panelY);
-    ctx.fillText('MODALITIES', modLeft, panelY);
-    panelY += 38;
-
-    const elCounts: Record<string, number> = { Fire: 0, Earth: 0, Air: 0, Water: 0 };
-    for (const pos of positions) { const el = ELEMENT_MAP[normalizeSign(pos?.sign)]; if (el) elCounts[el]++; }
-    const elColors: Record<string, string> = { Fire: '#e07050', Earth: '#8ec5b8', Air: '#90b8e8', Water: '#6888d0' };
-    const maxEl = Math.max(...Object.values(elCounts), 1);
-
-    const modCounts: Record<string, number> = { Cardinal: 0, Fixed: 0, Mutable: 0 };
-    for (const pos of positions) { const m = MODALITY_MAP[normalizeSign(pos?.sign)]; if (m) modCounts[m]++; }
-    const modColors: Record<string, string> = { Cardinal: '#d6af72', Fixed: '#b070c0', Mutable: '#60b080' };
-    const maxMod = Math.max(...Object.values(modCounts), 1);
-
-    const barLabelW = 100;
-    const barH = 24;
-
-    // Draw element bars
-    let elY = panelY;
-    for (const [el, count] of Object.entries(elCounts)) {
-      ctx.fillStyle = '#8898b8';
-      ctx.font = '400 24px "EB Garamond", Georgia, serif';
-      ctx.fillText(el, elLeft, elY);
-      const bx = elLeft + barLabelW;
-      const bw = halfW - barLabelW - 60;
-      ctx.fillStyle = 'rgba(40, 48, 70, 0.6)';
-      ctx.fillRect(bx, elY - 16, bw, barH);
-      ctx.fillStyle = elColors[el] || '#888';
-      ctx.fillRect(bx, elY - 16, (count / maxEl) * bw, barH);
-      ctx.fillStyle = '#d0d0d0';
-      ctx.font = '600 24px "Inter", sans-serif';
-      ctx.fillText(String(count), bx + bw + 12, elY);
-      elY += barRowH;
-    }
-
-    // Draw modality bars
-    let modY = panelY;
-    for (const [mod, count] of Object.entries(modCounts)) {
-      ctx.fillStyle = '#8898b8';
-      ctx.font = '400 24px "EB Garamond", Georgia, serif';
-      ctx.fillText(mod, modLeft, modY);
-      const bx = modLeft + 120;
-      const bw = halfW - 120 - 80;
-      ctx.fillStyle = 'rgba(40, 48, 70, 0.6)';
-      ctx.fillRect(bx, modY - 16, bw, barH);
-      ctx.fillStyle = modColors[mod] || '#888';
-      ctx.fillRect(bx, modY - 16, (count / maxMod) * bw, barH);
-      ctx.fillStyle = '#d0d0d0';
-      ctx.font = '600 24px "Inter", sans-serif';
-      ctx.fillText(String(count), bx + bw + 12, modY);
-      modY += barRowH;
-    }
-    panelY = Math.max(elY, modY) + 24;
-
-    // CORE SIGNATURE
-    ctx.fillStyle = BRASS;
-    ctx.font = '600 28px "EB Garamond", Georgia, serif';
-    ctx.fillText('CORE SIGNATURE', contentLeft, panelY);
-    panelY += 38;
+    panelY = drawPanelHeader('CORE SIGNATURE', panelY);
 
     const sun = positions.find((p: any) => String(p?.body || '').toLowerCase() === 'sun');
     const moon = positions.find((p: any) => String(p?.body || '').toLowerCase() === 'moon');
@@ -1238,13 +1097,27 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     for (const item of coreItems) {
       if (!item) continue;
       ctx.fillStyle = '#d0c8b8';
-      ctx.font = '600 28px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
+      ctx.font = '600 32px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
       ctx.fillText(item.label, contentLeft, panelY);
       ctx.fillStyle = '#8898b8';
-      ctx.font = '400 26px "EB Garamond", Georgia, serif';
-      ctx.fillText(item.value, contentLeft + 140, panelY);
-      panelY += 40;
+      ctx.font = '400 30px "EB Garamond", Georgia, serif';
+      ctx.fillText(item.value, contentLeft + 160, panelY);
+      panelY += coreRowH;
     }
+    panelY += 24;
+
+    // ── Footer: Ascendant · Midheaven · House System ──
+    panelY = drawPanelDivider(panelY);
+    const mcAngle = angles.find((a: any) => String(a?.name || '').toLowerCase() === 'midheaven' || String(a?.name || '').toLowerCase() === 'mc');
+    const footerParts: string[] = [];
+    if (ascAngle) footerParts.push(`Asc ${Number(ascAngle.degree || 0).toFixed(1)}\u00B0 ${normalizeSign(ascAngle.sign)}`);
+    if (mcAngle) footerParts.push(`MC ${Number(mcAngle.degree || 0).toFixed(1)}\u00B0 ${normalizeSign(mcAngle.sign)}`);
+    footerParts.push(houseSystem);
+    ctx.fillStyle = '#6f7a8e';
+    ctx.font = '400 26px "EB Garamond", Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(footerParts.join('  \u00B7  '), CX, panelY + 14);
+    ctx.textAlign = 'left';
 
     const panelBottom = panelTop + panelHeight;
 
