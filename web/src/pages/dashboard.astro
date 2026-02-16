@@ -587,10 +587,10 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     ).length;
     const _placementRows = Math.ceil(positions.length / 2);
     const _aspectRows = Math.ceil(_filteredAspectCount / 2);
-    const _panelEst = 70 + (50 + _placementRows * 76 + 30) + 40
-      + (50 + _aspectRows * 60 + 30) + 40 + 50
-      + (angles.length * 38 + 14 + 48) + (38 + 4 * 40 + 28)
-      + (40 + 3 * 38 + 70);
+    const _panelEst = 70 + (56 + _placementRows * 90 + 30) + 40
+      + (56 + _aspectRows * 74 + 30) + 40 + 56
+      + (angles.length * 46 + 18 + 52) + (44 + 4 * 48 + 32)
+      + (44 + 3 * 46 + 70);
     const H = 1380 + _panelEst + 160;
 
     const canvas = document.createElement('canvas');
@@ -984,22 +984,22 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       });
 
     // Layout constants
-    const placeRowH = 76;
-    const aspRowH = 60;
-    const barRowH = 40;
+    const placeRowH = 90;
+    const aspRowH = 74;
+    const barRowH = 48;
     const placementRows = Math.ceil(sortedPos.length / 2);
     const aspectRows = Math.ceil(sortedAspects.length / 2);
 
     // Pre-compute panel height from data
     const panelHeight = 70
-      + 50 + placementRows * placeRowH + 30
+      + 56 + placementRows * placeRowH + 30
       + 40
-      + 50 + aspectRows * aspRowH + 30
+      + 56 + aspectRows * aspRowH + 30
       + 40
-      + 50
-      + angles.length * 38 + 14 + 48
-      + 38 + 4 * barRowH + 28
-      + 40 + 3 * 38 + 70;
+      + 56
+      + angles.length * 46 + 18 + 52
+      + 44 + 4 * barRowH + 32
+      + 44 + 3 * 46 + 70;
 
     // Draw panel background
     ctx.fillStyle = 'rgba(8, 12, 24, 0.8)';
@@ -1013,17 +1013,22 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     // Drawing helpers
     function drawPanelHeader(label: string, y: number): number {
       ctx.fillStyle = BRASS;
-      ctx.font = '600 26px "Inter", sans-serif';
+      ctx.font = '600 38px "EB Garamond", Georgia, serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'alphabetic';
-      ctx.fillText(label, contentLeft, y);
+      // Draw with letter-spacing effect for section headers
+      let xPos = contentLeft;
+      for (const ch of label) {
+        ctx.fillText(ch, xPos, y);
+        xPos += ctx.measureText(ch).width + 3;
+      }
       ctx.strokeStyle = `${BRASS}20`;
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(contentLeft, y + 14);
-      ctx.lineTo(contentRight, y + 14);
+      ctx.moveTo(contentLeft, y + 16);
+      ctx.lineTo(contentRight, y + 16);
       ctx.stroke();
-      return y + 50;
+      return y + 56;
     }
 
     function drawPanelDivider(y: number): number {
@@ -1043,6 +1048,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     // ── PLACEMENTS (2 columns) ──
     panelY = drawPanelHeader('PLACEMENTS', panelY);
     const placeColW = contentW / 2;
+    const nameIndent = 52;
 
     for (let i = 0; i < sortedPos.length; i++) {
       const pos = sortedPos[i];
@@ -1061,23 +1067,26 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
       // Planet glyph
       ctx.fillStyle = '#e8e0d0';
-      ctx.font = '400 32px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
+      ctx.font = '400 40px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
       ctx.fillText(glyph, colX, y);
 
       // Planet name
       ctx.fillStyle = color;
-      ctx.font = '600 24px "Inter", sans-serif';
-      ctx.fillText(body, colX + 42, y);
+      ctx.font = '600 30px "EB Garamond", Georgia, serif';
+      const bodyW = ctx.measureText(body).width;
+      ctx.fillText(body, colX + nameIndent, y);
+
+      // Retrograde indicator — superscript badge
       if (retro) {
         ctx.fillStyle = '#e06050';
-        ctx.font = '600 18px "Inter", sans-serif';
-        ctx.fillText('R', colX + 42 + ctx.measureText(body).width + 8, y);
+        ctx.font = '600 17px "Inter", sans-serif';
+        ctx.fillText('R', colX + nameIndent + bodyW + 6, y - 12);
       }
 
       // Degree + sign + house
       ctx.fillStyle = '#8898b8';
-      ctx.font = '400 20px "Segoe UI Symbol", "Inter", sans-serif';
-      ctx.fillText(`${deg}\u00B0 ${signGlyph} ${sign}${house ? ' \u00B7 ' + house : ''}`, colX + 42, y + 28);
+      ctx.font = '400 26px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
+      ctx.fillText(`${deg}\u00B0 ${signGlyph} ${sign}${house ? ' \u00B7 ' + house : ''}`, colX + nameIndent, y + 32);
     }
     panelY += placementRows * placeRowH + 30;
 
@@ -1103,13 +1112,13 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
       // Glyph line
       ctx.fillStyle = color;
-      ctx.font = '400 28px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
+      ctx.font = '400 34px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
       ctx.fillText(`${g1} ${aspectGlyph} ${g2}`, colX, y);
 
       // Detail line
       ctx.fillStyle = '#8898b8';
-      ctx.font = '400 18px "Inter", sans-serif';
-      ctx.fillText(`${type} ${orb}\u00B0 ${applying ? 'app' : 'sep'}`, colX, y + 26);
+      ctx.font = '400 24px "EB Garamond", Georgia, serif';
+      ctx.fillText(`${type} ${orb}\u00B0 ${applying ? 'app' : 'sep'}`, colX, y + 30);
     }
     panelY += aspectRows * aspRowH + 30;
 
@@ -1123,20 +1132,20 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       const sign = normalizeSign(angle?.sign);
       const deg = Number(angle?.degree || 0).toFixed(1);
       ctx.fillStyle = '#d0c8b8';
-      ctx.font = '600 24px "Inter", sans-serif';
+      ctx.font = '600 30px "EB Garamond", Georgia, serif';
       const nameW = ctx.measureText(name).width;
       ctx.fillText(name, contentLeft, panelY);
       ctx.fillStyle = '#8898b8';
-      ctx.font = '400 22px "Inter", sans-serif';
-      ctx.fillText(`${deg}\u00B0 ${sign}`, contentLeft + nameW + 16, panelY);
-      panelY += 38;
+      ctx.font = '400 28px "EB Garamond", Georgia, serif';
+      ctx.fillText(`${deg}\u00B0 ${sign}`, contentLeft + nameW + 18, panelY);
+      panelY += 46;
     }
 
-    panelY += 14;
+    panelY += 18;
     ctx.fillStyle = '#6f7a8e';
-    ctx.font = '400 20px "Inter", sans-serif';
+    ctx.font = '400 26px "EB Garamond", Georgia, serif';
     ctx.fillText(`House System: ${houseSystem}`, contentLeft, panelY);
-    panelY += 48;
+    panelY += 52;
 
     // Elements + Modalities side by side
     const halfW = contentW / 2;
@@ -1145,11 +1154,11 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
     // ELEMENTS header
     ctx.fillStyle = BRASS;
-    ctx.font = '600 22px "Inter", sans-serif';
+    ctx.font = '600 32px "EB Garamond", Georgia, serif';
     ctx.fillText('ELEMENTS', elLeft, panelY);
     // MODALITIES header (same row)
     ctx.fillText('MODALITIES', modLeft, panelY);
-    panelY += 38;
+    panelY += 44;
 
     const elCounts: Record<string, number> = { Fire: 0, Earth: 0, Air: 0, Water: 0 };
     for (const pos of positions) { const el = ELEMENT_MAP[normalizeSign(pos?.sign)]; if (el) elCounts[el]++; }
@@ -1161,24 +1170,24 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const modColors: Record<string, string> = { Cardinal: '#d6af72', Fixed: '#b070c0', Mutable: '#60b080' };
     const maxMod = Math.max(...Object.values(modCounts), 1);
 
-    const barLabelW = 100;
-    const barH = 22;
+    const barLabelW = 110;
+    const barH = 28;
 
     // Draw element bars
     let elY = panelY;
     for (const [el, count] of Object.entries(elCounts)) {
       ctx.fillStyle = '#8898b8';
-      ctx.font = '400 20px "Inter", sans-serif';
+      ctx.font = '400 26px "EB Garamond", Georgia, serif';
       ctx.fillText(el, elLeft, elY);
       const bx = elLeft + barLabelW;
       const bw = halfW - barLabelW - 60;
       ctx.fillStyle = 'rgba(40, 48, 70, 0.6)';
-      ctx.fillRect(bx, elY - 16, bw, barH);
+      ctx.fillRect(bx, elY - 18, bw, barH);
       ctx.fillStyle = elColors[el] || '#888';
-      ctx.fillRect(bx, elY - 16, (count / maxEl) * bw, barH);
+      ctx.fillRect(bx, elY - 18, (count / maxEl) * bw, barH);
       ctx.fillStyle = '#d0d0d0';
-      ctx.font = '600 20px "Inter", sans-serif';
-      ctx.fillText(String(count), bx + bw + 12, elY);
+      ctx.font = '600 26px "Inter", sans-serif';
+      ctx.fillText(String(count), bx + bw + 14, elY);
       elY += barRowH;
     }
 
@@ -1186,26 +1195,26 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     let modY = panelY;
     for (const [mod, count] of Object.entries(modCounts)) {
       ctx.fillStyle = '#8898b8';
-      ctx.font = '400 20px "Inter", sans-serif';
+      ctx.font = '400 26px "EB Garamond", Georgia, serif';
       ctx.fillText(mod, modLeft, modY);
-      const bx = modLeft + 120;
-      const bw = halfW - 120 - 80;
+      const bx = modLeft + 130;
+      const bw = halfW - 130 - 80;
       ctx.fillStyle = 'rgba(40, 48, 70, 0.6)';
-      ctx.fillRect(bx, modY - 16, bw, barH);
+      ctx.fillRect(bx, modY - 18, bw, barH);
       ctx.fillStyle = modColors[mod] || '#888';
-      ctx.fillRect(bx, modY - 16, (count / maxMod) * bw, barH);
+      ctx.fillRect(bx, modY - 18, (count / maxMod) * bw, barH);
       ctx.fillStyle = '#d0d0d0';
-      ctx.font = '600 20px "Inter", sans-serif';
-      ctx.fillText(String(count), bx + bw + 12, modY);
+      ctx.font = '600 26px "Inter", sans-serif';
+      ctx.fillText(String(count), bx + bw + 14, modY);
       modY += barRowH;
     }
-    panelY = Math.max(elY, modY) + 28;
+    panelY = Math.max(elY, modY) + 32;
 
     // CORE SIGNATURE
     ctx.fillStyle = BRASS;
-    ctx.font = '600 22px "Inter", sans-serif';
+    ctx.font = '600 32px "EB Garamond", Georgia, serif';
     ctx.fillText('CORE SIGNATURE', contentLeft, panelY);
-    panelY += 40;
+    panelY += 44;
 
     const sun = positions.find((p: any) => String(p?.body || '').toLowerCase() === 'sun');
     const moon = positions.find((p: any) => String(p?.body || '').toLowerCase() === 'moon');
@@ -1218,12 +1227,12 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     for (const item of coreItems) {
       if (!item) continue;
       ctx.fillStyle = '#d0c8b8';
-      ctx.font = '600 24px "Segoe UI Symbol", "Inter", sans-serif';
+      ctx.font = '600 30px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
       ctx.fillText(item.label, contentLeft, panelY);
       ctx.fillStyle = '#8898b8';
-      ctx.font = '400 22px "Inter", sans-serif';
-      ctx.fillText(item.value, contentLeft + 120, panelY);
-      panelY += 38;
+      ctx.font = '400 28px "EB Garamond", Georgia, serif';
+      ctx.fillText(item.value, contentLeft + 160, panelY);
+      panelY += 46;
     }
 
     const panelBottom = panelTop + panelHeight;

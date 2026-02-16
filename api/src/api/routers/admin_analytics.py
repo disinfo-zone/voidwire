@@ -12,6 +12,7 @@ from voidwire.models import (
     AdminUser,
     AnalyticsEvent,
     AsyncJob,
+    BatchRun,
     EmailVerificationToken,
     PasswordResetToken,
     PersonalReading,
@@ -58,6 +59,43 @@ async def get_pipeline_health(
         .group_by(PipelineRun.status)
     )
     return [{"status": row[0], "count": row[1]} for row in result.all()]
+
+
+@router.get("/batch-runs")
+async def get_batch_runs(
+    batch_type: str | None = Query(default=None),
+    days: int = Query(default=30),
+    limit: int = Query(default=50),
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(require_admin),
+):
+    del user
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    query = select(BatchRun).where(BatchRun.started_at >= cutoff)
+    if batch_type:
+        query = query.where(BatchRun.batch_type == batch_type)
+    query = query.order_by(BatchRun.started_at.desc()).limit(limit)
+    result = await db.execute(query)
+    runs = result.scalars().all()
+    return [
+        {
+            "id": str(run.id),
+            "batch_type": run.batch_type,
+            "started_at": run.started_at.isoformat() if run.started_at else None,
+            "ended_at": run.ended_at.isoformat() if run.ended_at else None,
+            "status": run.status,
+            "target_date": run.target_date.isoformat() if run.target_date else None,
+            "week_key": run.week_key,
+            "eligible_count": run.eligible_count,
+            "skipped_count": run.skipped_count,
+            "generated_count": run.generated_count,
+            "error_count": run.error_count,
+            "non_latin_fix_count": run.non_latin_fix_count,
+            "summary_json": run.summary_json,
+            "error_detail": run.error_detail,
+        }
+        for run in runs
+    ]
 
 
 @router.get("/kpis")
@@ -225,6 +263,45 @@ async def get_kpis(
         or 0
     )
 
+    # -- Batch run KPIs --
+    last_free_result = await db.execute(
+        select(BatchRun)
+        .where(BatchRun.batch_type == "free_reading")
+        .order_by(BatchRun.started_at.desc())
+        .limit(1)
+    )
+    last_free = last_free_result.scalars().first()
+    last_pro_result = await db.execute(
+        select(BatchRun)
+        .where(BatchRun.batch_type == "pro_reading")
+        .order_by(BatchRun.started_at.desc())
+        .limit(1)
+    )
+    last_pro = last_pro_result.scalars().first()
+
+    batch_7d_cutoff = now - timedelta(days=7)
+    batch_7d_result = await db.execute(
+        select(BatchRun).where(BatchRun.started_at >= batch_7d_cutoff)
+    )
+    batch_7d_runs = batch_7d_result.scalars().all()
+    batches_7d = {
+        "completed": sum(1 for r in batch_7d_runs if r.status == "completed"),
+        "failed": sum(1 for r in batch_7d_runs if r.status == "failed"),
+        "total_generated": sum(r.generated_count for r in batch_7d_runs),
+        "total_errors": sum(r.error_count for r in batch_7d_runs),
+        "total_non_latin_fixes": sum(r.non_latin_fix_count for r in batch_7d_runs),
+    }
+
+    def _batch_summary(br: BatchRun | None) -> dict | None:
+        if not br:
+            return None
+        return {
+            "status": br.status,
+            "generated_count": br.generated_count,
+            "started_at": br.started_at.isoformat() if br.started_at else None,
+            "ended_at": br.ended_at.isoformat() if br.ended_at else None,
+        }
+
     return {
         "generated_at": now.isoformat(),
         "users": {
@@ -260,6 +337,11 @@ async def get_kpis(
             "failed": int(pipeline_counts.get("failed", 0)),
             "running": int(pipeline_counts.get("running", 0)),
             "published_readings_30d": published_30d,
+        },
+        "batches": {
+            "last_free_batch": _batch_summary(last_free),
+            "last_pro_batch": _batch_summary(last_pro),
+            "batches_7d": batches_7d,
         },
     }
 

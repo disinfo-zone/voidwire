@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import time
 from datetime import UTC, date, datetime, timedelta
 
@@ -13,7 +12,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.models import PersonalReading, PipelineRun, Reading, User
-from voidwire.services.llm_client import LLMClient, LLMSlotConfig, generate_with_validation
+from voidwire.services.llm_client import (
+    LLMClient,
+    LLMSlotConfig,
+    fix_non_latin_content,
+    generate_with_validation,
+)
 from voidwire.services.pipeline_settings import load_pipeline_settings
 from voidwire.services.prompt_template_runtime import (
     load_active_prompt_template,
@@ -112,140 +116,6 @@ def _validate_reading_json(data: dict) -> None:
         raise ValueError("Expected JSON object")
     if "title" not in data or "body" not in data:
         raise ValueError("Missing required fields: title, body")
-
-
-_NON_LATIN_RE = re.compile(
-    "[\u4e00-\u9fff"       # CJK Unified Ideographs
-    "\u3400-\u4dbf"        # CJK Extension A
-    "\u3000-\u303f"        # CJK Symbols and Punctuation
-    "\uff00-\uffef"        # Fullwidth Forms
-    "\u3040-\u309f"        # Hiragana
-    "\u30a0-\u30ff"        # Katakana
-    "\uac00-\ud7af]"       # Hangul
-)
-
-
-def _has_non_latin(text: str) -> bool:
-    return bool(_NON_LATIN_RE.search(text))
-
-
-def _collect_non_latin_lines(content: dict) -> dict[str, list[tuple[int, str]]]:
-    """Scan content fields for lines containing non-Latin characters.
-
-    Returns a mapping of field path → list of (line_index, line_text).
-    """
-    hits: dict[str, list[tuple[int, str]]] = {}
-
-    def _check_field(path: str, text: str) -> None:
-        for i, line in enumerate(text.split("\n")):
-            if line.strip() and _has_non_latin(line):
-                hits.setdefault(path, []).append((i, line))
-
-    _check_field("title", str(content.get("title", "")))
-    _check_field("body", str(content.get("body", "")))
-    for si, sec in enumerate(content.get("sections") or []):
-        _check_field(f"sections.{si}.heading", str(sec.get("heading", "")))
-        _check_field(f"sections.{si}.body", str(sec.get("body", "")))
-    for ti, th in enumerate(content.get("transit_highlights") or []):
-        _check_field(f"transit_highlights.{ti}", str(th))
-
-    return hits
-
-
-async def _fix_non_latin_content(
-    content: dict,
-    client: LLMClient,
-    slot: str,
-) -> dict:
-    """Detect non-Latin text in reading content and translate to English."""
-    hits = _collect_non_latin_lines(content)
-    if not hits:
-        return content
-
-    # Gather all affected lines into a single translation request
-    lines_to_fix: list[str] = []
-    for field_lines in hits.values():
-        for _, line in field_lines:
-            lines_to_fix.append(line)
-
-    numbered = "\n".join(f"{i + 1}. {l}" for i, l in enumerate(lines_to_fix))
-    logger.warning(
-        "Non-Latin characters detected in %d line(s), requesting translation",
-        len(lines_to_fix),
-    )
-
-    try:
-        raw = await client.generate(
-            slot,
-            [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a translator. The user will give you numbered lines "
-                        "that contain non-English text (likely Chinese or other CJK). "
-                        "Translate each line to natural, fluent English. "
-                        "Return ONLY a JSON array of strings in the same order, "
-                        "one translated string per input line. No extra commentary."
-                    ),
-                },
-                {"role": "user", "content": numbered},
-            ],
-            max_tokens=1024,
-        )
-        # Strip markdown fences if present
-        cleaned = raw.strip()
-        if cleaned.startswith("```"):
-            cleaned = re.sub(r"^```\w*\n?", "", cleaned)
-            cleaned = re.sub(r"\n?```$", "", cleaned)
-        translations: list[str] = json.loads(cleaned)
-        if not isinstance(translations, list) or len(translations) != len(lines_to_fix):
-            logger.warning("Translation response length mismatch, skipping fix")
-            return content
-    except Exception:
-        logger.warning("Non-Latin translation call failed, leaving content as-is", exc_info=True)
-        return content
-
-    # Build a mapping from original line → translated line
-    fix_map: dict[str, str] = {}
-    for orig, translated in zip(lines_to_fix, translations):
-        fix_map[orig] = str(translated)
-
-    # Apply replacements to each affected field
-    content = dict(content)  # shallow copy
-
-    def _replace_in_text(text: str) -> str:
-        lines = text.split("\n")
-        for i, line in enumerate(lines):
-            if line in fix_map:
-                lines[i] = fix_map[line]
-        return "\n".join(lines)
-
-    if "title" in hits:
-        content["title"] = _replace_in_text(str(content.get("title", "")))
-    if "body" in hits:
-        content["body"] = _replace_in_text(str(content.get("body", "")))
-
-    sections = content.get("sections")
-    if sections:
-        sections = [dict(s) for s in sections]
-        for si, sec in enumerate(sections):
-            if f"sections.{si}.heading" in hits:
-                sec["heading"] = _replace_in_text(str(sec.get("heading", "")))
-            if f"sections.{si}.body" in hits:
-                sec["body"] = _replace_in_text(str(sec.get("body", "")))
-        content["sections"] = sections
-
-    highlights = content.get("transit_highlights")
-    if highlights:
-        highlights = list(highlights)
-        for ti in range(len(highlights)):
-            if f"transit_highlights.{ti}" in hits:
-                full = str(highlights[ti])
-                if full in fix_map:
-                    highlights[ti] = fix_map[full]
-        content["transit_highlights"] = highlights
-
-    return content
 
 
 async def _get_today_ephemeris(db: AsyncSession, target: date) -> dict | None:
@@ -582,7 +452,7 @@ class PersonalReadingService:
             content = await generate_with_validation(
                 client, slot_name, messages, _validate_reading_json
             )
-            content = await _fix_non_latin_content(content, client, slot_name)
+            content, fix_meta = await fix_non_latin_content(content, client, slot_name)
             elapsed = time.monotonic() - start
             metadata = {
                 "elapsed_seconds": round(elapsed, 2),
@@ -593,6 +463,7 @@ class PersonalReadingService:
                     "start": week_start.isoformat() if tier == "free" else target_date.isoformat(),
                     "end": week_end.isoformat() if tier == "free" else target_date.isoformat(),
                 },
+                "non_latin_fix": fix_meta,
             }
 
             if force_refresh:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -234,3 +235,158 @@ async def generate_with_validation(
         data_2 = json.loads(text_2)
         validate_fn(data_2)
         return data_2
+
+
+# --- Non-Latin text detection and translation ---
+
+_NON_LATIN_RE = re.compile(
+    "[\u4e00-\u9fff"       # CJK Unified Ideographs
+    "\u3400-\u4dbf"        # CJK Extension A
+    "\u3000-\u303f"        # CJK Symbols and Punctuation
+    "\uff00-\uffef"        # Fullwidth Forms
+    "\u3040-\u309f"        # Hiragana
+    "\u30a0-\u30ff"        # Katakana
+    "\uac00-\ud7af]"       # Hangul
+)
+
+
+def has_non_latin(text: str) -> bool:
+    """Check if text contains CJK or other non-Latin characters."""
+    return bool(_NON_LATIN_RE.search(text))
+
+
+def _collect_non_latin_lines(content: dict) -> dict[str, list[tuple[int, str]]]:
+    """Scan content fields for lines containing non-Latin characters."""
+    hits: dict[str, list[tuple[int, str]]] = {}
+
+    def _check(path: str, text: str) -> None:
+        for i, line in enumerate(text.split("\n")):
+            if line.strip() and has_non_latin(line):
+                hits.setdefault(path, []).append((i, line))
+
+    _check("title", str(content.get("title", "")))
+    _check("body", str(content.get("body", "")))
+    for si, sec in enumerate(content.get("sections") or []):
+        _check(f"sections.{si}.heading", str(sec.get("heading", "")))
+        _check(f"sections.{si}.body", str(sec.get("body", "")))
+    for ti, th in enumerate(content.get("transit_highlights") or []):
+        _check(f"transit_highlights.{ti}", str(th))
+
+    return hits
+
+
+async def fix_non_latin_content(
+    content: dict,
+    client: LLMClient,
+    slot: str,
+) -> tuple[dict, dict]:
+    """Detect non-Latin text in reading content and translate to English.
+
+    Returns ``(content, fix_meta)`` where *fix_meta* describes what happened:
+    ``{"applied": False}`` when no non-Latin text was detected, or a dict with
+    ``applied``, ``lines_detected``, ``lines_fixed``, and optionally
+    ``fields_touched`` / ``error`` keys.
+    """
+    hits = _collect_non_latin_lines(content)
+    if not hits:
+        return content, {"applied": False}
+
+    lines_to_fix: list[str] = []
+    for field_lines in hits.values():
+        for _, line in field_lines:
+            lines_to_fix.append(line)
+
+    numbered = "\n".join(f"{i + 1}. {l}" for i, l in enumerate(lines_to_fix))
+    logger.warning(
+        "Non-Latin characters detected in %d line(s), requesting translation",
+        len(lines_to_fix),
+    )
+
+    try:
+        raw = await client.generate(
+            slot,
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a translator. The user will give you numbered lines "
+                        "that contain non-English text (likely Chinese or other CJK). "
+                        "Translate each line to natural, fluent English. "
+                        "Return ONLY a JSON array of strings in the same order, "
+                        "one translated string per input line. No extra commentary."
+                    ),
+                },
+                {"role": "user", "content": numbered},
+            ],
+            max_tokens=1024,
+        )
+        cleaned = strip_json_fencing(raw)
+        translations: list[str] = json.loads(cleaned)
+        if not isinstance(translations, list) or len(translations) != len(lines_to_fix):
+            logger.warning("Translation response length mismatch, skipping fix")
+            return content, {
+                "applied": True,
+                "lines_detected": len(lines_to_fix),
+                "lines_fixed": 0,
+                "error": "response length mismatch",
+            }
+    except Exception as exc:
+        logger.warning("Non-Latin translation call failed, leaving content as-is", exc_info=True)
+        return content, {
+            "applied": True,
+            "lines_detected": len(lines_to_fix),
+            "lines_fixed": 0,
+            "error": str(exc),
+        }
+
+    fix_map: dict[str, str] = {}
+    for orig, translated in zip(lines_to_fix, translations):
+        fix_map[orig] = str(translated)
+
+    content = dict(content)
+
+    def _replace(text: str) -> str:
+        lines = text.split("\n")
+        for i, line in enumerate(lines):
+            if line in fix_map:
+                lines[i] = fix_map[line]
+        return "\n".join(lines)
+
+    fields_touched: list[str] = []
+
+    if "title" in hits:
+        content["title"] = _replace(str(content.get("title", "")))
+        fields_touched.append("title")
+    if "body" in hits:
+        content["body"] = _replace(str(content.get("body", "")))
+        fields_touched.append("body")
+
+    sections = content.get("sections")
+    if sections:
+        sections = [dict(s) for s in sections]
+        for si, sec in enumerate(sections):
+            if f"sections.{si}.heading" in hits:
+                sec["heading"] = _replace(str(sec.get("heading", "")))
+                fields_touched.append(f"sections.{si}.heading")
+            if f"sections.{si}.body" in hits:
+                sec["body"] = _replace(str(sec.get("body", "")))
+                fields_touched.append(f"sections.{si}.body")
+        content["sections"] = sections
+
+    highlights = content.get("transit_highlights")
+    if highlights:
+        highlights = list(highlights)
+        for ti in range(len(highlights)):
+            if f"transit_highlights.{ti}" in hits:
+                full = str(highlights[ti])
+                if full in fix_map:
+                    highlights[ti] = fix_map[full]
+                    fields_touched.append(f"transit_highlights.{ti}")
+        content["transit_highlights"] = highlights
+
+    return content, {
+        "applied": True,
+        "lines_detected": len(lines_to_fix),
+        "lines_fixed": len(lines_to_fix),
+        "fields_touched": fields_touched,
+    }

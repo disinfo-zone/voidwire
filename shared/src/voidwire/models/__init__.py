@@ -5,6 +5,7 @@ from voidwire.models.analytics_event import AnalyticsEvent
 from voidwire.models.archetypal_meaning import ArchetypalMeaning, AspectKeyword, PlanetaryKeyword
 from voidwire.models.astronomical_event import AstronomicalEvent
 from voidwire.models.async_job import AsyncJob
+from voidwire.models.batch_run import BatchRun
 from voidwire.models.audit_log import AuditLog
 from voidwire.models.base import Base
 from voidwire.models.cultural_signal import CulturalSignal
@@ -53,4 +54,5 @@ __all__ = [
     "StripeWebhookEvent",
     "DiscountCode",
     "AsyncJob",
+    "BatchRun",
 ]
