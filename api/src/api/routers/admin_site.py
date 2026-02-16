@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+import base64
+import binascii
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -15,7 +17,8 @@ from api.services.email_service import (
     save_smtp_config,
     send_transactional_email,
 )
-from api.services.site_config import load_site_config, save_site_config
+from api.services.oauth_config import load_oauth_config, save_oauth_config
+from api.services.site_config import load_site_config, save_site_asset, save_site_config
 
 router = APIRouter()
 
@@ -34,6 +37,13 @@ class SiteConfigUpdateRequest(BaseModel):
     tracking_body: str | None = None
 
 
+class SiteAssetUploadRequest(BaseModel):
+    kind: Literal["favicon", "twittercard"]
+    filename: str = Field(min_length=1, max_length=255)
+    content_type: str = Field(min_length=3, max_length=120)
+    data_base64: str = Field(min_length=8, max_length=8_000_000)
+
+
 class SMTPConfigUpdateRequest(BaseModel):
     enabled: bool | None = None
     host: str | None = Field(default=None, max_length=255)
@@ -49,6 +59,37 @@ class SMTPConfigUpdateRequest(BaseModel):
 
 class SMTPTestRequest(BaseModel):
     to_email: str = Field(min_length=3, max_length=320)
+
+
+class OAuthGoogleConfigUpdateRequest(BaseModel):
+    enabled: bool | None = None
+    client_id: str | None = Field(default=None, max_length=320)
+    client_secret: str | None = Field(default=None, max_length=4096)
+
+
+class OAuthAppleConfigUpdateRequest(BaseModel):
+    enabled: bool | None = None
+    client_id: str | None = Field(default=None, max_length=320)
+    team_id: str | None = Field(default=None, max_length=120)
+    key_id: str | None = Field(default=None, max_length=120)
+    private_key: str | None = Field(default=None, max_length=8192)
+
+
+class OAuthConfigUpdateRequest(BaseModel):
+    google: OAuthGoogleConfigUpdateRequest | None = None
+    apple: OAuthAppleConfigUpdateRequest | None = None
+
+
+def _decode_base64_payload(raw: str) -> bytes:
+    payload = str(raw or "").strip()
+    if payload.startswith("data:"):
+        _, _, payload = payload.partition(",")
+    if not payload:
+        raise ValueError("Image payload is empty")
+    try:
+        return base64.b64decode(payload, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError("Image payload is not valid base64") from exc
 
 
 @router.get("/config")
@@ -141,3 +182,87 @@ async def send_test_email(
         )
     )
     return {"status": "sent"}
+
+
+@router.get("/auth/oauth")
+async def get_oauth_config(
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(require_admin),
+):
+    _ = user
+    return await load_oauth_config(db)
+
+
+@router.put("/auth/oauth")
+async def update_oauth_config(
+    req: OAuthConfigUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(require_admin),
+):
+    payload = req.model_dump(exclude_none=True)
+    updated = await save_oauth_config(db, payload)
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            action="auth.oauth.update",
+            target_type="site",
+            target_id="auth.oauth",
+            detail={
+                "updated_fields": list(payload.keys()),
+                "google_enabled": bool(updated.get("google", {}).get("enabled")),
+                "apple_enabled": bool(updated.get("apple", {}).get("enabled")),
+            },
+        )
+    )
+    return updated
+
+
+@router.post("/assets")
+async def upload_site_asset_endpoint(
+    req: SiteAssetUploadRequest,
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(require_admin),
+):
+    try:
+        raw_bytes = _decode_base64_payload(req.data_base64)
+        asset = await save_site_asset(
+            db,
+            kind=req.kind,
+            filename=req.filename,
+            content_type=req.content_type,
+            content_bytes=raw_bytes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    current_config = await load_site_config(db)
+    merged: dict[str, Any] = dict(current_config)
+    if req.kind == "favicon":
+        merged["favicon_url"] = asset["url"]
+        configured_url = merged["favicon_url"]
+    else:
+        merged["og_image_url"] = asset["url"]
+        configured_url = merged["og_image_url"]
+    await save_site_config(db, merged)
+
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            action="site.asset.upload",
+            target_type="site",
+            target_id=f"site.asset.{req.kind}",
+            detail={
+                "kind": req.kind,
+                "filename": asset.get("filename"),
+                "content_type": asset.get("content_type"),
+                "size_bytes": asset.get("size_bytes"),
+                "configured_url": configured_url,
+            },
+        )
+    )
+    return {
+        "status": "ok",
+        "kind": req.kind,
+        "url": configured_url,
+        "asset": asset,
+    }

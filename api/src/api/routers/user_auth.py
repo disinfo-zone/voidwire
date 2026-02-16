@@ -15,6 +15,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.config import Settings, get_settings
 from voidwire.models import (
+    AdminUser,
     AnalyticsEvent,
     EmailVerificationToken,
     PasswordResetToken,
@@ -35,6 +36,10 @@ from api.services.auth_lockout import (
     record_login_failure,
 )
 from api.services.email_service import send_transactional_email
+from api.services.oauth_config import (
+    load_public_oauth_providers,
+    resolve_oauth_runtime_config,
+)
 from api.services.site_config import load_site_config
 
 logger = logging.getLogger(__name__)
@@ -112,6 +117,10 @@ class ChangePasswordRequest(BaseModel):
 
 class DeleteAccountRequest(BaseModel):
     password: str | None = Field(default=None, max_length=256)
+
+
+def _is_test_user_account(user: User) -> bool:
+    return bool(getattr(user, "is_test_user", False))
 
 
 # --- Helpers ---
@@ -392,14 +401,23 @@ async def login(
     return _issue_user_auth_response(user, request)
 
 
+@router.get("/oauth/providers")
+async def oauth_provider_status(db: AsyncSession = Depends(get_db)):
+    return await load_public_oauth_providers(db)
+
+
 @router.post("/oauth/google")
 async def oauth_google(
     req: OAuthGoogleRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    settings = get_settings()
-    if not settings.google_client_id:
+    oauth = await resolve_oauth_runtime_config(db)
+    google = oauth.get("google", {})
+    if not bool(google.get("enabled")):
+        raise HTTPException(status_code=501, detail="Google OAuth not configured")
+    google_client_id = str(google.get("client_id", "")).strip()
+    if not google_client_id:
         raise HTTPException(status_code=501, detail="Google OAuth not configured")
 
     try:
@@ -409,7 +427,7 @@ async def oauth_google(
         idinfo = google_id_token.verify_oauth2_token(
             req.id_token,
             google_requests.Request(),
-            settings.google_client_id,
+            google_client_id,
         )
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid Google token")
@@ -458,10 +476,18 @@ async def oauth_apple(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    settings = get_settings()
-    if not settings.apple_client_id:
+    oauth = await resolve_oauth_runtime_config(db)
+    apple = oauth.get("apple", {})
+    if not bool(apple.get("enabled")):
         raise HTTPException(status_code=501, detail="Apple OAuth not configured")
-    if not settings.apple_team_id or not settings.apple_key_id or not settings.apple_private_key:
+
+    apple_client_id = str(apple.get("client_id", "")).strip()
+    apple_team_id = str(apple.get("team_id", "")).strip()
+    apple_key_id = str(apple.get("key_id", "")).strip()
+    apple_private_key = str(apple.get("private_key", "")).strip()
+    if not apple_client_id:
+        raise HTTPException(status_code=501, detail="Apple OAuth not configured")
+    if not apple_team_id or not apple_key_id or not apple_private_key:
         raise HTTPException(status_code=501, detail="Apple OAuth is partially configured")
 
     try:
@@ -473,8 +499,13 @@ async def oauth_apple(
             resp = await client.post(
                 "https://appleid.apple.com/auth/token",
                 data={
-                    "client_id": settings.apple_client_id,
-                    "client_secret": _generate_apple_client_secret(settings),
+                    "client_id": apple_client_id,
+                    "client_secret": _generate_apple_client_secret(
+                        team_id=apple_team_id,
+                        client_id=apple_client_id,
+                        key_id=apple_key_id,
+                        private_key=apple_private_key,
+                    ),
                     "code": req.authorization_code,
                     "grant_type": "authorization_code",
                 },
@@ -499,7 +530,7 @@ async def oauth_apple(
             apple_id_token,
             public_key,
             algorithms=["RS256"],
-            audience=settings.apple_client_id,
+            audience=apple_client_id,
             issuer="https://appleid.apple.com",
         )
     except Exception:
@@ -540,7 +571,13 @@ async def oauth_apple(
     return _issue_user_auth_response(user, request)
 
 
-def _generate_apple_client_secret(settings: Settings) -> str:
+def _generate_apple_client_secret(
+    *,
+    team_id: str,
+    client_id: str,
+    key_id: str,
+    private_key: str,
+) -> str:
     """Generate a short-lived JWT client secret for Apple Sign In."""
     import time
 
@@ -548,14 +585,14 @@ def _generate_apple_client_secret(settings: Settings) -> str:
 
     now = int(time.time())
     claims = {
-        "iss": settings.apple_team_id,
+        "iss": team_id,
         "iat": now,
         "exp": now + 86400 * 180,
         "aud": "https://appleid.apple.com",
-        "sub": settings.apple_client_id,
+        "sub": client_id,
     }
-    headers = {"kid": settings.apple_key_id, "alg": "ES256"}
-    return jose_jwt.encode(claims, settings.apple_private_key, algorithm="ES256", headers=headers)
+    headers = {"kid": key_id, "alg": "ES256"}
+    return jose_jwt.encode(claims, private_key, algorithm="ES256", headers=headers)
 
 
 @router.post("/forgot-password")
@@ -677,6 +714,15 @@ async def me(
     from api.services.subscription_service import get_user_tier
 
     tier = await get_user_tier(user, db)
+    is_admin_flagged = bool(getattr(user, "is_admin_user", False))
+    admin_result = await db.execute(
+        select(AdminUser.id).where(
+            AdminUser.email == user.email,
+            AdminUser.is_active.is_(True),
+        )
+    )
+    is_admin_user = bool(is_admin_flagged or admin_result.scalars().first() is not None)
+    is_test_user = _is_test_user_account(user)
     return {
         "id": str(user.id),
         "email": user.email,
@@ -684,6 +730,9 @@ async def me(
         "display_name": user.display_name,
         "has_profile": user.profile is not None,
         "tier": tier,
+        "is_admin_user": is_admin_user,
+        "is_test_user": is_test_user,
+        "can_manage_readings": bool(is_admin_user or is_test_user),
         "created_at": user.created_at.isoformat() if user.created_at else None,
     }
 

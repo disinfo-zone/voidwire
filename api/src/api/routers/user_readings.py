@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -27,17 +27,38 @@ class PersonalReadingJobRequest(BaseModel):
     tier: str = "auto"  # auto|free|pro
 
 
+def _coverage_window(reading: PersonalReading) -> tuple[date, date]:
+    if reading.tier == "free":
+        start = reading.date_context - timedelta(days=reading.date_context.weekday())
+        end = start + timedelta(days=6)
+        return start, end
+    return reading.date_context, reading.date_context
+
+
+def _coverage_label(reading: PersonalReading, start: date, end: date) -> str:
+    if reading.tier == "free":
+        return f"Week of {start.isoformat()} to {end.isoformat()}"
+    return f"Daily reading for {start.isoformat()}"
+
+
 def _reading_payload(reading: PersonalReading) -> dict:
     content = reading.content or {}
+    metadata_raw = getattr(reading, "generation_metadata", None)
+    metadata = metadata_raw if isinstance(metadata_raw, dict) else {}
+    coverage_start, coverage_end = _coverage_window(reading)
     return {
         "id": str(reading.id) if reading.id else None,
         "tier": reading.tier,
         "date_context": reading.date_context.isoformat(),
+        "coverage_start": coverage_start.isoformat(),
+        "coverage_end": coverage_end.isoformat(),
+        "coverage_label": _coverage_label(reading, coverage_start, coverage_end),
         "title": content.get("title", ""),
         "body": content.get("body", ""),
         "sections": content.get("sections", []),
         "word_count": content.get("word_count", 0),
         "transit_highlights": content.get("transit_highlights", []),
+        "template_version": metadata.get("template_version"),
         "house_system_used": reading.house_system_used,
         "created_at": reading.created_at.isoformat() if reading.created_at else None,
     }
@@ -69,6 +90,41 @@ async def get_current_personal_reading(
         )
 
     return _reading_payload(reading)
+
+
+@router.get("/personal/current")
+async def get_current_personal_reading_without_generation(
+    user: User = Depends(get_current_public_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not user.profile:
+        raise HTTPException(
+            status_code=400,
+            detail="Complete your birth data profile first",
+        )
+
+    tier = await get_user_tier(user, db)
+    today = date.today()
+    target_week = today.isocalendar()
+    result = await db.execute(
+        select(PersonalReading)
+        .where(
+            PersonalReading.user_id == user.id,
+            PersonalReading.tier == tier,
+        )
+        .order_by(PersonalReading.created_at.desc())
+        .limit(20)
+    )
+    candidates = result.scalars().all()
+    for reading in candidates:
+        if tier == "free":
+            iso = reading.date_context.isocalendar()
+            if (iso[0], iso[1]) == (target_week[0], target_week[1]):
+                return _reading_payload(reading)
+        elif reading.date_context == today:
+            return _reading_payload(reading)
+
+    raise HTTPException(status_code=404, detail="No current reading yet")
 
 
 @router.post("/personal/jobs")

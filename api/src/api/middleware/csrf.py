@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ipaddress import ip_address
 from urllib.parse import urlparse
 
 from fastapi import Request, status
@@ -50,6 +51,24 @@ def _request_origin(request: Request) -> str | None:
     return None
 
 
+def _is_loopback_origin(origin: str | None) -> bool:
+    if not origin:
+        return False
+    try:
+        parsed = urlparse(origin)
+    except Exception:
+        return False
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        return False
+    if host == "localhost":
+        return True
+    try:
+        return ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 def _has_auth_cookie(request: Request) -> bool:
     return bool(
         request.cookies.get(ADMIN_AUTH_COOKIE_NAME) or request.cookies.get(USER_AUTH_COOKIE_NAME)
@@ -78,6 +97,14 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         allowed = _allowed_origins()
         request_origin = _request_origin(request)
         if request_origin is not None and request_origin not in allowed:
+            # Local developer UX: permit loopback-origin requests only when
+            # the API target origin itself is also loopback.
+            request_target_origin = _origin(str(request.base_url))
+            loopback_local_call = _is_loopback_origin(request_origin) and _is_loopback_origin(
+                request_target_origin
+            )
+            if loopback_local_call:
+                return await call_next(request)
             return JSONResponse(
                 status_code=status.HTTP_403_FORBIDDEN,
                 content={"detail": "Cross-site request origin is not allowed"},

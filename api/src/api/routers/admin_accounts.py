@@ -11,9 +11,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from voidwire.models import AdminUser, AuditLog, DiscountCode, Subscription, User
+from voidwire.models import AdminUser, AsyncJob, AuditLog, DiscountCode, Subscription, User
 
 from api.dependencies import get_db, require_admin
+from api.middleware.auth import hash_password
+from api.services.async_job_service import (
+    ASYNC_JOB_TYPE_PERSONAL_READING,
+    serialize_async_job,
+)
 from api.services.billing_reconciliation import run_billing_reconciliation
 from api.services.discount_code_service import (
     is_discount_code_usable,
@@ -29,6 +34,14 @@ from api.services.subscription_service import has_active_pro_override
 router = APIRouter()
 ACTIVE_SUBSCRIPTION_STATUSES = ("active", "trialing")
 ADMIN_ROLES: tuple[str, ...] = ("owner", "admin", "support", "readonly")
+
+
+def _validated_email(value: str) -> str:
+    normalized = value.strip().lower()
+    local, sep, domain = normalized.partition("@")
+    if not sep or not local or "." not in domain or domain.endswith("."):
+        raise ValueError("Invalid email address")
+    return normalized
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
@@ -88,6 +101,8 @@ def _serialize_user(user: User, *, has_active_subscription: bool) -> dict:
         "pro_override_until": (
             user.pro_override_until.isoformat() if user.pro_override_until else None
         ),
+        "is_test_user": bool(getattr(user, "is_test_user", False)),
+        "is_admin_user": bool(getattr(user, "is_admin_user", False)),
     }
 
 
@@ -113,6 +128,54 @@ class UserProOverrideRequest(BaseModel):
     @field_validator("reason")
     @classmethod
     def _trim_reason(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        return trimmed or None
+
+
+class UserCreateRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=8, max_length=256)
+    display_name: str | None = Field(default=None, max_length=120)
+    email_verified: bool = False
+    is_active: bool = True
+    is_test_user: bool = False
+    is_admin_user: bool = False
+
+    @field_validator("email")
+    @classmethod
+    def _validate_email(cls, value: str) -> str:
+        return _validated_email(value)
+
+    @field_validator("display_name")
+    @classmethod
+    def _trim_display_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        return trimmed or None
+
+
+class UserUpdateRequest(BaseModel):
+    email: str | None = Field(default=None, min_length=3, max_length=320)
+    password: str | None = Field(default=None, min_length=8, max_length=256)
+    display_name: str | None = Field(default=None, max_length=120)
+    email_verified: bool | None = None
+    is_active: bool | None = None
+    is_test_user: bool | None = None
+    is_admin_user: bool | None = None
+
+    @field_validator("email")
+    @classmethod
+    def _validate_email(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _validated_email(value)
+
+    @field_validator("display_name")
+    @classmethod
+    def _trim_display_name(cls, value: str | None) -> str | None:
         if value is None:
             return None
         trimmed = value.strip()
@@ -191,6 +254,21 @@ class AdminUserUpdateRequest(BaseModel):
     is_active: bool | None = None
 
 
+def _is_user_active_subscription_status(status: str | None) -> bool:
+    return str(status or "").strip().lower() in ACTIVE_SUBSCRIPTION_STATUSES
+
+
+async def _has_active_subscription(db: AsyncSession, user_id: uuid.UUID) -> bool:
+    result = await db.execute(
+        select(Subscription.status)
+        .where(Subscription.user_id == user_id)
+        .order_by(Subscription.created_at.desc())
+        .limit(1)
+    )
+    status = result.scalars().first()
+    return _is_user_active_subscription_status(status)
+
+
 async def _count_active_owners(db: AsyncSession) -> int:
     result = await db.execute(
         select(func.count(AdminUser.id)).where(
@@ -233,6 +311,130 @@ async def list_users(
     )
     active_sub_user_ids = {row[0] for row in active_subs_result.all()}
     return [_serialize_user(u, has_active_subscription=u.id in active_sub_user_ids) for u in users]
+
+
+@router.post("/users")
+async def create_user(
+    req: UserCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: AdminUser = Depends(require_admin),
+):
+    existing = await db.execute(select(User.id).where(func.lower(User.email) == req.email))
+    if existing.scalars().first() is not None:
+        raise HTTPException(status_code=409, detail="Email already registered")
+
+    user = User(
+        email=req.email,
+        password_hash=hash_password(req.password),
+        display_name=req.display_name,
+        email_verified=req.email_verified,
+        is_active=req.is_active,
+        is_test_user=req.is_test_user,
+        is_admin_user=req.is_admin_user,
+    )
+    db.add(user)
+    await db.flush()
+
+    db.add(
+        AuditLog(
+            user_id=admin.id,
+            action="user.create",
+            target_type="user",
+            target_id=str(user.id),
+            detail={
+                "email": user.email,
+                "email_verified": user.email_verified,
+                "is_active": user.is_active,
+                "is_test_user": user.is_test_user,
+                "is_admin_user": user.is_admin_user,
+            },
+        )
+    )
+    return _serialize_user(user, has_active_subscription=False)
+
+
+@router.patch("/users/{user_id}")
+async def update_user(
+    user_id: uuid.UUID,
+    req: UserUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: AdminUser = Depends(require_admin),
+):
+    changes = req.model_dump(exclude_unset=True)
+    if not changes:
+        raise HTTPException(status_code=400, detail="No changes provided")
+
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if "email" in changes and req.email is not None and req.email != user.email:
+        existing = await db.execute(
+            select(User.id).where(func.lower(User.email) == req.email, User.id != user.id)
+        )
+        if existing.scalars().first() is not None:
+            raise HTTPException(status_code=409, detail="Email already registered")
+        user.email = req.email
+
+    if "display_name" in changes:
+        user.display_name = req.display_name
+
+    if "email_verified" in changes and req.email_verified is not None:
+        user.email_verified = req.email_verified
+
+    if "is_active" in changes and req.is_active is not None:
+        user.is_active = req.is_active
+        if not req.is_active:
+            user.token_version = int(user.token_version or 0) + 1
+
+    if "is_test_user" in changes and req.is_test_user is not None:
+        user.is_test_user = req.is_test_user
+
+    if "is_admin_user" in changes and req.is_admin_user is not None:
+        user.is_admin_user = req.is_admin_user
+
+    if "password" in changes and req.password is not None:
+        user.password_hash = hash_password(req.password)
+        user.token_version = int(user.token_version or 0) + 1
+
+    audit_changes = dict(changes)
+    if "password" in audit_changes:
+        audit_changes["password"] = "[redacted]"
+
+    db.add(
+        AuditLog(
+            user_id=admin.id,
+            action="user.update",
+            target_type="user",
+            target_id=str(user.id),
+            detail=_jsonable_detail(audit_changes),
+        )
+    )
+    has_active_subscription = await _has_active_subscription(db, user.id)
+    return _serialize_user(user, has_active_subscription=has_active_subscription)
+
+
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: AdminUser = Depends(require_admin),
+):
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    db.add(
+        AuditLog(
+            user_id=admin.id,
+            action="user.delete",
+            target_type="user",
+            target_id=str(user.id),
+            detail={"email": user.email},
+        )
+    )
+    await db.delete(user)
+    return {"status": "deleted", "user_id": str(user_id)}
 
 
 @router.get("/admin-users")
@@ -356,6 +558,36 @@ async def update_user_pro_override(
             user.pro_override_until.isoformat() if user.pro_override_until else None
         ),
     }
+
+
+@router.get("/reading-jobs")
+async def list_personal_reading_jobs(
+    status: Literal["queued", "running", "completed", "failed", "all"] = "all",
+    limit: int = Query(default=100, ge=1, le=500),
+    user_id: uuid.UUID | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(require_admin),
+):
+    del user
+    query = (
+        select(AsyncJob, User.email)
+        .join(User, User.id == AsyncJob.user_id)
+        .where(AsyncJob.job_type == ASYNC_JOB_TYPE_PERSONAL_READING)
+        .order_by(AsyncJob.created_at.desc())
+    )
+    if status != "all":
+        query = query.where(AsyncJob.status == status)
+    if user_id is not None:
+        query = query.where(AsyncJob.user_id == user_id)
+
+    result = await db.execute(query.limit(limit))
+    rows = result.all()
+    payload = []
+    for job, email in rows:
+        serialized = serialize_async_job(job)
+        serialized["user_email"] = email
+        payload.append(serialized)
+    return payload
 
 
 @router.get("/discount-codes")

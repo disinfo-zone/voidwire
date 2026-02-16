@@ -18,48 +18,57 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
   </header>
 
   <main>
-    <div id="auth-gate" style="display: none;">
-      <div class="status-message">
-        <p>Redirecting to login...</p>
-      </div>
-    </div>
-
     <div id="dashboard-content" style="display: none;">
       <div class="dashboard-container">
-        <h1 class="page-title">Your Dashboard</h1>
+        <div class="dashboard-header">
+          <h1 class="page-title">Your Dashboard</h1>
+          <div class="view-toggle">
+            <button id="view-reading-btn" class="view-toggle-button active">Reading</button>
+            <button id="view-settings-btn" class="view-toggle-button">Settings</button>
+          </div>
+        </div>
 
-        <!-- User info -->
-        <div id="user-info" class="user-info"></div>
+        <div id="onboarding-message" class="onboarding-message" style="display: none;"></div>
 
-        <!-- Personal reading section -->
-        <div id="reading-section" class="reading-section">
-          <div class="section-label">Personal Reading</div>
+        <section id="reading-section" class="reading-section" style="display: none;">
+          <div id="reading-status" class="reading-status" style="display: none;"></div>
           <div id="reading-content" class="reading-content">
             <div class="loading">Loading your reading...</div>
           </div>
-        </div>
+          <div id="reading-actions" class="reading-actions" style="display: none;" hidden aria-hidden="true">
+            <button id="refresh-reading-btn" class="action-button">Refresh</button>
+            <button id="generate-reading-btn" class="action-button">Generate Latest</button>
+          </div>
+        </section>
 
-        <!-- Profile section -->
-        <div class="profile-section">
+        <section id="settings-section" class="settings-section" style="display: none;">
+          <div class="section-label">Natal Chart</div>
+          <div id="chart-status" class="reading-status">Your chart is loading.</div>
+          <div id="chart-content" class="chart-content"></div>
+          <div class="chart-actions">
+            <button id="export-chart-text-btn" class="action-button" style="display: none;">Export Chart TXT</button>
+            <button id="export-chart-image-btn" class="action-button" style="display: none;">Export Chart PNG</button>
+          </div>
+
+          <div class="section-label">Account</div>
+          <div id="user-info" class="user-info"></div>
+
           <div class="section-label">Birth Data</div>
-          <div id="profile-status"></div>
+          <div id="profile-status" class="profile-status"></div>
+          <button id="toggle-birth-form" class="edit-button" style="display: none;">Edit Birth Data</button>
           <div id="birth-form-wrapper" style="display: none;">
             <BirthDataForm client:visible onSave={() => window.location.reload()} />
           </div>
-        </div>
 
-        <!-- Subscription section -->
-        <div class="subscription-section">
           <div class="section-label">Subscription</div>
           <SubscriptionManager client:visible />
-        </div>
 
-        <!-- Reading history link -->
-        <div class="history-link-wrapper">
-          <a href="#" id="history-link" class="continued-link">Reading History</a>
-        </div>
+          <div class="section-label">Data Export</div>
+          <div class="chart-actions">
+            <button id="export-account-btn" class="action-button">Export Account JSON</button>
+          </div>
+        </section>
 
-        <!-- Logout -->
         <div class="logout-wrapper">
           <button id="logout-button" class="logout-button">Logout</button>
         </div>
@@ -70,6 +79,70 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
 <script>
   import { clearToken, authFetch } from '../utils/auth';
+
+  type DashboardUser = {
+    id: string;
+    email: string;
+    email_verified: boolean;
+    display_name: string | null;
+    has_profile: boolean;
+    tier: 'free' | 'pro';
+    is_admin_user?: boolean;
+    is_test_user?: boolean;
+    can_manage_readings?: boolean;
+    created_at: string | null;
+  };
+
+  type ReadingPayload = {
+    tier: 'free' | 'pro';
+    title: string;
+    body: string;
+    sections: { heading: string; body: string }[];
+    word_count: number;
+    date_context: string;
+    coverage_label?: string;
+    coverage_start?: string;
+    coverage_end?: string;
+    template_version?: string;
+  };
+
+  const content = document.getElementById('dashboard-content');
+  if (content) content.style.display = 'block';
+
+  let hasProfile = false;
+  let canManageReadings = false;
+  let activeJobId: string | null = null;
+  let readingPollTimer: number | null = null;
+  let readingPollStartedAt = 0;
+  let cachedChart: Record<string, unknown> | null = null;
+  const SIGN_ORDER = [
+    'Aries',
+    'Taurus',
+    'Gemini',
+    'Cancer',
+    'Leo',
+    'Virgo',
+    'Libra',
+    'Scorpio',
+    'Sagittarius',
+    'Capricorn',
+    'Aquarius',
+    'Pisces',
+  ];
+  const SIGN_COLORS: Record<string, string> = {
+    Aries: '#ff8b7b',
+    Taurus: '#e3c470',
+    Gemini: '#f1ea86',
+    Cancer: '#9fd2ff',
+    Leo: '#ffcc6a',
+    Virgo: '#bce68f',
+    Libra: '#b9a3ff',
+    Scorpio: '#df8fff',
+    Sagittarius: '#ffad80',
+    Capricorn: '#8ec5b8',
+    Aquarius: '#90d0ff',
+    Pisces: '#a0a6ff',
+  };
 
   function escapeHtml(value: unknown): string {
     return String(value ?? '')
@@ -95,12 +168,593 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     return `<div class="section"><h3 class="section-heading">${heading}</h3>${body}</div>`;
   }
 
-  const content = document.getElementById('dashboard-content');
-  if (content) content.style.display = 'block';
-  loadDashboard();
+  function normalizeSign(sign: unknown): string {
+    const raw = String(sign || '').trim().toLowerCase();
+    return SIGN_ORDER.find((entry) => entry.toLowerCase() === raw) || String(sign || '').trim();
+  }
+
+  function zodiacDegrees(sign: unknown, degree: unknown): number {
+    const normalized = normalizeSign(sign);
+    const signIndex = SIGN_ORDER.findIndex((entry) => entry === normalized);
+    const safeDegree = Number.isFinite(Number(degree)) ? Number(degree) : 0;
+    const boundedDegree = ((safeDegree % 30) + 30) % 30;
+    if (signIndex < 0) return boundedDegree;
+    return signIndex * 30 + boundedDegree;
+  }
+
+  function bodyAbbreviation(body: unknown): string {
+    const label = String(body || '').trim();
+    if (!label) return '?';
+    if (label.length <= 3) return label.toUpperCase();
+    if (label.toLowerCase() === 'north node') return 'NN';
+    if (label.toLowerCase() === 'south node') return 'SN';
+    return label.slice(0, 2).toUpperCase();
+  }
+
+  function setReadingActionVisibility() {
+    const readingActions = document.getElementById('reading-actions') as HTMLElement | null;
+    if (!readingActions) return;
+    if (canManageReadings) {
+      readingActions.hidden = false;
+      readingActions.setAttribute('aria-hidden', 'false');
+      readingActions.style.display = 'flex';
+      return;
+    }
+    readingActions.hidden = true;
+    readingActions.setAttribute('aria-hidden', 'true');
+    readingActions.style.display = 'none';
+  }
+
+  function setView(view: 'reading' | 'settings') {
+    const readingSection = document.getElementById('reading-section');
+    const settingsSection = document.getElementById('settings-section');
+    const readingBtn = document.getElementById('view-reading-btn');
+    const settingsBtn = document.getElementById('view-settings-btn');
+    if (readingSection) readingSection.style.display = view === 'reading' ? 'block' : 'none';
+    if (settingsSection) settingsSection.style.display = view === 'settings' ? 'block' : 'none';
+    readingBtn?.classList.toggle('active', view === 'reading');
+    settingsBtn?.classList.toggle('active', view === 'settings');
+  }
+
+  function updateReadingStatus(message: string) {
+    const status = document.getElementById('reading-status');
+    if (status) {
+      status.textContent = message;
+      (status as HTMLElement).style.display = message ? 'block' : 'none';
+    }
+  }
+
+  function stopReadingPolling() {
+    if (readingPollTimer !== null) {
+      window.clearInterval(readingPollTimer);
+      readingPollTimer = null;
+    }
+    activeJobId = null;
+  }
+
+  function downloadBlob(filename: string, blob: Blob) {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadJson(filename: string, payload: unknown) {
+    downloadBlob(filename, new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+  }
+
+  function downloadText(filename: string, text: string) {
+    downloadBlob(filename, new Blob([text], { type: 'text/plain;charset=utf-8' }));
+  }
+
+  function renderReading(reading: ReadingPayload) {
+    const readingContent = document.getElementById('reading-content');
+    if (!readingContent) return;
+
+    const tierLabel = reading.tier === 'pro' ? 'Daily Pro Reading' : 'Weekly Reading';
+    const bodyHtml = paragraphsToHtml(reading.body);
+    const sections = Array.isArray(reading.sections) ? reading.sections : [];
+    const sectionsHtml = sections.length > 0 ? sections.map((s) => sectionToHtml(s)).join('') : '';
+    const safeTitle = escapeHtml(reading.title);
+    const safeDateContext = escapeHtml(reading.date_context);
+    const safeCoverage = escapeHtml(reading.coverage_label || '');
+    const safeWordCount = Number(reading.word_count) || 0;
+    const safeTemplate = reading.template_version ? escapeHtml(reading.template_version) : '';
+
+    readingContent.innerHTML = `
+      <div class="reading-tier-badge">${escapeHtml(tierLabel)}</div>
+      <h2 class="reading-title">${safeTitle}</h2>
+      <div class="reading-meta">${safeDateContext}${safeCoverage ? ` · ${safeCoverage}` : ''} · ${safeWordCount} words</div>
+      <div class="reading-body">${bodyHtml}</div>
+      ${sectionsHtml}
+      ${safeTemplate ? `<div class="reading-template">Template: ${safeTemplate}</div>` : ''}
+    `;
+    setReadingActionVisibility();
+    updateReadingStatus('');
+  }
+
+  function renderReadingMessage(message: string) {
+    const readingContent = document.getElementById('reading-content');
+    if (!readingContent) return;
+    readingContent.innerHTML = `<p class="muted">${escapeHtml(message)}</p>`;
+  }
+
+  async function fetchCurrentReading(): Promise<ReadingPayload | null> {
+    const readingRes = await authFetch('/v1/user/readings/personal/current');
+    if (readingRes.status === 404) return null;
+    if (readingRes.status === 503) {
+      renderReadingMessage('Personal reading LLM slot is not configured yet. Ask your admin to configure personal_free/personal_pro.');
+      updateReadingStatus('Reading generation unavailable.');
+      throw new Error('Reading generation unavailable');
+    }
+    if (!readingRes.ok) {
+      const data = await readingRes.json().catch(() => ({}));
+      throw new Error(data?.detail || 'Could not load reading');
+    }
+    return await readingRes.json();
+  }
+
+  async function enqueueOrReuseReadingJob() {
+    const jobsRes = await authFetch('/v1/user/readings/personal/jobs?limit=20');
+    if (jobsRes.ok) {
+      const jobs = await jobsRes.json();
+      if (Array.isArray(jobs)) {
+        const today = new Date().toISOString().slice(0, 10);
+        const active = jobs.find(
+          (job: any) =>
+            (job.status === 'queued' || job.status === 'running') &&
+            String(job?.payload?.target_date || '') === today,
+        );
+        if (active?.id) return String(active.id);
+      }
+    }
+    const createRes = await authFetch('/v1/user/readings/personal/jobs', {
+      method: 'POST',
+      body: JSON.stringify({ tier: 'auto' }),
+    });
+    if (!createRes.ok) {
+      const data = await createRes.json().catch(() => ({}));
+      throw new Error(data?.detail || 'Failed to start reading generation');
+    }
+    const job = await createRes.json();
+    if (!job?.id) throw new Error('Reading job was not created');
+    return String(job.id);
+  }
+
+  async function pollReadingJob() {
+    if (!activeJobId) return;
+    const elapsed = Math.max(Math.round((Date.now() - readingPollStartedAt) / 1000), 1);
+    const statusRes = await authFetch(`/v1/user/readings/personal/jobs/${activeJobId}`);
+    if (!statusRes.ok) {
+      updateReadingStatus('Unable to track reading status.');
+      return;
+    }
+    const job = await statusRes.json();
+    const jobStatus = String(job?.status || 'queued');
+    if (jobStatus === 'queued' || jobStatus === 'running') {
+      updateReadingStatus(`Generating reading... ${elapsed}s elapsed. Pro readings can take a few minutes.`);
+      return;
+    }
+    if (jobStatus === 'failed') {
+      stopReadingPolling();
+      const message = String(job?.error_message || 'Reading generation failed');
+      renderReadingMessage(message);
+      updateReadingStatus('Reading generation failed.');
+      return;
+    }
+    if (jobStatus === 'completed') {
+      stopReadingPolling();
+      const reading = await fetchCurrentReading();
+      if (reading) {
+        renderReading(reading);
+      } else {
+        renderReadingMessage('Reading completed but is not visible yet. Refresh in a moment.');
+        updateReadingStatus('Reading completed. Awaiting refresh.');
+      }
+    }
+  }
+
+  async function startReadingFlow() {
+    if (!hasProfile) return;
+    updateReadingStatus('Checking for your latest reading...');
+    try {
+      const reading = await fetchCurrentReading();
+      if (reading) {
+        renderReading(reading);
+        stopReadingPolling();
+        return;
+      }
+
+      const readingContent = document.getElementById('reading-content');
+      if (readingContent) {
+        readingContent.innerHTML = '<div class="loading">Preparing your personal reading...</div>';
+      }
+      stopReadingPolling();
+      activeJobId = await enqueueOrReuseReadingJob();
+      readingPollStartedAt = Date.now();
+      updateReadingStatus('Queued reading generation...');
+      await pollReadingJob();
+      if (activeJobId) {
+        readingPollTimer = window.setInterval(() => {
+          void pollReadingJob();
+        }, 4000);
+      }
+    } catch (err) {
+      renderReadingMessage(err instanceof Error ? err.message : 'Could not load reading');
+      updateReadingStatus('Could not load reading.');
+    }
+  }
+
+  async function loadNatalChart() {
+    const chartStatus = document.getElementById('chart-status');
+    const chartContent = document.getElementById('chart-content');
+    const exportTextButton = document.getElementById('export-chart-text-btn') as HTMLButtonElement | null;
+    const exportImageButton = document.getElementById('export-chart-image-btn') as HTMLButtonElement | null;
+    if (chartStatus) chartStatus.textContent = 'Loading natal chart...';
+    try {
+      const res = await authFetch('/v1/user/profile/natal-chart');
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.detail || 'Could not load chart');
+      }
+      const chart = await res.json();
+      cachedChart = chart;
+      const positions = Array.isArray(chart?.positions) ? chart.positions : [];
+      const rows = positions
+        .map((pos: any) => {
+          const body = escapeHtml(pos?.body || '');
+          const sign = escapeHtml(pos?.sign || '');
+          const degree = escapeHtml(pos?.degree ?? '');
+          const house = pos?.house ? escapeHtml(pos.house) : '—';
+          return `<tr><td>${body}</td><td>${degree}° ${sign}</td><td>${house}</td></tr>`;
+        })
+        .join('');
+      if (chartContent) {
+        const sun = positions.find((p: any) => String(p?.body || '').toLowerCase() === 'sun');
+        const moon = positions.find((p: any) => String(p?.body || '').toLowerCase() === 'moon');
+        const asc = Array.isArray(chart?.angles)
+          ? chart.angles.find((a: any) => String(a?.name || '').toLowerCase() === 'ascendant')
+          : null;
+        const summaryLine = [sun, moon, asc]
+          .filter(Boolean)
+          .map((item: any) => {
+            if (item?.name) return `${item.name}: ${item.sign} ${Number(item.degree || 0).toFixed(1)}°`;
+            return `${item.body}: ${item.sign} ${Number(item.degree || 0).toFixed(1)}°`;
+          })
+          .join(' · ');
+        chartContent.innerHTML = `
+          ${summaryLine ? `<div class="chart-summary">${escapeHtml(summaryLine)}</div>` : ''}
+          <table class="chart-table">
+            <thead><tr><th>Body</th><th>Placement</th><th>House</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        `;
+      }
+      if (chartStatus) chartStatus.textContent = 'Natal chart loaded.';
+      if (exportTextButton) exportTextButton.style.display = 'inline-flex';
+      if (exportImageButton) exportImageButton.style.display = 'inline-flex';
+    } catch (err) {
+      if (exportTextButton) exportTextButton.style.display = 'none';
+      if (exportImageButton) exportImageButton.style.display = 'none';
+      if (chartStatus) {
+        chartStatus.textContent = err instanceof Error ? err.message : 'Could not load natal chart';
+      }
+    }
+  }
+
+  function natalChartText(chart: Record<string, unknown>): string {
+    const data = chart as any;
+    const positions = Array.isArray(data.positions) ? (data.positions as any[]) : [];
+    const angles = Array.isArray(data.angles) ? (data.angles as any[]) : [];
+    const lines: string[] = [];
+    lines.push('VOIDWIRE Natal Chart Export');
+    lines.push(`Generated: ${new Date().toISOString()}`);
+    lines.push('');
+    lines.push('Placements:');
+    for (const pos of positions) {
+      const body = String(pos?.body || '');
+      const degree = Number(pos?.degree || 0).toFixed(2);
+      const sign = String(pos?.sign || '');
+      const house = pos?.house ? `House ${pos.house}` : 'No house';
+      lines.push(`- ${body}: ${degree}° ${sign} (${house})`);
+    }
+    if (angles.length > 0) {
+      lines.push('');
+      lines.push('Angles:');
+      for (const angle of angles) {
+        const name = String(angle?.name || '');
+        const degree = Number(angle?.degree || 0).toFixed(2);
+        const sign = String(angle?.sign || '');
+        lines.push(`- ${name}: ${degree}° ${sign}`);
+      }
+    }
+    return lines.join('\n');
+  }
+
+  async function exportNatalChartImage(chart: Record<string, unknown>) {
+    const data = chart as any;
+    const positions = Array.isArray(data.positions) ? (data.positions as any[]) : [];
+    const angles = Array.isArray(data.angles) ? (data.angles as any[]) : [];
+    if (positions.length === 0) throw new Error('No chart data to export.');
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 1800;
+    canvas.height = 2400;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Could not initialize image export.');
+
+    const width = canvas.width;
+    const height = canvas.height;
+    const centerX = width / 2;
+    const centerY = 760;
+    const outerRadius = 430;
+    const innerRadius = 275;
+    const orbitRadius = (outerRadius + innerRadius) / 2;
+
+    const sortedPositions = [...positions].sort(
+      (a, b) => zodiacDegrees(a?.sign, a?.degree) - zodiacDegrees(b?.sign, b?.degree),
+    );
+
+    function drawRoundedRect(x: number, y: number, w: number, h: number, radius: number) {
+      const r = Math.max(0, Math.min(radius, Math.min(w, h) / 2));
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+    }
+
+    const bg = ctx.createLinearGradient(0, 0, width, height);
+    bg.addColorStop(0, '#05070f');
+    bg.addColorStop(0.45, '#0a1930');
+    bg.addColorStop(1, '#130a21');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, width, height);
+
+    const glow = ctx.createRadialGradient(centerX, centerY, 60, centerX, centerY, 780);
+    glow.addColorStop(0, 'rgba(88, 134, 255, 0.38)');
+    glow.addColorStop(0.6, 'rgba(88, 134, 255, 0.12)');
+    glow.addColorStop(1, 'rgba(88, 134, 255, 0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, width, height);
+
+    for (let i = 0; i < 220; i += 1) {
+      const x = Math.random() * width;
+      const y = Math.random() * (height * 0.85);
+      const size = Math.random() * 2 + 0.35;
+      const alpha = Math.random() * 0.5 + 0.15;
+      ctx.fillStyle = `rgba(236, 241, 255, ${alpha.toFixed(3)})`;
+      ctx.beginPath();
+      ctx.arc(x, y, size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#efe8d9';
+    ctx.font = '600 64px "EB Garamond", Georgia, serif';
+    ctx.fillText('VOIDWIRE', centerX, 130);
+    ctx.font = '500 54px "EB Garamond", Georgia, serif';
+    ctx.fillText('Natal Chart Portrait', centerX, 196);
+    ctx.font = '500 23px "Inter", sans-serif';
+    ctx.fillStyle = '#b9c8e8';
+    ctx.fillText(`Generated ${new Date().toISOString().slice(0, 10)}`, centerX, 246);
+
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    for (let index = 0; index < 12; index += 1) {
+      const start = ((index * 30 - 90) * Math.PI) / 180;
+      const end = (((index + 1) * 30 - 90) * Math.PI) / 180;
+      const sign = SIGN_ORDER[index];
+      const signColor = SIGN_COLORS[sign] || '#9aa6c0';
+      ctx.beginPath();
+      ctx.arc(0, 0, outerRadius, start, end);
+      ctx.arc(0, 0, innerRadius, end, start, true);
+      ctx.closePath();
+      ctx.fillStyle = `${signColor}22`;
+      ctx.fill();
+
+      ctx.strokeStyle = 'rgba(223, 231, 255, 0.18)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(start) * innerRadius, Math.sin(start) * innerRadius);
+      ctx.lineTo(Math.cos(start) * outerRadius, Math.sin(start) * outerRadius);
+      ctx.stroke();
+
+      const mid = (start + end) / 2;
+      const labelRadius = outerRadius + 64;
+      ctx.fillStyle = signColor;
+      ctx.font = '600 24px "Inter", sans-serif';
+      ctx.fillText(sign.slice(0, 3).toUpperCase(), Math.cos(mid) * labelRadius, Math.sin(mid) * labelRadius + 8);
+    }
+
+    ctx.strokeStyle = 'rgba(232, 238, 255, 0.42)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, outerRadius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 0, innerRadius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(232, 238, 255, 0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(-outerRadius - 40, 0);
+    ctx.lineTo(outerRadius + 40, 0);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, -outerRadius - 40);
+    ctx.lineTo(0, outerRadius + 40);
+    ctx.stroke();
+
+    sortedPositions.forEach((pos, index) => {
+      const chartDegrees = zodiacDegrees(pos?.sign, pos?.degree);
+      const angle = ((chartDegrees - 90) * Math.PI) / 180;
+      const bump = (index % 3) * 12 - 12;
+      const markerRadius = orbitRadius + bump;
+      const x = Math.cos(angle) * markerRadius;
+      const y = Math.sin(angle) * markerRadius;
+      const sign = normalizeSign(pos?.sign);
+      const color = SIGN_COLORS[sign] || '#f0d8a6';
+      const label = bodyAbbreviation(pos?.body);
+
+      ctx.strokeStyle = `${color}88`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(angle) * (innerRadius - 8), Math.sin(angle) * (innerRadius - 8));
+      ctx.lineTo(x, y);
+      ctx.stroke();
+
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, y, 7.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      const labelOffsetX = x >= 0 ? 16 : -16;
+      const labelOffsetY = y >= 0 ? 10 : -10;
+      ctx.textAlign = x >= 0 ? 'left' : 'right';
+      ctx.fillStyle = '#f4f7ff';
+      ctx.font = '600 19px "Inter", sans-serif';
+      ctx.fillText(label, x + labelOffsetX, y + labelOffsetY);
+    });
+
+    for (const anglePoint of angles) {
+      const name = String(anglePoint?.name || '').trim();
+      if (!name) continue;
+      const chartDegrees = zodiacDegrees(anglePoint?.sign, anglePoint?.degree);
+      const theta = ((chartDegrees - 90) * Math.PI) / 180;
+      const markerRadius = innerRadius - 56;
+      const x = Math.cos(theta) * markerRadius;
+      const y = Math.sin(theta) * markerRadius;
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.94)';
+      ctx.beginPath();
+      ctx.arc(x, y, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.textAlign = 'center';
+      ctx.font = '600 13px "Inter", sans-serif';
+      ctx.fillStyle = '#c8d4ef';
+      ctx.fillText(name.slice(0, 3).toUpperCase(), Math.cos(theta) * (markerRadius - 26), Math.sin(theta) * (markerRadius - 26));
+    }
+    ctx.restore();
+
+    const panelTop = 1320;
+    const panelHeight = 880;
+    const panelGap = 28;
+    const panelWidth = (width - 240 - panelGap) / 2;
+    const leftPanelX = 120;
+    const rightPanelX = leftPanelX + panelWidth + panelGap;
+
+    ctx.fillStyle = 'rgba(9, 17, 35, 0.73)';
+    drawRoundedRect(leftPanelX, panelTop, panelWidth, panelHeight, 28);
+    ctx.fill();
+    drawRoundedRect(rightPanelX, panelTop, panelWidth, panelHeight, 28);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(198, 214, 255, 0.26)';
+    ctx.lineWidth = 2;
+    drawRoundedRect(leftPanelX, panelTop, panelWidth, panelHeight, 28);
+    ctx.stroke();
+    drawRoundedRect(rightPanelX, panelTop, panelWidth, panelHeight, 28);
+    ctx.stroke();
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#f1e8d7';
+    ctx.font = '600 34px "EB Garamond", Georgia, serif';
+    ctx.fillText('Planetary Placements', leftPanelX + 34, panelTop + 56);
+    ctx.fillText('Angles and Highlights', rightPanelX + 34, panelTop + 56);
+
+    const leftColumnX = leftPanelX + 34;
+    const secondColumnX = leftPanelX + panelWidth / 2 + 8;
+    const rowsPerColumn = Math.ceil(sortedPositions.length / 2);
+    const rowHeight = 62;
+    sortedPositions.forEach((pos, index) => {
+      const col = index < rowsPerColumn ? 0 : 1;
+      const row = col === 0 ? index : index - rowsPerColumn;
+      const baseX = col === 0 ? leftColumnX : secondColumnX;
+      const y = panelTop + 120 + row * rowHeight;
+      const sign = normalizeSign(pos?.sign);
+      const color = SIGN_COLORS[sign] || '#dfc994';
+      const body = String(pos?.body || 'Body');
+      const degree = Number(pos?.degree || 0).toFixed(1);
+      const house = pos?.house ? `H${pos.house}` : '--';
+
+      ctx.fillStyle = color;
+      ctx.font = '600 22px "Inter", sans-serif';
+      ctx.fillText(body, baseX, y);
+      ctx.fillStyle = '#dbe5ff';
+      ctx.font = '500 19px "Inter", sans-serif';
+      ctx.fillText(`${degree}° ${sign} · ${house}`, baseX, y + 26);
+    });
+
+    const safeAngles = angles.slice(0, 8);
+    safeAngles.forEach((anglePoint, index) => {
+      const y = panelTop + 120 + index * 68;
+      const sign = normalizeSign(anglePoint?.sign);
+      const color = SIGN_COLORS[sign] || '#adc1ff';
+      const name = String(anglePoint?.name || 'Angle');
+      const degree = Number(anglePoint?.degree || 0).toFixed(1);
+      ctx.fillStyle = color;
+      ctx.font = '600 22px "Inter", sans-serif';
+      ctx.fillText(name, rightPanelX + 34, y);
+      ctx.fillStyle = '#dbe5ff';
+      ctx.font = '500 19px "Inter", sans-serif';
+      ctx.fillText(`${degree}° ${sign}`, rightPanelX + 34, y + 26);
+    });
+
+    const sun = sortedPositions.find((p) => String(p?.body || '').toLowerCase() === 'sun');
+    const moon = sortedPositions.find((p) => String(p?.body || '').toLowerCase() === 'moon');
+    const ascendant = angles.find((a) => String(a?.name || '').toLowerCase() === 'ascendant');
+    const highlights = [sun, moon, ascendant]
+      .filter(Boolean)
+      .map((item: any) => `${item.name || item.body}: ${Number(item.degree || 0).toFixed(1)}° ${normalizeSign(item.sign)}`);
+    const highlightsText = highlights.length > 0 ? highlights.join('  •  ') : 'Highlights unavailable';
+
+    ctx.fillStyle = '#f1e8d7';
+    ctx.font = '600 24px "EB Garamond", Georgia, serif';
+    ctx.fillText('Core Signature', rightPanelX + 34, panelTop + 740);
+    ctx.fillStyle = '#dbe5ff';
+    ctx.font = '500 18px "Inter", sans-serif';
+    const wrapped = highlightsText.match(/.{1,60}(\s|$)/g) || [highlightsText];
+    wrapped.slice(0, 4).forEach((line, index) => {
+      ctx.fillText(line.trim(), rightPanelX + 34, panelTop + 776 + index * 28);
+    });
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(234, 241, 255, 0.75)';
+    ctx.font = '500 16px "Inter", sans-serif';
+    ctx.fillText('voidwire.app', centerX, height - 66);
+
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png', 0.98));
+    if (!blob) throw new Error('Could not generate chart image.');
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadBlob(`voidwire-natal-chart-${stamp}.png`, blob);
+  }
+
+  async function exportAccountData() {
+    try {
+      const res = await authFetch('/v1/user/auth/me/export');
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.detail || 'Could not export account');
+      }
+      const payload = await res.json();
+      const stamp = new Date().toISOString().slice(0, 10);
+      downloadJson(`voidwire-account-${stamp}.json`, payload);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not export account data');
+    }
+  }
 
   async function loadDashboard() {
-    // Load user info
     try {
       const meRes = await authFetch('/v1/user/auth/me');
       if (!meRes.ok) {
@@ -111,104 +765,139 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         }
         throw new Error('Failed to load user info');
       }
-      const me = await meRes.json();
+
+      const me = (await meRes.json()) as DashboardUser;
+      hasProfile = !!me.has_profile;
+      canManageReadings = Boolean(me.is_admin_user || me.is_test_user);
+      setReadingActionVisibility();
       const userInfo = document.getElementById('user-info');
       if (userInfo) {
         const tier = me.tier === 'pro' ? 'pro' : 'free';
         const displayName = me.display_name ? escapeHtml(me.display_name) : '';
+        const roleTag = me.is_admin_user ? 'Admin' : me.is_test_user ? 'Test' : '';
         userInfo.innerHTML = `
-          <div class="info-row">
-            <span class="info-label">Email</span>
-            <span class="info-value">${escapeHtml(me.email)}</span>
-          </div>
+          <div class="info-row"><span class="info-label">Email</span><span class="info-value">${escapeHtml(me.email)}</span></div>
           ${displayName ? `<div class="info-row"><span class="info-label">Name</span><span class="info-value">${displayName}</span></div>` : ''}
-          <div class="info-row">
-            <span class="info-label">Tier</span>
-            <span class="info-value tier-${tier}">${tier.toUpperCase()}</span>
-          </div>
+          <div class="info-row"><span class="info-label">Tier</span><span class="info-value tier-${tier}">${tier.toUpperCase()}</span></div>
+          ${roleTag ? `<div class="info-row"><span class="info-label">Privileges</span><span class="info-value">${escapeHtml(roleTag)}</span></div>` : ''}
+          <div class="info-row"><span class="info-label">Email Status</span><span class="info-value">${me.email_verified ? 'Verified' : 'Unverified'}</span></div>
         `;
       }
 
-      // Show birth form if no profile
-      if (!me.has_profile) {
-        const profileStatus = document.getElementById('profile-status');
-        if (profileStatus) {
-          profileStatus.innerHTML = '<p class="profile-prompt">Complete your birth data to receive personalized readings.</p>';
-        }
-        const formWrapper = document.getElementById('birth-form-wrapper');
-        if (formWrapper) formWrapper.style.display = 'block';
-      } else {
-        // Load profile info
-        const profileRes = await authFetch('/v1/user/profile/');
-        if (profileRes.ok) {
-          const profile = await profileRes.json();
-          const profileStatus = document.getElementById('profile-status');
-          if (profileStatus) {
-            const birthDate = escapeHtml(profile.birth_date ?? '');
-            const birthCity = escapeHtml(profile.birth_city ?? '');
-            const houseSystem = escapeHtml(profile.house_system ?? '');
-            profileStatus.innerHTML = `
-              <div class="profile-summary">
-                <div class="info-row"><span class="info-label">Birth Date</span><span class="info-value">${birthDate}</span></div>
-                <div class="info-row"><span class="info-label">Location</span><span class="info-value">${birthCity}</span></div>
-                <div class="info-row"><span class="info-label">House System</span><span class="info-value">${houseSystem}</span></div>
-                <button id="edit-profile-btn" class="edit-button">Edit Birth Data</button>
-              </div>
-            `;
-            document.getElementById('edit-profile-btn')?.addEventListener('click', () => {
-              const formWrapper = document.getElementById('birth-form-wrapper');
-              if (formWrapper) formWrapper.style.display = formWrapper.style.display === 'none' ? 'block' : 'none';
-            });
-          }
-        }
+      const onboarding = document.getElementById('onboarding-message');
+      const readingSection = document.getElementById('reading-section');
+      const profileStatus = document.getElementById('profile-status');
+      const birthFormWrapper = document.getElementById('birth-form-wrapper');
+      const toggleBirthFormButton = document.getElementById('toggle-birth-form');
+      const viewReadingButton = document.getElementById('view-reading-btn') as HTMLButtonElement | null;
 
-        // Load personal reading
-        try {
-          const readingRes = await authFetch('/v1/user/readings/personal');
-          const readingContent = document.getElementById('reading-content');
-          if (readingRes.ok) {
-            const reading = await readingRes.json();
-            if (readingContent) {
-              const tierLabel = reading.tier === 'pro' ? 'Pro Reading' : 'Weekly Reading';
-              const bodyHtml = paragraphsToHtml(reading.body);
-              let sectionsHtml = '';
-              const sections = Array.isArray(reading.sections) ? reading.sections : [];
-              if (sections.length > 0) {
-                sectionsHtml = sections.map((s: any) => sectionToHtml(s)).join('');
-              }
-              const safeTitle = escapeHtml(reading.title);
-              const safeDateContext = escapeHtml(reading.date_context);
-              const safeWordCount = Number(reading.word_count) || 0;
-              readingContent.innerHTML = `
-                <div class="reading-tier-badge">${escapeHtml(tierLabel)}</div>
-                <h2 class="reading-title">${safeTitle}</h2>
-                <div class="reading-meta">${safeDateContext} · ${safeWordCount} words</div>
-                <div class="reading-body">${bodyHtml}</div>
-                ${sectionsHtml}
-              `;
-            }
-          } else if (readingRes.status === 503) {
-            if (readingContent) {
-              readingContent.innerHTML = '<p class="muted">Personal reading LLM slot not yet configured. Ask your admin to set it up.</p>';
-            }
-          } else if (readingRes.status === 400) {
-            if (readingContent) {
-              readingContent.innerHTML = '<p class="muted">Complete your birth data above to receive personalized readings.</p>';
-            }
-          }
-        } catch {
-          const readingContent = document.getElementById('reading-content');
-          if (readingContent) {
-            readingContent.innerHTML = '<p class="muted">Could not load reading.</p>';
-          }
+      if (!hasProfile) {
+        if (onboarding) {
+          onboarding.style.display = 'block';
+          onboarding.innerHTML = 'Set your birth data in Settings to unlock personalized readings.';
+        }
+        if (readingSection) readingSection.style.display = 'none';
+        const chartStatus = document.getElementById('chart-status');
+        if (chartStatus) chartStatus.textContent = 'Add birth data to generate your natal chart.';
+        if (profileStatus) {
+          profileStatus.innerHTML = '<p class="profile-prompt">Add your birth data to generate natal-chart-based readings.</p>';
+        }
+        if (birthFormWrapper) birthFormWrapper.style.display = 'block';
+        if (toggleBirthFormButton) toggleBirthFormButton.style.display = 'none';
+        if (viewReadingButton) viewReadingButton.disabled = true;
+        setView('settings');
+        return;
+      }
+
+      if (onboarding) onboarding.style.display = 'none';
+      if (readingSection) readingSection.style.display = 'block';
+      if (viewReadingButton) viewReadingButton.disabled = false;
+
+      const profileRes = await authFetch('/v1/user/profile/');
+      if (profileRes.ok) {
+        const profile = await profileRes.json();
+        if (profileStatus) {
+          profileStatus.innerHTML = `
+            <div class="profile-summary">
+              <div class="info-row"><span class="info-label">Birth Date</span><span class="info-value">${escapeHtml(profile.birth_date || '')}</span></div>
+              <div class="info-row"><span class="info-label">Location</span><span class="info-value">${escapeHtml(profile.birth_city || '')}</span></div>
+              <div class="info-row"><span class="info-label">Timezone</span><span class="info-value">${escapeHtml(profile.birth_timezone || '')}</span></div>
+              <div class="info-row"><span class="info-label">House System</span><span class="info-value">${escapeHtml(profile.house_system || '')}</span></div>
+            </div>
+          `;
         }
       }
+      if (toggleBirthFormButton) toggleBirthFormButton.style.display = 'inline-flex';
+      if (birthFormWrapper) birthFormWrapper.style.display = 'none';
+
+      void loadNatalChart();
+      setView('reading');
+      await startReadingFlow();
     } catch (err) {
       console.error('Dashboard load error:', err);
+      renderReadingMessage('Could not load dashboard.');
+      updateReadingStatus('Could not load dashboard.');
     }
   }
 
-  // Logout
+  document.getElementById('view-reading-btn')?.addEventListener('click', () => {
+    if (!hasProfile) return;
+    setView('reading');
+  });
+
+  document.getElementById('view-settings-btn')?.addEventListener('click', () => {
+    setView('settings');
+  });
+
+  document.getElementById('refresh-reading-btn')?.addEventListener('click', () => {
+    if (!canManageReadings) return;
+    void startReadingFlow();
+  });
+
+  document.getElementById('generate-reading-btn')?.addEventListener('click', async () => {
+    if (!hasProfile || !canManageReadings) return;
+    stopReadingPolling();
+    activeJobId = null;
+    updateReadingStatus('Requesting a fresh reading...');
+    renderReadingMessage('Preparing a fresh reading...');
+    try {
+      activeJobId = await enqueueOrReuseReadingJob();
+      readingPollStartedAt = Date.now();
+      await pollReadingJob();
+      if (activeJobId) {
+        readingPollTimer = window.setInterval(() => {
+          void pollReadingJob();
+        }, 4000);
+      }
+    } catch (err) {
+      renderReadingMessage(err instanceof Error ? err.message : 'Failed to generate reading');
+      updateReadingStatus('Reading generation failed.');
+    }
+  });
+
+  document.getElementById('toggle-birth-form')?.addEventListener('click', () => {
+    const birthFormWrapper = document.getElementById('birth-form-wrapper');
+    if (!birthFormWrapper) return;
+    birthFormWrapper.style.display = birthFormWrapper.style.display === 'none' ? 'block' : 'none';
+  });
+
+  document.getElementById('export-chart-text-btn')?.addEventListener('click', () => {
+    if (!cachedChart) return;
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadText(`voidwire-natal-chart-${stamp}.txt`, natalChartText(cachedChart));
+  });
+
+  document.getElementById('export-chart-image-btn')?.addEventListener('click', () => {
+    if (!cachedChart) return;
+    void exportNatalChartImage(cachedChart).catch((err) => {
+      alert(err instanceof Error ? err.message : 'Could not export chart image');
+    });
+  });
+
+  document.getElementById('export-account-btn')?.addEventListener('click', () => {
+    void exportAccountData();
+  });
+
   document.getElementById('logout-button')?.addEventListener('click', async () => {
     try {
       await authFetch('/v1/user/auth/logout', { method: 'POST' });
@@ -218,6 +907,12 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     clearToken();
     window.location.href = '/login';
   });
+
+  window.addEventListener('beforeunload', () => {
+    stopReadingPolling();
+  });
+
+  void loadDashboard();
 </script>
 
 <style>
@@ -227,6 +922,13 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     padding: 0 1.5rem;
   }
 
+  .dashboard-header {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    align-items: center;
+  }
+
   .page-title {
     font-family: var(--font-sans);
     font-size: 0.75rem;
@@ -234,8 +936,43 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     text-transform: uppercase;
     color: var(--accent);
     text-align: center;
-    margin-bottom: 3rem;
+    margin-bottom: 0.5rem;
     font-weight: 500;
+  }
+
+  .view-toggle {
+    display: inline-flex;
+    border: 1px solid var(--text-ghost);
+  }
+
+  .view-toggle-button {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 0.55rem 1rem;
+    font-family: var(--font-sans);
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  .view-toggle-button.active {
+    color: var(--accent);
+    background: var(--accent-glow);
+  }
+
+  .view-toggle-button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .onboarding-message {
+    font-family: var(--font-sans);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    text-align: center;
+    margin: 2rem 0 0.5rem;
   }
 
   .section-label {
@@ -245,9 +982,112 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     text-transform: uppercase;
     color: var(--text-muted);
     margin-bottom: 1rem;
-    margin-top: 3rem;
+    margin-top: 2rem;
     padding-bottom: 0.5rem;
     border-bottom: 1px solid var(--text-ghost);
+  }
+
+  .reading-status {
+    font-family: var(--font-sans);
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+  }
+
+  .reading-content :global(.loading),
+  .reading-content :global(.muted) {
+    font-family: var(--font-sans);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 2rem;
+  }
+
+  .reading-content :global(.reading-tier-badge) {
+    font-family: var(--font-sans);
+    font-size: 0.55rem;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--accent);
+    text-align: center;
+    margin-bottom: 0.75rem;
+  }
+
+  .reading-content :global(.reading-title) {
+    font-family: var(--font-body);
+    font-size: 1.6rem;
+    color: var(--text-primary);
+    text-align: center;
+    font-weight: 400;
+    margin-bottom: 0.5rem;
+  }
+
+  .reading-content :global(.reading-meta) {
+    font-family: var(--font-mono);
+    font-size: 0.58rem;
+    color: var(--text-muted);
+    text-align: center;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 2rem;
+  }
+
+  .reading-content :global(.reading-body) {
+    font-size: 1.05rem;
+    color: var(--text-primary);
+    line-height: var(--line-height);
+  }
+
+  .reading-content :global(.reading-body p) {
+    margin-bottom: 1.5em;
+  }
+
+  .reading-content :global(.section-heading) {
+    font-family: var(--font-sans);
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-top: 2rem;
+    margin-bottom: 0.75rem;
+    font-weight: 500;
+  }
+
+  .reading-content :global(.reading-template) {
+    margin-top: 2rem;
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .reading-actions,
+  .chart-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-top: 1rem;
+  }
+
+  .action-button,
+  :global(.edit-button) {
+    background: transparent;
+    border: 1px solid var(--text-ghost);
+    color: var(--text-secondary);
+    padding: 0.55rem 0.9rem;
+    font-family: var(--font-sans);
+    font-size: 0.62rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.3s ease;
+  }
+
+  .action-button:hover,
+  :global(.edit-button:hover) {
+    border-color: var(--accent);
+    color: var(--accent);
   }
 
   .user-info,
@@ -281,69 +1121,6 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     font-weight: 500;
   }
 
-  .reading-section {
-    margin-bottom: 2rem;
-  }
-
-  .reading-content :global(.loading),
-  .reading-content :global(.muted) {
-    font-family: var(--font-sans);
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    text-align: center;
-    padding: 2rem;
-  }
-
-  .reading-content :global(.reading-tier-badge) {
-    font-family: var(--font-sans);
-    font-size: 0.55rem;
-    letter-spacing: 0.3em;
-    text-transform: uppercase;
-    color: var(--accent);
-    text-align: center;
-    margin-bottom: 0.75rem;
-  }
-
-  .reading-content :global(.reading-title) {
-    font-family: var(--font-body);
-    font-size: 1.6rem;
-    color: var(--text-primary);
-    text-align: center;
-    font-weight: 400;
-    margin-bottom: 0.5rem;
-  }
-
-  .reading-content :global(.reading-meta) {
-    font-family: var(--font-mono);
-    font-size: 0.6rem;
-    color: var(--text-muted);
-    text-align: center;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    margin-bottom: 2rem;
-  }
-
-  .reading-content :global(.reading-body) {
-    font-size: 1.1rem;
-    color: var(--text-primary);
-    line-height: var(--line-height);
-  }
-
-  .reading-content :global(.reading-body p) {
-    margin-bottom: 1.5em;
-  }
-
-  .reading-content :global(.section-heading) {
-    font-family: var(--font-sans);
-    font-size: 0.65rem;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--accent);
-    margin-top: 2rem;
-    margin-bottom: 0.75rem;
-    font-weight: 500;
-  }
-
   :global(.profile-prompt) {
     font-family: var(--font-sans);
     font-size: 0.8rem;
@@ -351,32 +1128,39 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     margin-bottom: 1rem;
   }
 
-  :global(.edit-button) {
-    background: transparent;
-    border: 1px solid var(--text-ghost);
-    color: var(--text-muted);
-    padding: 0.5rem 1rem;
-    font-family: var(--font-sans);
-    font-size: 0.65rem;
-    letter-spacing: 0.15em;
+  .chart-content {
+    margin-top: 0.8rem;
+  }
+
+  .chart-content :global(.chart-summary) {
+    margin-bottom: 0.9rem;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    cursor: pointer;
-    margin-top: 0.75rem;
-    transition: all 0.3s ease;
+    color: var(--text-muted);
   }
 
-  :global(.edit-button:hover) {
-    border-color: var(--accent);
-    color: var(--accent);
+  .chart-content :global(.chart-table) {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
   }
 
-  .subscription-section {
-    margin-bottom: 2rem;
+  .chart-content :global(th),
+  .chart-content :global(td) {
+    border-bottom: 1px solid var(--text-ghost);
+    text-align: left;
+    padding: 0.45rem 0.4rem;
+    color: var(--text-secondary);
   }
 
-  .history-link-wrapper {
-    text-align: center;
-    margin: 3rem 0;
+  .chart-content :global(th) {
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.62rem;
   }
 
   .logout-wrapper {

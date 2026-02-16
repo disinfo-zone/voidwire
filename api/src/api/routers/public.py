@@ -6,14 +6,14 @@ from datetime import UTC, date, datetime
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.models import AstronomicalEvent, PipelineRun, Reading
 
 from api.dependencies import get_db
 from api.services.content_pages import get_content_page
-from api.services.site_config import load_site_config
+from api.services.site_config import load_site_asset_content, load_site_config
 
 router = APIRouter()
 EVENT_TRIGGER_SOURCE = "manual_event"
@@ -170,6 +170,22 @@ async def get_public_site_config(db: AsyncSession = Depends(get_db)):
         "tracking_head": cfg.get("tracking_head", ""),
         "tracking_body": cfg.get("tracking_body", ""),
     }
+
+
+@router.get("/site/assets/{kind}")
+async def get_site_asset(kind: str, db: AsyncSession = Depends(get_db)):
+    try:
+        asset = await load_site_asset_content(db, kind)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Site asset not found") from exc
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Site asset not found")
+    content, content_type = asset
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 @router.get("/ephemeris/today")

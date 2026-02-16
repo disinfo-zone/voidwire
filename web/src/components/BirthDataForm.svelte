@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { authFetch } from '../utils/auth';
 
   export let onSave: (() => void) | undefined = undefined;
+  export let initialData: Record<string, any> | null = null;
 
   let birthDate = '';
   let birthTime = '';
@@ -21,6 +22,41 @@
   let saving = false;
   let error = '';
   let success = '';
+  let hydratedFromInitial = false;
+  let houseSystemDescription = '';
+
+  const houseSystemDescriptions: Record<string, string> = {
+    placidus: 'Most common modern system. Unequal houses based on latitude and time.',
+    whole_sign: 'Each zodiac sign becomes one full house. Clean, ancient approach.',
+    koch: 'Time-based quadrant variant similar to Placidus, often used in Europe.',
+    equal: 'Twelve equal 30° houses starting from the Ascendant degree.',
+    porphyry: 'Divides each quadrant into three equal parts from Ascendant and Midheaven.',
+  };
+
+  $: houseSystemDescription =
+    houseSystemDescriptions[houseSystem] || 'Select the house system you prefer.';
+
+  function hydrateFromProfile(profile: Record<string, any> | null) {
+    if (!profile || hydratedFromInitial) return;
+    birthDate = String(profile.birth_date || '');
+    birthTimeKnown = Boolean(profile.birth_time_known);
+    birthTime = birthTimeKnown ? String(profile.birth_time || '') : '';
+    birthCity = String(profile.birth_city || '');
+    birthLatitude = Number(profile.birth_latitude || 0);
+    birthLongitude = Number(profile.birth_longitude || 0);
+    birthTimezone = String(profile.birth_timezone || '');
+    houseSystem = String(profile.house_system || 'placidus');
+    locationQuery = birthCity;
+    hydratedFromInitial = true;
+  }
+
+  onMount(() => {
+    hydrateFromProfile(initialData);
+  });
+
+  $: if (initialData && !hydratedFromInitial) {
+    hydrateFromProfile(initialData);
+  }
 
   function searchLocation() {
     const query = locationQuery.trim();
@@ -199,6 +235,7 @@
       <option value="equal">Equal</option>
       <option value="porphyry">Porphyry</option>
     </select>
+    <p class="field-help">{houseSystemDescription}</p>
   </div>
 
   {#if error}
@@ -243,6 +280,12 @@
     font-family: var(--font-sans);
     font-size: 0.8rem;
     border-radius: 2px;
+    color-scheme: dark;
+  }
+
+  .form-group select option {
+    background: #0b1118;
+    color: var(--text-primary);
   }
 
   .form-group input:focus,
@@ -271,6 +314,14 @@
     font-family: var(--font-sans);
     font-size: 0.7rem;
     color: var(--text-muted);
+  }
+
+  .field-help {
+    font-family: var(--font-sans);
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    line-height: 1.4;
+    margin-top: 0.2rem;
   }
 
   .location-results {

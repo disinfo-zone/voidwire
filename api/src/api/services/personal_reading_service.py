@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from ephemeris.natal import calculate_natal_chart, calculate_transit_to_natal_aspects
 from sqlalchemy import select
@@ -13,6 +13,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.models import PersonalReading, PipelineRun, Reading, User
 from voidwire.services.llm_client import LLMClient, LLMSlotConfig, generate_with_validation
+from voidwire.services.pipeline_settings import load_pipeline_settings
+from voidwire.services.prompt_template_runtime import (
+    load_active_prompt_template,
+    template_usage,
+)
+
+from ephemeris import calculate_day
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +28,82 @@ def _current_week_key(d: date) -> str:
     """Return ISO week key like '2026-W07'."""
     iso = d.isocalendar()
     return f"{iso[0]}-W{iso[1]:02d}"
+
+
+def _week_bounds(target_date: date) -> tuple[date, date]:
+    start = target_date - timedelta(days=target_date.weekday())
+    end = start + timedelta(days=6)
+    return start, end
+
+
+def _normalize_transit_positions(raw_positions: object) -> dict[str, dict]:
+    if not isinstance(raw_positions, dict):
+        return {}
+
+    normalized: dict[str, dict] = {}
+    for body_name, payload in raw_positions.items():
+        if hasattr(payload, "model_dump"):
+            data = payload.model_dump()
+        elif isinstance(payload, dict):
+            data = dict(payload)
+        else:
+            continue
+
+        try:
+            longitude = float(data.get("longitude"))
+        except (TypeError, ValueError):
+            continue
+
+        normalized[str(body_name)] = {
+            "longitude": longitude,
+            "sign": str(data.get("sign", "")),
+            "degree": float(data.get("degree", 0.0) or 0.0),
+            "speed_deg_day": float(data.get("speed_deg_day", 0.0) or 0.0),
+            "retrograde": bool(data.get("retrograde", False)),
+        }
+    return normalized
+
+
+def _aspect_sort_key(aspect: dict) -> tuple[int, float, str]:
+    significance_rank = {
+        "major": 0,
+        "moderate": 1,
+        "minor": 2,
+    }.get(str(aspect.get("significance", "")).lower(), 3)
+    try:
+        orb = float(aspect.get("orb_degrees", 99.0))
+    except (TypeError, ValueError):
+        orb = 99.0
+    day = str(aspect.get("date", ""))
+    return (significance_rank, orb, day)
+
+
+def _aggregate_weekly_aspects(aspects: list[dict], *, limit: int = 20) -> list[dict]:
+    by_signature: dict[tuple[str, str, str], dict] = {}
+    for aspect in aspects:
+        signature = (
+            str(aspect.get("transit_body", "")),
+            str(aspect.get("type", "")),
+            str(aspect.get("natal_body", "")),
+        )
+        existing = by_signature.get(signature)
+        if existing is None or _aspect_sort_key(aspect) < _aspect_sort_key(existing):
+            by_signature[signature] = aspect
+    deduped = list(by_signature.values())
+    deduped.sort(key=_aspect_sort_key)
+    return deduped[:limit]
+
+
+def _normalize_word_range(value: object, fallback: tuple[int, int]) -> list[int]:
+    if isinstance(value, list) and len(value) == 2:
+        try:
+            low = int(value[0])
+            high = int(value[1])
+            if low > 0 and high >= low:
+                return [low, high]
+        except (TypeError, ValueError):
+            pass
+    return [fallback[0], fallback[1]]
 
 
 def _validate_reading_json(data: dict) -> None:
@@ -42,6 +125,16 @@ async def _get_today_ephemeris(db: AsyncSession, target: date) -> dict | None:
     if run and run.ephemeris_json:
         return run.ephemeris_json
     return None
+
+
+async def _get_transit_positions_for_date(db: AsyncSession, target: date) -> dict[str, dict]:
+    ephemeris = await _get_today_ephemeris(db, target)
+    from_pipeline = _normalize_transit_positions(ephemeris.get("positions", {}) if ephemeris else {})
+    if from_pipeline:
+        return from_pipeline
+
+    generated = await calculate_day(target, db_session=db)
+    return _normalize_transit_positions(generated.positions)
 
 
 async def _get_today_reading_context(db: AsyncSession, target: date) -> dict | None:
@@ -215,43 +308,120 @@ class PersonalReadingService:
                 profile.natal_chart_computed_at = datetime.now(UTC)
                 await db.flush()
 
-            # Get current transit data
-            ephemeris = await _get_today_ephemeris(db, target_date)
-            transit_positions_raw = ephemeris.get("positions", {}) if ephemeris else {}
-            transit_positions = (
-                transit_positions_raw if isinstance(transit_positions_raw, dict) else {}
-            )
-
-            # Calculate transit-to-natal aspects
-            transit_natal = calculate_transit_to_natal_aspects(
-                transit_positions, chart.get("positions", [])
-            )
+            today_transits = await _get_transit_positions_for_date(db, target_date)
+            week_start, week_end = _week_bounds(target_date)
+            if tier == "free":
+                week_aspects: list[dict] = []
+                day = week_start
+                while day <= week_end:
+                    day_transits = await _get_transit_positions_for_date(db, day)
+                    day_aspects = calculate_transit_to_natal_aspects(
+                        day_transits,
+                        chart.get("positions", []),
+                    )
+                    for aspect in day_aspects:
+                        week_aspects.append(
+                            {
+                                **aspect,
+                                "date": day.isoformat(),
+                            }
+                        )
+                    day += timedelta(days=1)
+                transit_natal = _aggregate_weekly_aspects(week_aspects, limit=60)
+            else:
+                transit_natal = calculate_transit_to_natal_aspects(
+                    today_transits,
+                    chart.get("positions", []),
+                )
 
             # Build prompt
             from pipeline.prompts.personal_reading import (
+                PERSONAL_READING_FREE_TEMPLATE_PREFIX,
+                PERSONAL_READING_PRO_TEMPLATE_PREFIX,
                 build_free_reading_prompt,
                 build_pro_reading_prompt,
+                resolve_personal_template_candidates,
             )
 
+            pipeline_settings = await load_pipeline_settings(db)
+            personal_settings = pipeline_settings.personal
+            if not bool(personal_settings.enabled):
+                logger.info("Personal reading generation disabled by pipeline settings")
+                return None
+
+            banned_phrases = [
+                str(phrase).strip()
+                for phrase in (pipeline_settings.synthesis.banned_phrases or [])
+                if str(phrase).strip()
+            ]
+            free_word_range = _normalize_word_range(
+                personal_settings.free_word_range,
+                (300, 500),
+            )
+            pro_word_range = _normalize_word_range(
+                personal_settings.pro_word_range,
+                (600, 1000),
+            )
+            weekly_aspect_limit = max(5, min(60, int(personal_settings.weekly_aspect_limit or 20)))
+
+            template = None
+            template_version = ""
             if tier == "free":
+                free_candidates = resolve_personal_template_candidates(
+                    "free",
+                    personal_settings.free_template_name,
+                )
+                template = await load_active_prompt_template(
+                    db,
+                    candidates=free_candidates,
+                    prefix=PERSONAL_READING_FREE_TEMPLATE_PREFIX,
+                )
+                transit_natal = _aggregate_weekly_aspects(transit_natal, limit=weekly_aspect_limit)
                 messages = build_free_reading_prompt(
                     natal_positions=chart.get("positions", []),
                     natal_angles=chart.get("angles", []),
-                    current_transits=transit_positions,
+                    current_transits=today_transits,
                     transit_to_natal=transit_natal,
                     house_system=profile.house_system,
                     date_context=target_date,
+                    week_start=week_start,
+                    week_end=week_end,
+                    blocked_words=banned_phrases,
+                    word_range=free_word_range,
+                    template_text=str(template.content) if template else None,
+                )
+                template_version = (
+                    f"{template.template_name}.v{template.version}"
+                    if template
+                    else "pipeline.prompts.personal_reading.free_weekly.v3"
                 )
             else:
+                pro_candidates = resolve_personal_template_candidates(
+                    "pro",
+                    personal_settings.pro_template_name,
+                )
+                template = await load_active_prompt_template(
+                    db,
+                    candidates=pro_candidates,
+                    prefix=PERSONAL_READING_PRO_TEMPLATE_PREFIX,
+                )
                 daily_ctx = await _get_today_reading_context(db, target_date)
                 messages = build_pro_reading_prompt(
                     natal_positions=chart.get("positions", []),
                     natal_angles=chart.get("angles", []),
-                    current_transits=transit_positions,
+                    current_transits=today_transits,
                     transit_to_natal=transit_natal,
                     house_system=profile.house_system,
                     date_context=target_date,
                     daily_reading_context=daily_ctx,
+                    blocked_words=banned_phrases,
+                    word_range=pro_word_range,
+                    template_text=str(template.content) if template else None,
+                )
+                template_version = (
+                    f"{template.template_name}.v{template.version}"
+                    if template
+                    else "pipeline.prompts.personal_reading.pro_daily.v3"
                 )
 
             start = time.monotonic()
@@ -268,7 +438,16 @@ class PersonalReadingService:
                 content=content,
                 house_system_used=profile.house_system,
                 llm_slot_used=slot_name,
-                generation_metadata={"elapsed_seconds": round(elapsed, 2)},
+                generation_metadata={
+                    "elapsed_seconds": round(elapsed, 2),
+                    "template_version": template_version,
+                    "template": template_usage(template) if template else None,
+                    "banned_phrase_count": len(banned_phrases),
+                    "coverage": {
+                        "start": week_start.isoformat() if tier == "free" else target_date.isoformat(),
+                        "end": week_end.isoformat() if tier == "free" else target_date.isoformat(),
+                    },
+                },
             )
             db.add(reading)
             try:

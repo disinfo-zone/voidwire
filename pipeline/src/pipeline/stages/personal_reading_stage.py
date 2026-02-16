@@ -19,8 +19,18 @@ from voidwire.models import (
     UserProfile,
 )
 from voidwire.services.llm_client import LLMClient, LLMSlotConfig, generate_with_validation
+from voidwire.services.pipeline_settings import load_pipeline_settings
+from voidwire.services.prompt_template_runtime import (
+    load_active_prompt_template,
+    template_usage,
+)
 
-from pipeline.prompts.personal_reading import build_pro_reading_prompt
+from ephemeris import calculate_day
+from pipeline.prompts.personal_reading import (
+    PERSONAL_READING_PRO_TEMPLATE_PREFIX,
+    build_pro_reading_prompt,
+    resolve_personal_template_candidates,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +40,31 @@ def _validate_reading_json(data: dict) -> None:
         raise ValueError("Expected JSON object")
     if "title" not in data or "body" not in data:
         raise ValueError("Missing required fields: title, body")
+
+
+def _normalize_transit_positions(raw_positions: object) -> dict[str, dict]:
+    if not isinstance(raw_positions, dict):
+        return {}
+    normalized: dict[str, dict] = {}
+    for body_name, payload in raw_positions.items():
+        if hasattr(payload, "model_dump"):
+            data = payload.model_dump()
+        elif isinstance(payload, dict):
+            data = dict(payload)
+        else:
+            continue
+        try:
+            longitude = float(data.get("longitude"))
+        except (TypeError, ValueError):
+            continue
+        normalized[str(body_name)] = {
+            "longitude": longitude,
+            "sign": str(data.get("sign", "")),
+            "degree": float(data.get("degree", 0.0) or 0.0),
+            "speed_deg_day": float(data.get("speed_deg_day", 0.0) or 0.0),
+            "retrograde": bool(data.get("retrograde", False)),
+        }
+    return normalized
 
 
 async def run_personal_reading_stage(
@@ -87,9 +122,10 @@ async def run_personal_reading_stage(
     pipeline_run = run_result.scalars().first()
     transit_positions: dict[str, dict] = {}
     if pipeline_run and pipeline_run.ephemeris_json:
-        transit_positions_raw = pipeline_run.ephemeris_json.get("positions", {})
-        if isinstance(transit_positions_raw, dict):
-            transit_positions = transit_positions_raw
+        transit_positions = _normalize_transit_positions(pipeline_run.ephemeris_json.get("positions", {}))
+    if not transit_positions:
+        generated = await calculate_day(target_date, db_session=session)
+        transit_positions = _normalize_transit_positions(generated.positions)
 
     # Get today's published reading for context
     reading_result = await session.execute(
@@ -103,6 +139,28 @@ async def run_personal_reading_stage(
     if daily_reading:
         content = daily_reading.published_standard or daily_reading.generated_standard or {}
         daily_ctx = {"title": content.get("title", ""), "body": content.get("body", "")}
+
+    pipeline_settings = await load_pipeline_settings(session)
+    personal_settings = pipeline_settings.personal
+    if not bool(personal_settings.enabled):
+        logger.info("personal readings disabled via pipeline settings; skipping")
+        return 0
+
+    blocked_words = [
+        str(phrase).strip()
+        for phrase in (pipeline_settings.synthesis.banned_phrases or [])
+        if str(phrase).strip()
+    ]
+    pro_word_range = personal_settings.pro_word_range
+    pro_candidates = resolve_personal_template_candidates(
+        "pro",
+        personal_settings.pro_template_name,
+    )
+    pro_template = await load_active_prompt_template(
+        session,
+        candidates=pro_candidates,
+        prefix=PERSONAL_READING_PRO_TEMPLATE_PREFIX,
+    )
 
     # Build LLM client
     client = LLMClient()
@@ -146,6 +204,7 @@ async def run_personal_reading_stage(
                     transit_positions, chart.get("positions", [])
                 )
 
+                template = pro_template
                 messages = build_pro_reading_prompt(
                     natal_positions=chart.get("positions", []),
                     natal_angles=chart.get("angles", []),
@@ -154,6 +213,9 @@ async def run_personal_reading_stage(
                     house_system=profile.house_system,
                     date_context=target_date,
                     daily_reading_context=daily_ctx,
+                    blocked_words=blocked_words,
+                    word_range=pro_word_range,
+                    template_text=str(template.content) if template else None,
                 )
 
                 start = time.monotonic()
@@ -169,7 +231,16 @@ async def run_personal_reading_stage(
                     content=content,
                     house_system_used=profile.house_system,
                     llm_slot_used="personal_pro",
-                    generation_metadata={"elapsed_seconds": round(elapsed, 2)},
+                    generation_metadata={
+                        "elapsed_seconds": round(elapsed, 2),
+                        "template_version": (
+                            f"{template.template_name}.v{template.version}"
+                            if template
+                            else "pipeline.prompts.personal_reading.pro_daily.v3"
+                        ),
+                        "template": template_usage(template) if template else None,
+                        "banned_phrase_count": len(blocked_words),
+                    },
                 )
                 session.add(reading)
                 await session.flush()

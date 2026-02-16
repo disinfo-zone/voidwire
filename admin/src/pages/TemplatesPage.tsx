@@ -92,7 +92,7 @@ export default function TemplatesPage() {
           <div className="bg-surface border border-text-ghost rounded px-3 py-2">
             <div className="text-text-secondary mb-1">Current Runtime Status</div>
             <div className="text-text-muted">
-              Active templates are now used at runtime for synthesis Pass A and Pass B.
+              Active templates are used at runtime for synthesis (Pass A/B) and personal readings (free/pro).
               If no matching active template exists, the pipeline falls back to
               <span className="font-mono"> pipeline/src/pipeline/prompts/*.py</span>.
             </div>
@@ -116,7 +116,11 @@ export default function TemplatesPage() {
           <span className="text-accent ml-1 font-mono">synthesis_prose_v1</span>,
           <span className="text-accent ml-1 font-mono">synthesis_prose_event</span>,
           <span className="text-accent ml-1 font-mono">starter_synthesis_prose</span>,
-          <span className="text-accent ml-1 font-mono">starter_synthesis_event_prose</span>.
+          <span className="text-accent ml-1 font-mono">starter_synthesis_event_prose</span>,
+          <span className="text-accent ml-1 font-mono">personal_reading_free</span>,
+          <span className="text-accent ml-1 font-mono">personal_reading_pro</span>,
+          <span className="text-accent ml-1 font-mono">starter_personal_reading_free</span>,
+          <span className="text-accent ml-1 font-mono">starter_personal_reading_pro</span>.
         </div>
         <div className="text-xs text-text-muted">
           Safe workflow: create a version, keep notes on intent and changes, compare active version output, then rollback if quality drops.

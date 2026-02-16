@@ -11,11 +11,16 @@ from voidwire.config import get_settings
 from voidwire.models import (
     AdminUser,
     AnalyticsEvent,
+    AsyncJob,
     EmailVerificationToken,
     PasswordResetToken,
+    PersonalReading,
     PipelineRun,
+    Reading,
     StripeWebhookEvent,
+    Subscription,
     User,
+    UserProfile,
 )
 
 from api.dependencies import get_db, require_admin
@@ -53,6 +58,210 @@ async def get_pipeline_health(
         .group_by(PipelineRun.status)
     )
     return [{"status": row[0], "count": row[1]} for row in result.all()]
+
+
+@router.get("/kpis")
+async def get_kpis(
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(require_admin),
+):
+    del user
+    now = datetime.now(UTC)
+    today = date.today()
+    day_ago = now - timedelta(hours=24)
+    week_ago = now - timedelta(days=7)
+
+    total_users = int((await db.execute(select(func.count(User.id)))).scalar() or 0)
+    new_users_7d = int(
+        (
+            await db.execute(
+                select(func.count(User.id)).where(User.created_at >= week_ago)
+            )
+        ).scalar()
+        or 0
+    )
+    email_verified_users = int(
+        (
+            await db.execute(
+                select(func.count(User.id)).where(User.email_verified.is_(True))
+            )
+        ).scalar()
+        or 0
+    )
+    users_with_profile = int((await db.execute(select(func.count(UserProfile.user_id)))).scalar() or 0)
+
+    active_subscribers = int(
+        (
+            await db.execute(
+                select(func.count(func.distinct(Subscription.user_id))).where(
+                    Subscription.status.in_(("active", "trialing")),
+                )
+            )
+        ).scalar()
+        or 0
+    )
+    trialing_subscribers = int(
+        (
+            await db.execute(
+                select(func.count(func.distinct(Subscription.user_id))).where(
+                    Subscription.status == "trialing",
+                )
+            )
+        ).scalar()
+        or 0
+    )
+    past_due_subscribers = int(
+        (
+            await db.execute(
+                select(func.count(func.distinct(Subscription.user_id))).where(
+                    Subscription.status == "past_due",
+                )
+            )
+        ).scalar()
+        or 0
+    )
+    canceled_subscribers = int(
+        (
+            await db.execute(
+                select(func.count(func.distinct(Subscription.user_id))).where(
+                    Subscription.status == "canceled",
+                )
+            )
+        ).scalar()
+        or 0
+    )
+    manual_pro_overrides = int(
+        (
+            await db.execute(
+                select(func.count(User.id)).where(
+                    User.pro_override.is_(True),
+                    (User.pro_override_until.is_(None)) | (User.pro_override_until > now),
+                )
+            )
+        ).scalar()
+        or 0
+    )
+    test_users = int(
+        (
+            await db.execute(
+                select(func.count(User.id)).where(
+                    User.pro_override_reason.is_not(None),
+                    func.lower(User.pro_override_reason).like("%test%"),
+                )
+            )
+        ).scalar()
+        or 0
+    )
+
+    active_sub_ids = select(Subscription.user_id.label("user_id")).where(
+        Subscription.status.in_(("active", "trialing"))
+    )
+    override_ids = select(User.id.label("user_id")).where(
+        User.pro_override.is_(True),
+        (User.pro_override_until.is_(None)) | (User.pro_override_until > now),
+    )
+    pro_union = active_sub_ids.union(override_ids).subquery()
+    pro_users_total = int(
+        (await db.execute(select(func.count()).select_from(pro_union))).scalar() or 0
+    )
+
+    personal_generated_total = int(
+        (await db.execute(select(func.count(PersonalReading.id)))).scalar() or 0
+    )
+    personal_generated_24h = int(
+        (
+            await db.execute(
+                select(func.count(PersonalReading.id)).where(PersonalReading.created_at >= day_ago)
+            )
+        ).scalar()
+        or 0
+    )
+    personal_generated_today = int(
+        (
+            await db.execute(
+                select(func.count(PersonalReading.id)).where(PersonalReading.date_context == today)
+            )
+        ).scalar()
+        or 0
+    )
+    personal_pro_today = int(
+        (
+            await db.execute(
+                select(func.count(PersonalReading.id)).where(
+                    PersonalReading.tier == "pro",
+                    PersonalReading.date_context == today,
+                )
+            )
+        ).scalar()
+        or 0
+    )
+
+    job_counts_result = await db.execute(
+        select(AsyncJob.status, func.count(AsyncJob.id))
+        .where(
+            AsyncJob.job_type == "personal_reading.generate",
+            AsyncJob.created_at >= day_ago,
+        )
+        .group_by(AsyncJob.status)
+    )
+    job_counts = {str(status): int(count) for status, count in job_counts_result.all()}
+
+    pipeline_counts_result = await db.execute(
+        select(PipelineRun.status, func.count(PipelineRun.id))
+        .where(PipelineRun.date_context >= (today - timedelta(days=6)))
+        .group_by(PipelineRun.status)
+    )
+    pipeline_counts = {str(status): int(count) for status, count in pipeline_counts_result.all()}
+
+    published_30d = int(
+        (
+            await db.execute(
+                select(func.count(Reading.id)).where(
+                    Reading.status == "published",
+                    Reading.date_context >= (today - timedelta(days=29)),
+                )
+            )
+        ).scalar()
+        or 0
+    )
+
+    return {
+        "generated_at": now.isoformat(),
+        "users": {
+            "total": total_users,
+            "new_7d": new_users_7d,
+            "email_verified": email_verified_users,
+            "with_profile": users_with_profile,
+            "pro_total": pro_users_total,
+            "active_subscribers": active_subscribers,
+            "manual_overrides": manual_pro_overrides,
+            "test_accounts": test_users,
+        },
+        "subscriptions": {
+            "active_or_trialing": active_subscribers,
+            "trialing": trialing_subscribers,
+            "past_due": past_due_subscribers,
+            "canceled": canceled_subscribers,
+        },
+        "personal_readings": {
+            "generated_total": personal_generated_total,
+            "generated_24h": personal_generated_24h,
+            "generated_today": personal_generated_today,
+            "pro_generated_today": personal_pro_today,
+        },
+        "jobs_24h": {
+            "queued": int(job_counts.get("queued", 0)),
+            "running": int(job_counts.get("running", 0)),
+            "completed": int(job_counts.get("completed", 0)),
+            "failed": int(job_counts.get("failed", 0)),
+        },
+        "pipeline_7d": {
+            "completed": int(pipeline_counts.get("completed", 0)),
+            "failed": int(pipeline_counts.get("failed", 0)),
+            "running": int(pipeline_counts.get("running", 0)),
+            "published_readings_30d": published_30d,
+        },
+    }
 
 
 @router.get("/operational-health")

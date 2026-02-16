@@ -5,15 +5,26 @@ import ConfirmDialog from '../components/ui/ConfirmDialog';
 import Spinner from '../components/ui/Spinner';
 import SettingField from '../components/settings/SettingField';
 
-const CATEGORIES = ['selection', 'threads', 'synthesis', 'ingestion', 'distillation', 'events'] as const;
+const CATEGORIES = ['selection', 'threads', 'synthesis', 'personal', 'ingestion', 'distillation', 'events'] as const;
 
 const CATEGORY_LABELS: Record<string, string> = {
   selection: 'Selection',
   threads: 'Threads',
   synthesis: 'Synthesis',
+  personal: 'Personal Readings',
   ingestion: 'Ingestion',
   distillation: 'Distillation',
   events: 'Event Readings',
+};
+
+const CATEGORY_SCHEMA_DEFS: Record<string, string> = {
+  selection: 'SelectionSettings',
+  threads: 'ThreadSettings',
+  synthesis: 'SynthesisSettings',
+  personal: 'PersonalReadingSettings',
+  ingestion: 'IngestionSettings',
+  distillation: 'DistillationSettings',
+  events: 'EventsSettings',
 };
 
 function toLabel(key: string): string {
@@ -106,7 +117,8 @@ export default function SettingsPage() {
     );
   }
 
-  const catSchema = schema?.$defs?.[activeTab.charAt(0).toUpperCase() + activeTab.slice(1) + 'Settings'] || {};
+  const catSchemaName = CATEGORY_SCHEMA_DEFS[activeTab] || '';
+  const catSchema = (catSchemaName ? schema?.$defs?.[catSchemaName] : undefined) || {};
   const catProperties = catSchema?.properties || {};
   const catDraft = draft[activeTab] || {};
   const catDefaults = defaults[activeTab] || {};

@@ -88,10 +88,20 @@ class EventsSettings(BaseModel):
     major_signals_only_near_event: bool = True
 
 
+class PersonalReadingSettings(BaseModel):
+    enabled: bool = True
+    free_word_range: list[int] = Field(default=[300, 500])
+    pro_word_range: list[int] = Field(default=[600, 1000])
+    free_template_name: str = "personal_reading_free"
+    pro_template_name: str = "personal_reading_pro"
+    weekly_aspect_limit: int = Field(default=20, ge=5, le=60)
+
+
 class PipelineSettings(BaseModel):
     selection: SelectionSettings = Field(default_factory=SelectionSettings)
     threads: ThreadSettings = Field(default_factory=ThreadSettings)
     synthesis: SynthesisSettings = Field(default_factory=SynthesisSettings)
+    personal: PersonalReadingSettings = Field(default_factory=PersonalReadingSettings)
     ingestion: IngestionSettings = Field(default_factory=IngestionSettings)
     distillation: DistillationSettings = Field(default_factory=DistillationSettings)
     events: EventsSettings = Field(default_factory=EventsSettings)

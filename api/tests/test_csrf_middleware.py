@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from httpx import AsyncClient
+from api.main import create_app
+from httpx import ASGITransport, AsyncClient
 
 
 @pytest.mark.asyncio
@@ -44,5 +45,46 @@ async def test_user_logout_rejects_cross_site_origin(unauthenticated_client: Asy
             "Origin": "https://evil.example",
         },
     )
+    assert response.status_code == 403
+    assert "origin" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_user_logout_accepts_localhost_origin_when_target_is_localhost():
+    app = create_app()
+    app.state._setup_complete = True
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://localhost:8000") as client:
+        response = await client.post(
+            "/v1/user/auth/logout",
+            headers={
+                "Cookie": "voidwire_user_token=fake.jwt.token; voidwire_csrf_token=abc123",
+                "X-CSRF-Token": "abc123",
+                "Origin": "http://localhost:5173",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["detail"] == "Logged out"
+
+
+@pytest.mark.asyncio
+async def test_user_logout_rejects_localhost_origin_for_non_loopback_target():
+    app = create_app()
+    app.state._setup_complete = True
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="https://api.voidwire.disinfo.zone",
+    ) as client:
+        response = await client.post(
+            "/v1/user/auth/logout",
+            headers={
+                "Cookie": "voidwire_user_token=fake.jwt.token; voidwire_csrf_token=abc123",
+                "X-CSRF-Token": "abc123",
+                "Origin": "http://localhost:5173",
+            },
+        )
+
     assert response.status_code == 403
     assert "origin" in response.json()["detail"].lower()

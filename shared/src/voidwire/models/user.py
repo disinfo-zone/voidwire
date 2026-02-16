@@ -37,6 +37,12 @@ class User(Base):
     )
     pro_override_reason: Mapped[str | None] = mapped_column(Text)
     pro_override_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_test_user: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("FALSE")
+    )
+    is_admin_user: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("FALSE")
+    )
     token_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("TRUE"))
     created_at: Mapped[datetime] = mapped_column(

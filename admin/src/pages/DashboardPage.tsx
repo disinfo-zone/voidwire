@@ -27,6 +27,7 @@ export default function DashboardPage() {
   const [pipelineHealth, setPipelineHealth] = useState<any[]>([]);
   const [latestReading, setLatestReading] = useState<any>(null);
   const [llmSlots, setLlmSlots] = useState<any[]>([]);
+  const [kpis, setKpis] = useState<any>(null);
   const [threadCount, setThreadCount] = useState<number | null>(null);
   const [sourceHealth, setSourceHealth] = useState<{ total: number; active: number; errored: number } | null>(null);
   const [operationalHealth, setOperationalHealth] = useState<any>(null);
@@ -55,6 +56,7 @@ export default function DashboardPage() {
         }
       }),
       apiGet('/admin/analytics/operational-health').then(setOperationalHealth),
+      apiGet('/admin/analytics/kpis').then(setKpis),
     ]).catch((e) => toast.error(e.message)).finally(() => setLoading(false));
   }, []);
 
@@ -131,6 +133,35 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {kpis && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="bg-surface-raised border border-text-ghost rounded p-4">
+            <div className="text-xs text-text-muted uppercase tracking-wider mb-2">Users</div>
+            <div className="text-sm text-text-primary">{kpis.users?.total ?? 0} total</div>
+            <div className="text-xs text-text-muted mt-1">+{kpis.users?.new_7d ?? 0} last 7d</div>
+          </div>
+          <div className="bg-surface-raised border border-text-ghost rounded p-4">
+            <div className="text-xs text-text-muted uppercase tracking-wider mb-2">Pro Access</div>
+            <div className="text-sm text-text-primary">{kpis.users?.pro_total ?? 0} pro users</div>
+            <div className="text-xs text-text-muted mt-1">
+              {kpis.users?.active_subscribers ?? 0} paid/trial + {kpis.users?.manual_overrides ?? 0} overrides
+            </div>
+          </div>
+          <div className="bg-surface-raised border border-text-ghost rounded p-4">
+            <div className="text-xs text-text-muted uppercase tracking-wider mb-2">Personal Gens (24h)</div>
+            <div className="text-sm text-text-primary">{kpis.personal_readings?.generated_24h ?? 0} generated</div>
+            <div className="text-xs text-text-muted mt-1">
+              {kpis.jobs_24h?.failed ?? 0} failed jobs / {kpis.jobs_24h?.completed ?? 0} completed
+            </div>
+          </div>
+          <div className="bg-surface-raised border border-text-ghost rounded p-4">
+            <div className="text-xs text-text-muted uppercase tracking-wider mb-2">Pipeline Output</div>
+            <div className="text-sm text-text-primary">{kpis.pipeline_7d?.completed ?? 0} completed (7d)</div>
+            <div className="text-xs text-text-muted mt-1">{kpis.pipeline_7d?.published_readings_30d ?? 0} published (30d)</div>
+          </div>
+        </div>
+      )}
 
       {operationalHealth && (
         <div className="bg-surface-raised border border-text-ghost rounded p-4 mb-6">

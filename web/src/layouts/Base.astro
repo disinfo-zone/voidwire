@@ -50,6 +50,22 @@ try {
   siteConfig = defaultSiteConfig;
 }
 
+let isLoggedIn = false;
+try {
+  const requestCookies = Astro.request.headers.get('cookie');
+  if (requestCookies) {
+    const authHeaders = new Headers(apiHeaders ?? {});
+    authHeaders.set('cookie', requestCookies);
+    const authRes = await fetch(apiUrl('/v1/user/auth/me'), {
+      headers: authHeaders,
+      cache: 'no-store',
+    });
+    isLoggedIn = authRes.ok;
+  }
+} catch {
+  isLoggedIn = false;
+}
+
 const siteTitle = String(siteConfig.site_title || defaultSiteConfig.site_title).trim() || 'VOIDWIRE';
 const pageTitle = title ? `${title} | ${siteTitle}` : siteTitle;
 const pageDescription =
@@ -117,11 +133,39 @@ const trackingBody = String(siteConfig.tracking_body || '');
       <a href="/privacy">Privacy</a>
       <span>•</span>
       <a href="/terms">Terms</a>
-      <span>•</span>
-      <a href="/billing-policy">Billing</a>
+      {isLoggedIn && (
+        <>
+          <span>•</span>
+          <a href="/billing-policy">Billing</a>
+        </>
+      )}
       <span>•</span>
       <a href="/disclaimer">Disclaimer</a>
     </footer>
+    <script is:inline>
+      (() => {
+        const navs = document.querySelectorAll('.site-nav');
+        if (!navs.length) return;
+        fetch('/v1/user/auth/me', { credentials: 'include' })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((me) => {
+            if (!me?.id) return;
+            navs.forEach((nav) => {
+              if (nav.querySelector('a[href="/dashboard"]')) return;
+              const link = document.createElement('a');
+              link.href = '/dashboard';
+              link.textContent = 'Dashboard';
+              if (window.location.pathname === '/dashboard') {
+                link.setAttribute('aria-current', 'page');
+              }
+              nav.appendChild(link);
+            });
+          })
+          .catch(() => {
+            // Ignore auth probe errors; nav remains unchanged for guests.
+          });
+      })();
+    </script>
     {trackingBody && <Fragment set:html={trackingBody} />}
   </body>
 </html>

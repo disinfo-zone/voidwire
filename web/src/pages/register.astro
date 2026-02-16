@@ -46,7 +46,7 @@ import Background from '../components/Background.svelte';
         <button type="submit" class="auth-button">Register</button>
       </form>
 
-      <p class="oauth-note">OAuth sign-in options are coming soon.</p>
+      <p id="oauth-note" class="oauth-note" style="display: none;"></p>
 
       <p class="auth-link">Already have an account? <a href="/login">Login</a></p>
     </div>
@@ -58,6 +58,26 @@ import Background from '../components/Background.svelte';
 
   const form = document.getElementById('register-form') as HTMLFormElement;
   const errorEl = document.getElementById('error-message') as HTMLDivElement;
+  const oauthNoteEl = document.getElementById('oauth-note') as HTMLParagraphElement | null;
+
+  async function loadOauthState() {
+    if (!oauthNoteEl) return;
+    try {
+      const res = await fetch('/v1/user/auth/oauth/providers');
+      if (!res.ok) return;
+      const providers = await res.json();
+      const labels: string[] = [];
+      if (providers?.google?.enabled) labels.push('Google');
+      if (providers?.apple?.enabled) labels.push('Apple');
+      if (labels.length === 0) return;
+      oauthNoteEl.textContent = `OAuth sign-in enabled: ${labels.join(', ')}`;
+      oauthNoteEl.style.display = 'block';
+    } catch {
+      // Leave OAuth note hidden when provider status cannot be loaded.
+    }
+  }
+
+  void loadOauthState();
 
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();

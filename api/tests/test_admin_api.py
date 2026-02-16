@@ -41,6 +41,7 @@ class TestSettingsAPI:
         assert "selection" in body["properties"]
         assert "threads" in body["properties"]
         assert "synthesis" in body["properties"]
+        assert "personal" in body["properties"]
 
     async def test_defaults_pipeline(self, client: AsyncClient):
         resp = await client.get("/admin/settings/defaults/pipeline")
@@ -49,6 +50,7 @@ class TestSettingsAPI:
         assert body["selection"]["n_select"] == 9
         assert body["threads"]["match_threshold"] == 0.75
         assert body["synthesis"]["plan_retries"] == 2
+        assert body["personal"]["enabled"] is True
         assert body["ingestion"]["max_total"] == 80
         assert body["distillation"]["content_truncation"] == 500
 
@@ -631,20 +633,26 @@ class TestTemplatesAPI:
         resp = await client.get("/admin/templates/")
         assert resp.status_code == 200
         body = resp.json()
-        assert len(body) == 4
+        assert len(body) == 6
         by_name = {t["template_name"]: t for t in body}
         assert "starter_synthesis_prose" in by_name
         assert "synthesis_plan" in by_name
         assert "starter_synthesis_event_prose" in by_name
         assert "starter_synthesis_event_plan" in by_name
+        assert "starter_personal_reading_free" in by_name
+        assert "starter_personal_reading_pro" in by_name
         assert by_name["starter_synthesis_prose"]["version"] == 1
         assert by_name["synthesis_plan"]["version"] == 1
         assert by_name["starter_synthesis_event_prose"]["version"] == 1
         assert by_name["starter_synthesis_event_plan"]["version"] == 1
+        assert by_name["starter_personal_reading_free"]["version"] == 1
+        assert by_name["starter_personal_reading_pro"]["version"] == 1
         assert by_name["starter_synthesis_prose"]["is_active"] is True
         assert by_name["synthesis_plan"]["is_active"] is True
         assert by_name["starter_synthesis_event_prose"]["is_active"] is True
         assert by_name["starter_synthesis_event_plan"]["is_active"] is True
+        assert by_name["starter_personal_reading_free"]["is_active"] is True
+        assert by_name["starter_personal_reading_pro"]["is_active"] is True
 
     async def test_get_not_found(self, client: AsyncClient):
         resp = await client.get(f"/admin/templates/{uuid.uuid4()}")
@@ -928,6 +936,106 @@ class TestAccountsAPI:
         assert fake_user.pro_override is True
         assert fake_user.pro_override_reason == "manual QA"
 
+    async def test_create_user(self, client: AsyncClient, mock_db):
+        existing_result = MagicMock()
+        existing_result.scalars.return_value.first.return_value = None
+        mock_db.execute.return_value = existing_result
+
+        def side_effect_add(obj):
+            if getattr(obj, "email", None) == "new-user@test.local":
+                obj.id = uuid.uuid4()
+                obj.created_at = datetime.now(UTC)
+                obj.last_login_at = None
+                obj.pro_override = False
+                obj.pro_override_reason = None
+                obj.pro_override_until = None
+
+        mock_db.add = MagicMock(side_effect=side_effect_add)
+
+        resp = await client.post(
+            "/admin/accounts/users",
+            json={
+                "email": "new-user@test.local",
+                "password": "temporary-password",
+                "display_name": "New User",
+                "email_verified": True,
+                "is_active": True,
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["email"] == "new-user@test.local"
+        assert body["display_name"] == "New User"
+        assert body["is_active"] is True
+
+    async def test_update_user(self, client: AsyncClient, mock_db):
+        fake_user = MagicMock()
+        fake_user.id = uuid.uuid4()
+        fake_user.email = "update@test.local"
+        fake_user.display_name = "Before"
+        fake_user.email_verified = False
+        fake_user.is_active = True
+        fake_user.token_version = 0
+        fake_user.created_at = datetime.now(UTC)
+        fake_user.last_login_at = None
+        fake_user.pro_override = False
+        fake_user.pro_override_reason = None
+        fake_user.pro_override_until = None
+        mock_db.get.return_value = fake_user
+
+        subs_result = MagicMock()
+        subs_result.scalars.return_value.first.return_value = None
+        mock_db.execute.return_value = subs_result
+
+        resp = await client.patch(
+            f"/admin/accounts/users/{fake_user.id}",
+            json={
+                "display_name": "After",
+                "email_verified": True,
+                "is_active": False,
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["display_name"] == "After"
+        assert body["email_verified"] is True
+        assert body["is_active"] is False
+
+    async def test_delete_user(self, client: AsyncClient, mock_db):
+        fake_user = MagicMock()
+        fake_user.id = uuid.uuid4()
+        fake_user.email = "delete@test.local"
+        mock_db.get.return_value = fake_user
+
+        resp = await client.delete(f"/admin/accounts/users/{fake_user.id}")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "deleted"
+        mock_db.delete.assert_awaited_once_with(fake_user)
+
+    async def test_list_personal_reading_jobs(self, client: AsyncClient, mock_db):
+        job = MagicMock()
+        job.id = uuid.uuid4()
+        job.user_id = uuid.uuid4()
+        job.job_type = "personal_reading.generate"
+        job.status = "failed"
+        job.payload = {"tier": "pro", "target_date": "2026-02-16"}
+        job.result = None
+        job.error_message = "Failed to generate"
+        job.attempts = 2
+        job.created_at = datetime.now(UTC)
+        job.started_at = datetime.now(UTC)
+        job.finished_at = datetime.now(UTC)
+
+        jobs_result = MagicMock()
+        jobs_result.all.return_value = [(job, "job-user@test.local")]
+        mock_db.execute.return_value = jobs_result
+
+        resp = await client.get("/admin/accounts/reading-jobs?status=failed")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body[0]["status"] == "failed"
+        assert body[0]["user_email"] == "job-user@test.local"
+
     async def test_create_discount_code(self, client: AsyncClient, mock_db):
         existing_result = MagicMock()
         existing_result.scalars.return_value.first.return_value = None
@@ -1078,6 +1186,50 @@ class TestAccountsAPI:
         assert "alerts" in body
         assert "slo" in body
 
+    async def test_kpis_endpoint(self, client: AsyncClient, mock_db):
+        def scalar_result(value):
+            result = MagicMock()
+            result.scalar.return_value = value
+            result.all.return_value = []
+            return result
+
+        grouped_jobs = MagicMock()
+        grouped_jobs.all.return_value = [("completed", 6), ("failed", 1)]
+
+        grouped_pipeline = MagicMock()
+        grouped_pipeline.all.return_value = [("completed", 5), ("failed", 0)]
+
+        mock_db.execute = AsyncMock(
+            side_effect=[
+                scalar_result(100),  # total_users
+                scalar_result(12),  # new_users_7d
+                scalar_result(80),  # email_verified_users
+                scalar_result(60),  # users_with_profile
+                scalar_result(24),  # active_subscribers
+                scalar_result(4),  # trialing_subscribers
+                scalar_result(2),  # past_due_subscribers
+                scalar_result(10),  # canceled_subscribers
+                scalar_result(3),  # manual_pro_overrides
+                scalar_result(2),  # test_users
+                scalar_result(27),  # pro_users_total
+                scalar_result(350),  # personal_generated_total
+                scalar_result(15),  # personal_generated_24h
+                scalar_result(9),  # personal_generated_today
+                scalar_result(6),  # personal_pro_today
+                grouped_jobs,  # jobs by status
+                grouped_pipeline,  # pipeline by status
+                scalar_result(28),  # published_30d
+            ]
+        )
+
+        resp = await client.get("/admin/analytics/kpis")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["users"]["total"] == 100
+        assert body["users"]["pro_total"] == 27
+        assert body["jobs_24h"]["failed"] == 1
+        assert body["pipeline_7d"]["completed"] == 5
+
 
 # ──────────────────────────────────────────────
 # Route registration
@@ -1108,8 +1260,10 @@ class TestRouteRegistration:
             ("GET", "/admin/site/config"),
             ("GET", "/admin/backup/storage"),
             ("GET", "/admin/accounts/users"),
+            ("GET", "/admin/accounts/reading-jobs"),
             ("GET", "/admin/accounts/discount-codes"),
             ("GET", "/admin/analytics/operational-health"),
+            ("GET", "/admin/analytics/kpis"),
         ]
         for method, path in routes:
             resp = await client.request(method, path)

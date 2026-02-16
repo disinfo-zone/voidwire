@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import UTC, date, datetime
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
@@ -186,3 +186,25 @@ async def test_public_site_config_endpoint(client: AsyncClient):
     assert "site_title" in body
     assert "site_url" in body
     assert "tracking_head" in body
+
+
+@pytest.mark.asyncio
+async def test_public_site_asset_endpoint(client: AsyncClient):
+    with patch(
+        "api.routers.public.load_site_asset_content",
+        new=AsyncMock(return_value=(b"PNGDATA", "image/png")),
+    ):
+        response = await client.get("/v1/site/assets/favicon")
+    assert response.status_code == 200
+    assert response.content == b"PNGDATA"
+    assert response.headers["content-type"].startswith("image/png")
+
+
+@pytest.mark.asyncio
+async def test_public_site_asset_not_found(client: AsyncClient):
+    with patch(
+        "api.routers.public.load_site_asset_content",
+        new=AsyncMock(return_value=None),
+    ):
+        response = await client.get("/v1/site/assets/twittercard")
+    assert response.status_code == 404

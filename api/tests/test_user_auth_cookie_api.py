@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from api.middleware.auth import create_access_token
@@ -61,6 +61,9 @@ async def test_me_accepts_user_jwt_from_cookie(client: AsyncClient, mock_db):
         created_at=datetime(2026, 2, 15, tzinfo=UTC),
     )
     mock_db.get.return_value = mock_user
+    admin_lookup_result = MagicMock()
+    admin_lookup_result.scalars.return_value.first.return_value = None
+    mock_db.execute.return_value = admin_lookup_result
 
     token = create_access_token(user_id=str(user_id), token_type="user")
     response = await client.get(
@@ -70,6 +73,23 @@ async def test_me_accepts_user_jwt_from_cookie(client: AsyncClient, mock_db):
 
     assert response.status_code == 200
     assert response.json()["id"] == str(user_id)
+    assert response.json()["can_manage_readings"] is False
 
     # Ensure dependency fetched from the public User model lookup path.
     assert mock_db.get.await_args.args[0] is User
+
+
+@pytest.mark.asyncio
+async def test_oauth_provider_status_endpoint(client: AsyncClient):
+    payload = {
+        "google": {"enabled": True, "client_id": "google-client"},
+        "apple": {"enabled": False},
+        "any_enabled": True,
+    }
+    with patch(
+        "api.routers.user_auth.load_public_oauth_providers",
+        new=AsyncMock(return_value=payload),
+    ):
+        response = await client.get("/v1/user/auth/oauth/providers")
+    assert response.status_code == 200
+    assert response.json()["google"]["enabled"] is True

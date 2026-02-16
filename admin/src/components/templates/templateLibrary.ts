@@ -111,8 +111,62 @@ export const TEMPLATE_VARIABLE_LIBRARY: TemplateVariableDefinition[] = [
   {
     key: 'banned_phrases',
     description: 'Disallowed phrase list for prose output.',
-    usedIn: 'Synthesis prose',
+    usedIn: 'Synthesis + personal reading prompts',
     example: '["buckle up", "wild ride"]',
+  },
+  {
+    key: 'week_start',
+    description: 'Weekly-reading window start date (ISO).',
+    usedIn: 'Personal weekly reading prompt',
+    example: '2026-02-16',
+  },
+  {
+    key: 'week_end',
+    description: 'Weekly-reading window end date (ISO).',
+    usedIn: 'Personal weekly reading prompt',
+    example: '2026-02-22',
+  },
+  {
+    key: 'house_system',
+    description: 'Resolved house system for the user profile.',
+    usedIn: 'Personal free + pro reading prompts',
+    example: 'placidus',
+  },
+  {
+    key: 'ascendant_label',
+    description: 'Friendly ascendant label derived from natal angles.',
+    usedIn: 'Personal free + pro reading prompts',
+    example: 'Scorpio Rising',
+  },
+  {
+    key: 'natal_positions',
+    description: 'Formatted natal placement rows.',
+    usedIn: 'Personal free + pro reading prompts',
+    example: 'Sun: 10.2° Aquarius in House 3',
+  },
+  {
+    key: 'natal_angles',
+    description: 'Formatted natal angle rows (ASC/MC/etc.).',
+    usedIn: 'Personal free + pro reading prompts',
+    example: 'Ascendant: 18.9° Scorpio',
+  },
+  {
+    key: 'current_transits',
+    description: 'Formatted transit positions for the target day.',
+    usedIn: 'Personal free + pro reading prompts',
+    example: 'Mars: 7.1° Pisces',
+  },
+  {
+    key: 'transit_to_natal',
+    description: 'Formatted transit-to-natal aspects used for interpretation.',
+    usedIn: 'Personal free + pro reading prompts',
+    example: 'Transit Saturn trine Natal Moon (orb 0.8°)',
+  },
+  {
+    key: 'daily_reading_context',
+    description: 'Published collective reading summary used as context.',
+    usedIn: 'Personal pro reading prompt',
+    example: 'Title: ... Themes: ...',
   },
 ];
 

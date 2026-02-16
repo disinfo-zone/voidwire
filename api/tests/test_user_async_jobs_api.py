@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -86,3 +86,44 @@ async def test_list_personal_jobs(user_client: AsyncClient, mock_db):
     payload = response.json()
     assert isinstance(payload, list)
     assert payload[0]["id"] == str(fake.id)
+
+
+@pytest.mark.asyncio
+async def test_get_current_personal_reading_returns_404_when_missing(user_client: AsyncClient, mock_db):
+    empty = MagicMock()
+    empty.scalars.return_value.all.return_value = []
+    mock_db.execute.return_value = empty
+    with patch("api.routers.user_readings.get_user_tier", new=AsyncMock(return_value="pro")):
+        response = await user_client.get("/v1/user/readings/personal/current")
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_current_personal_reading_includes_week_coverage(user_client: AsyncClient, mock_db):
+    today = date.today()
+    fake_reading = SimpleNamespace(
+        id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        tier="free",
+        date_context=today,
+        content={
+            "title": "Weekly",
+            "body": "Body",
+            "sections": [],
+            "word_count": 420,
+            "transit_highlights": [],
+        },
+        house_system_used="placidus",
+        created_at=datetime(2026, 2, 16, tzinfo=UTC),
+    )
+    db_result = MagicMock()
+    db_result.scalars.return_value.all.return_value = [fake_reading]
+    mock_db.execute.return_value = db_result
+    with patch("api.routers.user_readings.get_user_tier", new=AsyncMock(return_value="free")):
+        response = await user_client.get("/v1/user/readings/personal/current")
+    assert response.status_code == 200
+    body = response.json()
+    expected_start = (today - timedelta(days=today.weekday())).isoformat()
+    expected_end = (today - timedelta(days=today.weekday()) + timedelta(days=6)).isoformat()
+    assert body["coverage_start"] == expected_start
+    assert body["coverage_end"] == expected_end

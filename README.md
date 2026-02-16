@@ -114,7 +114,7 @@ Local URLs:
 - `SKIP_MIGRATION_CHECK`: bypass API startup revision parity check (default `false`).
 - `USER_JWT_EXPIRE_MINUTES`: user auth cookie/JWT lifetime.
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PUBLISHABLE_KEY`: billing integration settings.
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY`: optional social auth settings.
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY`: optional OAuth defaults (can be overridden in Admin > Site Settings > OAuth Sign-In).
 
 ## Services
 
@@ -199,6 +199,7 @@ Astro static site with Svelte islands for interactivity. Dark aesthetic with EB 
 - Archive browser
 - Event pages (eclipses, lunations, retrograde stations)
 - RSS 2.0 and Atom 1.0 feeds
+- Dynamic site branding metadata (favicon + social card) sourced from admin-configured uploads/URLs
 
 ## Admin Panel
 
@@ -206,24 +207,31 @@ React SPA behind Cloudflare Access (zero-trust). TOTP login with HttpOnly admin 
 
 - Reading queue with inline editing and diff tracking
 - News source management with health indicators
-- Prompt template editor with starter template seeding, variable library tooltips, and version history
+- Prompt template editor with starter template seeding (synthesis + personal reading), variable library tooltips, and version history
 - Archetypal dictionary CRUD
 - LLM configuration panel
 - Pipeline controls and run history
 - Scheduler editor (UI override + `.env` fallback), run progress hints, and reading publication status per run
 - Site settings, backup/restore, audit log
+- Site branding upload flow in Admin > Site Settings for favicon and Twitter/OpenGraph card image assets
 - SMTP settings + test-send flow for transactional emails (verification + password reset)
-- Accounts & billing controls (manual pro override, discount code management)
+- Accounts & billing controls (manual pro override, discount code management, direct user create/edit/delete)
+- User account flags for product controls (`is_test_user`, `is_admin_user`) editable from Admin > Accounts
+- OAuth provider configuration (Google/Apple enablement + secrets)
+- Shared banned-phrase controls in Pipeline Settings (applies to synthesis + personal readings)
+- Personal reading runtime controls in Pipeline Settings (enable/disable, word ranges, template names, weekly aspect cap)
+- Personal reading async-job monitoring (queue/running/failed/error visibility)
 - Admin RBAC management (`owner`, `admin`, `support`, `readonly`)
 - Operational health/SLO panel (webhook freshness, checkout failures, token cleanup backlog, override hygiene)
+- Dashboard KPIs for users, subscriptions, personal-generation throughput, and pipeline output
 
 ### User Accounts API
 
-- Auth/session: `POST /v1/user/auth/register`, `POST /v1/user/auth/login`, `POST /v1/user/auth/logout`, `POST /v1/user/auth/logout-all`
+- Auth/session: `POST /v1/user/auth/register`, `POST /v1/user/auth/login`, `POST /v1/user/auth/logout`, `POST /v1/user/auth/logout-all`, `GET /v1/user/auth/oauth/providers`
 - Verification/recovery: `POST /v1/user/auth/verify-email`, `POST /v1/user/auth/resend-verification`, `POST /v1/user/auth/forgot-password`, `POST /v1/user/auth/reset-password`
 - Account management/governance: `GET /v1/user/auth/me`, `PUT /v1/user/auth/me`, `PUT /v1/user/auth/me/password`, `GET /v1/user/auth/me/export`, `DELETE /v1/user/auth/me`
 - Profile + natal: `GET /v1/user/profile`, `PUT /v1/user/profile/birth-data`, `PUT /v1/user/profile/house-system`, `GET /v1/user/profile/natal-chart`, `POST /v1/user/profile/natal-chart/recalculate`
-- Personalized readings: `GET /v1/user/readings/personal`, `POST /v1/user/readings/personal/jobs`, `GET /v1/user/readings/personal/jobs`, `GET /v1/user/readings/personal/jobs/{job_id}`, `GET /v1/user/readings/personal/history`
+- Personalized readings: `GET /v1/user/readings/personal`, `GET /v1/user/readings/personal/current`, `POST /v1/user/readings/personal/jobs`, `GET /v1/user/readings/personal/jobs`, `GET /v1/user/readings/personal/jobs/{job_id}`, `GET /v1/user/readings/personal/history`
 - Subscription/billing: `GET /v1/user/subscription`, `POST /v1/user/subscription/checkout`, `POST /v1/user/subscription/portal`, `GET /v1/user/subscription/prices`, Stripe webhook: `POST /v1/stripe/webhook`
 
 ## Testing

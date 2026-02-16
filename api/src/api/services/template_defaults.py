@@ -231,6 +231,112 @@ STARTER_EVENT_PLAN_TEMPLATE_VARIABLES = [
     "sky_only",
 ]
 
+STARTER_PERSONAL_FREE_TEMPLATE_NAME = "starter_personal_reading_free"
+STARTER_PERSONAL_FREE_TEMPLATE_CONTENT = """You are a skilled astrologer writing a weekly natal-transit reading.
+
+TODAY: {{date_context}}
+WEEK COVERAGE: {{week_start}} to {{week_end}}
+HOUSE SYSTEM: {{house_system}}
+ASCENDANT: {{ascendant_label}}
+
+=== NATAL POSITIONS ===
+{{natal_positions}}
+
+=== NATAL ANGLES ===
+{{natal_angles}}
+
+=== CURRENT TRANSITS (TODAY) ===
+{{current_transits}}
+
+=== TRANSIT-TO-NATAL ASPECTS (WEEK) ===
+{{transit_to_natal}}
+
+=== BANNED PHRASES ===
+{{banned_phrases}}
+
+HARD CONSTRAINTS:
+- Return strict JSON only (no markdown fencing).
+- Write in second person ("you").
+- Do not use cliches like "buckle up", "wild ride", "universe has plans", or "cosmic energy".
+- Do not use banned phrases listed above.
+- Keep body within {{word_range}} words.
+
+Return JSON with:
+- title: string
+- body: string (plain text, use \\n\\n for paragraph breaks)
+- sections: [] (free tier should usually be empty)
+- word_count: number
+- transit_highlights: string[]
+"""
+
+STARTER_PERSONAL_FREE_TEMPLATE_VARIABLES = [
+    "date_context",
+    "week_start",
+    "week_end",
+    "house_system",
+    "ascendant_label",
+    "natal_positions",
+    "natal_angles",
+    "current_transits",
+    "transit_to_natal",
+    "word_range",
+    "banned_phrases",
+]
+
+STARTER_PERSONAL_PRO_TEMPLATE_NAME = "starter_personal_reading_pro"
+STARTER_PERSONAL_PRO_TEMPLATE_CONTENT = """You are a skilled astrologer writing a detailed daily natal-transit reading.
+
+TODAY: {{date_context}}
+HOUSE SYSTEM: {{house_system}}
+ASCENDANT: {{ascendant_label}}
+
+=== NATAL POSITIONS ===
+{{natal_positions}}
+
+=== NATAL ANGLES ===
+{{natal_angles}}
+
+=== CURRENT TRANSITS ===
+{{current_transits}}
+
+=== TRANSIT-TO-NATAL ASPECTS (TODAY) ===
+{{transit_to_natal}}
+
+=== DAILY COLLECTIVE CONTEXT ===
+{{daily_reading_context}}
+
+=== BANNED PHRASES ===
+{{banned_phrases}}
+
+HARD CONSTRAINTS:
+- Return strict JSON only (no markdown fencing).
+- Write in second person ("you").
+- Do not use cliches like "buckle up", "wild ride", "universe has plans", or "cosmic energy".
+- Do not use banned phrases listed above.
+- Body target: {{word_range}} words.
+- Include sections for key life areas.
+
+Return JSON with:
+- title: string
+- body: string (plain text, use \\n\\n for paragraph breaks)
+- sections: [{heading, body}]
+- word_count: number
+- transit_highlights: string[]
+"""
+
+STARTER_PERSONAL_PRO_TEMPLATE_VARIABLES = [
+    "date_context",
+    "house_system",
+    "ascendant_label",
+    "natal_positions",
+    "natal_angles",
+    "current_transits",
+    "transit_to_natal",
+    "daily_reading_context",
+    "word_range",
+    "banned_phrases",
+]
+
 
 def _build_starter_prose_template() -> PromptTemplate:
     return PromptTemplate(
@@ -296,6 +402,38 @@ def _build_starter_event_plan_template() -> PromptTemplate:
     )
 
 
+def _build_starter_personal_free_template() -> PromptTemplate:
+    return PromptTemplate(
+        template_name=STARTER_PERSONAL_FREE_TEMPLATE_NAME,
+        version=1,
+        is_active=True,
+        content=STARTER_PERSONAL_FREE_TEMPLATE_CONTENT,
+        variables_used=STARTER_PERSONAL_FREE_TEMPLATE_VARIABLES,
+        tone_parameters={
+            "register": "intimate, grounded, direct",
+            "style_notes": "weekly cadence; transit-driven specificity",
+        },
+        author="system",
+        notes="Auto-generated starter template for free weekly personal readings.",
+    )
+
+
+def _build_starter_personal_pro_template() -> PromptTemplate:
+    return PromptTemplate(
+        template_name=STARTER_PERSONAL_PRO_TEMPLATE_NAME,
+        version=1,
+        is_active=True,
+        content=STARTER_PERSONAL_PRO_TEMPLATE_CONTENT,
+        variables_used=STARTER_PERSONAL_PRO_TEMPLATE_VARIABLES,
+        tone_parameters={
+            "register": "detailed, reflective, practical",
+            "style_notes": "daily cadence; sectioned life-domain guidance",
+        },
+        author="system",
+        notes="Auto-generated starter template for pro daily personal readings.",
+    )
+
+
 async def ensure_starter_prompt_template(db: AsyncSession) -> list[PromptTemplate]:
     """Ensure baseline synthesis templates exist, backfilling missing starters."""
     result = await db.execute(select(PromptTemplate.template_name))
@@ -306,6 +444,8 @@ async def ensure_starter_prompt_template(db: AsyncSession) -> list[PromptTemplat
         _build_starter_plan_template(),
         _build_starter_event_prose_template(),
         _build_starter_event_plan_template(),
+        _build_starter_personal_free_template(),
+        _build_starter_personal_pro_template(),
     ]
     created: list[PromptTemplate] = []
     for starter in starters:
