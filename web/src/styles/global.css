@@ -50,7 +50,7 @@ body {
   justify-content: center;
   align-items: center;
   gap: 0.6rem;
-  margin: 3rem 0 2rem;
+  margin: 2rem 0 1.5rem;
   font-family: var(--font-sans);
   font-size: 0.62rem;
   letter-spacing: 0.12em;
@@ -89,7 +89,7 @@ a:hover {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 2rem 3rem;
+  padding: 1.2rem 3rem;
   max-width: 1200px;
   margin: 0 auto;
 }
@@ -130,7 +130,7 @@ a:hover {
   color: var(--text-primary);
   text-align: center;
   font-weight: 400;
-  margin: 6rem auto 1rem;
+  margin: 2.5rem auto 0.75rem;
   line-height: 1.2;
   max-width: 32rem; /* Constrain width */
 }
@@ -142,7 +142,7 @@ a:hover {
   text-align: center;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  margin-bottom: 5rem;
+  margin-bottom: 2.5rem;
 }
 
 .reading-body {
@@ -169,7 +169,7 @@ a:hover {
 /* Archive & General Pages */
 .page-container {
   max-width: var(--max-width);
-  margin: 4rem auto;
+  margin: 1.5rem auto;
   padding: 0 1.5rem;
 }
 
@@ -180,7 +180,7 @@ a:hover {
   text-transform: uppercase;
   color: var(--accent);
   text-align: center;
-  margin-bottom: 4rem;
+  margin-bottom: 1.5rem;
   font-weight: 500;
 }
 
@@ -210,7 +210,7 @@ a:hover {
 /* About / Colophon */
 .colophon {
   max-width: var(--max-width);
-  margin: 6rem auto;
+  margin: 3rem auto;
   padding: 0 1.5rem;
 }
 
@@ -220,8 +220,8 @@ a:hover {
   letter-spacing: 0.25em;
   text-transform: uppercase;
   color: var(--accent);
-  margin-top: 4rem;
-  margin-bottom: 1.5rem;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
   font-weight: 500;
 }
 
@@ -234,7 +234,7 @@ a:hover {
 /* Continued Link */
 .continued-link-wrapper {
   text-align: center;
-  margin: 5rem 0;
+  margin: 2.5rem 0;
 }
 
 .continued-link {
@@ -256,7 +256,7 @@ a:hover {
 /* Status Messages */
 .status-message {
   text-align: center;
-  padding: 10rem 2rem;
+  padding: 4rem 2rem;
   color: var(--text-muted);
   font-family: var(--font-sans);
   font-size: 0.8rem;
@@ -278,18 +278,50 @@ a:hover {
 
 @media (max-width: 768px) {
   .site-header {
-    padding: 1.5rem;
+    padding: 0.8rem 1rem;
     flex-direction: column;
+    gap: 0.8rem;
+  }
+
+  .site-nav {
     gap: 1.5rem;
   }
-  
+
   .reading-title {
     font-size: 1.8rem;
-    margin-top: 4rem;
+    margin-top: 1.5rem;
     padding: 0 1rem;
   }
-  
+
+  .reading-subtitle {
+    margin-bottom: 1.5rem;
+  }
+
   .reading-body {
     font-size: 1.15rem;
+  }
+
+  .page-container {
+    margin: 1rem auto;
+  }
+
+  .page-title {
+    margin-bottom: 1rem;
+  }
+
+  .colophon {
+    margin: 2rem auto;
+  }
+
+  .continued-link-wrapper {
+    margin: 1.5rem 0;
+  }
+
+  .status-message {
+    padding: 2rem 1.5rem;
+  }
+
+  .legal-footer {
+    margin: 1.5rem 0 1rem;
   }
 }

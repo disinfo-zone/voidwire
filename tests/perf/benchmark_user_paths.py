@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, patch
 
 from api.services.personal_reading_service import PersonalReadingService
 from ephemeris.natal import calculate_natal_chart
+from voidwire.services.pipeline_settings import PipelineSettings
 
 
 def _percentile(values: list[float], percentile: float) -> float:
@@ -168,6 +169,10 @@ async def run_personal_reading_benchmark(
         patch(
             "api.services.personal_reading_service.generate_with_validation",
             new=AsyncMock(side_effect=_fake_generate_with_validation),
+        ),
+        patch(
+            "api.services.personal_reading_service.load_pipeline_settings",
+            new=AsyncMock(return_value=PipelineSettings()),
         ),
     ):
         durations = await _run_concurrent(
