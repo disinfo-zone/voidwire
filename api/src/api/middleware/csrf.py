@@ -18,7 +18,15 @@ from api.dependencies import (
 )
 
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-EXEMPT_PATH_PREFIXES = ("/v1/stripe/webhook",)
+EXEMPT_PATH_PREFIXES = (
+    "/v1/stripe/webhook",
+    "/v1/user/auth/register",
+    "/v1/user/auth/login",
+    "/v1/user/auth/oauth/",
+    "/v1/user/auth/forgot-password",
+    "/v1/user/auth/reset-password",
+    "/v1/user/auth/verify-email",
+)
 
 
 def _origin(url: str) -> str | None:
