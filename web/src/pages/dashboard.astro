@@ -35,7 +35,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           <div id="reading-content" class="reading-content">
             <div class="loading">Tuning into the wire\u2026</div>
           </div>
-          <div id="reading-actions" class="reading-actions" style="display: none;"></div>
+          <div id="reading-actions" class="reading-actions"></div>
         </section>
 
         <section id="settings-section" class="settings-section" style="display: none;">
@@ -43,7 +43,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           <div id="chart-status" class="reading-status">Your chart is loading.</div>
           <div id="chart-content" class="chart-content"></div>
           <div class="chart-actions">
-            <button id="export-chart-text-btn" class="action-button" style="display: none;">Export Chart TXT</button>
+            <button id="export-chart-text-btn" class="action-button" style="display: none;">Copy Chart</button>
             <button id="export-chart-image-btn" class="action-button" style="display: none;">Export Chart PNG</button>
           </div>
 
@@ -141,6 +141,34 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     Aquarius: '#90d0ff',
     Pisces: '#a0a6ff',
   };
+  const PLANET_GLYPHS: Record<string, string> = {
+    Sun: '\u2609', Moon: '\u263D', Mercury: '\u263F', Venus: '\u2640',
+    Mars: '\u2642', Jupiter: '\u2643', Saturn: '\u2644', Uranus: '\u2645',
+    Neptune: '\u2646', Pluto: '\u2647', Chiron: '\u26B7', 'North Node': '\u260A',
+  };
+  const SIGN_GLYPHS: Record<string, string> = {
+    Aries: '\u2648', Taurus: '\u2649', Gemini: '\u264A', Cancer: '\u264B',
+    Leo: '\u264C', Virgo: '\u264D', Libra: '\u264E', Scorpio: '\u264F',
+    Sagittarius: '\u2650', Capricorn: '\u2651', Aquarius: '\u2652', Pisces: '\u2653',
+  };
+  const CHART_ASPECT_COLORS: Record<string, string> = {
+    conjunction: '#d6af72', opposition: '#e07060', trine: '#5888c8',
+    square: '#c04040', sextile: '#50a868',
+  };
+  const ASPECT_GLYPHS: Record<string, string> = {
+    conjunction: '\u260C', opposition: '\u260D', trine: '\u25B3',
+    square: '\u25A1', sextile: '\u26B9',
+  };
+  const ELEMENT_MAP: Record<string, string> = {
+    Aries: 'Fire', Taurus: 'Earth', Gemini: 'Air', Cancer: 'Water',
+    Leo: 'Fire', Virgo: 'Earth', Libra: 'Air', Scorpio: 'Water',
+    Sagittarius: 'Fire', Capricorn: 'Earth', Aquarius: 'Air', Pisces: 'Water',
+  };
+  const MODALITY_MAP: Record<string, string> = {
+    Aries: 'Cardinal', Taurus: 'Fixed', Gemini: 'Mutable', Cancer: 'Cardinal',
+    Leo: 'Fixed', Virgo: 'Mutable', Libra: 'Cardinal', Scorpio: 'Fixed',
+    Sagittarius: 'Mutable', Capricorn: 'Cardinal', Aquarius: 'Fixed', Pisces: 'Mutable',
+  };
 
   function escapeHtml(value: unknown): string {
     return String(value ?? '')
@@ -209,7 +237,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     if (!readingActions) return;
     if (!canManageReadings) {
       readingActions.innerHTML = '';
-      readingActions.style.display = 'none';
+      readingActions.classList.remove('visible');
       return;
     }
     if (!readingActions.querySelector('#refresh-reading-btn')) {
@@ -241,7 +269,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         }
       });
     }
-    readingActions.style.display = 'flex';
+    readingActions.classList.add('visible');
   }
 
   async function loadBrandDomain() {
@@ -531,11 +559,26 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     return lines.join('\n');
   }
 
+  async function ensureFontsLoaded() {
+    await Promise.all([
+      document.fonts.load('400 48px "EB Garamond"'),
+      document.fonts.load('600 48px "EB Garamond"'),
+      document.fonts.load('500 48px "Inter"'),
+      document.fonts.load('600 48px "Inter"'),
+      document.fonts.load('400 48px "JetBrains Mono"'),
+    ]);
+  }
+
   async function exportNatalChartImage(chart: Record<string, unknown>) {
     const data = chart as any;
     const positions = Array.isArray(data.positions) ? (data.positions as any[]) : [];
     const angles = Array.isArray(data.angles) ? (data.angles as any[]) : [];
+    const aspects = Array.isArray(data.aspects) ? (data.aspects as any[]) : [];
+    const houseCusps = Array.isArray(data.house_cusps) ? (data.house_cusps as number[]) : [];
+    const houseSystem = String(data.house_system || 'Placidus');
     if (positions.length === 0) throw new Error('No chart data to export.');
+
+    await ensureFontsLoaded();
 
     const canvas = document.createElement('canvas');
     canvas.width = 1800;
@@ -543,255 +586,642 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Could not initialize image export.');
 
-    const width = canvas.width;
-    const height = canvas.height;
-    const centerX = width / 2;
-    const centerY = 760;
-    const outerRadius = 430;
-    const innerRadius = 275;
-    const orbitRadius = (outerRadius + innerRadius) / 2;
+    const W = 1800, H = 2400;
+    const CX = 900, CY = 800;
+    const R_OUTER = 460, R_SIGN_INNER = 390, R_INNER = 255;
+    const BRASS = '#d6af72';
 
-    const sortedPositions = [...positions].sort(
-      (a, b) => zodiacDegrees(a?.sign, a?.degree) - zodiacDegrees(b?.sign, b?.degree),
-    );
+    const ascAngle = angles.find((a: any) => String(a?.name || '').toLowerCase() === 'ascendant');
+    const ascLong = ascAngle ? Number(ascAngle.longitude || 0) : 0;
+
+    function longToAngle(longitude: number): number {
+      return Math.PI - ((longitude - ascLong) * Math.PI) / 180;
+    }
+
+    function createSeededRng(pos: any[]): () => number {
+      let s = 0;
+      for (const p of pos) {
+        const lng = Number(p?.longitude || zodiacDegrees(p?.sign, p?.degree));
+        s = (s * 31 + Math.round(lng * 100)) | 0;
+      }
+      s = Math.abs(s) || 12345;
+      return () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+    }
+
+    const rng = createSeededRng(positions);
 
     function drawRoundedRect(x: number, y: number, w: number, h: number, radius: number) {
       const r = Math.max(0, Math.min(radius, Math.min(w, h) / 2));
-      ctx.beginPath();
-      ctx.moveTo(x + r, y);
-      ctx.lineTo(x + w - r, y);
-      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-      ctx.lineTo(x + w, y + h - r);
-      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-      ctx.lineTo(x + r, y + h);
-      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-      ctx.lineTo(x, y + r);
-      ctx.quadraticCurveTo(x, y, x + r, y);
-      ctx.closePath();
+      ctx!.beginPath();
+      ctx!.moveTo(x + r, y);
+      ctx!.lineTo(x + w - r, y);
+      ctx!.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx!.lineTo(x + w, y + h - r);
+      ctx!.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx!.lineTo(x + r, y + h);
+      ctx!.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx!.lineTo(x, y + r);
+      ctx!.quadraticCurveTo(x, y, x + r, y);
+      ctx!.closePath();
     }
 
-    const bg = ctx.createLinearGradient(0, 0, width, height);
+    // --- Layer 1: Background gradient ---
+    const bg = ctx.createLinearGradient(0, 0, W, H);
     bg.addColorStop(0, '#05070f');
-    bg.addColorStop(0.45, '#0a1930');
-    bg.addColorStop(1, '#130a21');
+    bg.addColorStop(0.35, '#0a1228');
+    bg.addColorStop(0.65, '#0e0a20');
+    bg.addColorStop(1, '#080510');
     ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, W, H);
 
-    const glow = ctx.createRadialGradient(centerX, centerY, 60, centerX, centerY, 780);
-    glow.addColorStop(0, 'rgba(88, 134, 255, 0.38)');
-    glow.addColorStop(0.6, 'rgba(88, 134, 255, 0.12)');
-    glow.addColorStop(1, 'rgba(88, 134, 255, 0)');
-    ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, width, height);
-
-    for (let i = 0; i < 220; i += 1) {
-      const x = Math.random() * width;
-      const y = Math.random() * (height * 0.85);
-      const size = Math.random() * 2 + 0.35;
-      const alpha = Math.random() * 0.5 + 0.15;
-      ctx.fillStyle = `rgba(236, 241, 255, ${alpha.toFixed(3)})`;
-      ctx.beginPath();
-      ctx.arc(x, y, size, 0, Math.PI * 2);
-      ctx.fill();
+    // --- Layer 2: Nebula glows ---
+    const nebulae = [
+      { x: CX - 200, y: CY - 100, r: 600, color: [70, 110, 180] },
+      { x: CX + 250, y: CY + 50, r: 500, color: [180, 145, 80] },
+      { x: CX - 50, y: CY + 200, r: 550, color: [90, 50, 130] },
+    ];
+    for (const n of nebulae) {
+      const g = ctx.createRadialGradient(n.x, n.y, 30, n.x, n.y, n.r);
+      g.addColorStop(0, `rgba(${n.color[0]}, ${n.color[1]}, ${n.color[2]}, 0.18)`);
+      g.addColorStop(0.5, `rgba(${n.color[0]}, ${n.color[1]}, ${n.color[2]}, 0.06)`);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
     }
 
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#efe8d9';
-    ctx.font = '600 64px "EB Garamond", Georgia, serif';
-    ctx.fillText('VOIDWIRE', centerX, 130);
-    ctx.font = '500 54px "EB Garamond", Georgia, serif';
-    ctx.fillText('Natal Chart Portrait', centerX, 196);
-    ctx.font = '500 23px "Inter", sans-serif';
-    ctx.fillStyle = '#b9c8e8';
-    ctx.fillText(`Generated ${new Date().toISOString().slice(0, 10)}`, centerX, 246);
+    // --- Layer 3: Star field ---
+    for (let i = 0; i < 350; i++) {
+      const x = rng() * W, y = rng() * H * 0.85;
+      const sz = rng() * 1.2 + 0.3, a = rng() * 0.25 + 0.05;
+      ctx.fillStyle = `rgba(220, 226, 240, ${a.toFixed(3)})`;
+      ctx.beginPath(); ctx.arc(x, y, sz, 0, Math.PI * 2); ctx.fill();
+    }
+    for (let i = 0; i < 80; i++) {
+      const x = rng() * W, y = rng() * H * 0.8;
+      const sz = rng() * 1.8 + 0.8, a = rng() * 0.45 + 0.2;
+      const warm = rng() > 0.5;
+      ctx.fillStyle = warm ? `rgba(240, 220, 180, ${a.toFixed(3)})` : `rgba(200, 215, 255, ${a.toFixed(3)})`;
+      ctx.beginPath(); ctx.arc(x, y, sz, 0, Math.PI * 2); ctx.fill();
+    }
+    for (let i = 0; i < 12; i++) {
+      const x = rng() * W, y = rng() * H * 0.7;
+      const sz = rng() * 1.5 + 1.5;
+      const halo = ctx.createRadialGradient(x, y, 0, x, y, sz * 6);
+      halo.addColorStop(0, 'rgba(220, 230, 255, 0.15)');
+      halo.addColorStop(1, 'rgba(220, 230, 255, 0)');
+      ctx.fillStyle = halo;
+      ctx.beginPath(); ctx.arc(x, y, sz * 6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(245, 248, 255, 0.8)';
+      ctx.beginPath(); ctx.arc(x, y, sz, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(230, 238, 255, 0.25)';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(x - sz * 4, y); ctx.lineTo(x + sz * 4, y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, y - sz * 4); ctx.lineTo(x, y + sz * 4); ctx.stroke();
+    }
 
+    // --- Layer 4: Sacred geometry ---
     ctx.save();
-    ctx.translate(centerX, centerY);
-    for (let index = 0; index < 12; index += 1) {
-      const start = ((index * 30 - 90) * Math.PI) / 180;
-      const end = (((index + 1) * 30 - 90) * Math.PI) / 180;
-      const sign = SIGN_ORDER[index];
-      const signColor = SIGN_COLORS[sign] || '#9aa6c0';
+    ctx.translate(CX, CY);
+    ctx.strokeStyle = 'rgba(214, 175, 114, 0.055)';
+    ctx.lineWidth = 1;
+    for (let k = 0; k < 2; k++) {
       ctx.beginPath();
-      ctx.arc(0, 0, outerRadius, start, end);
-      ctx.arc(0, 0, innerRadius, end, start, true);
+      for (let i = 0; i < 3; i++) {
+        const a = ((i * 120 + k * 60) * Math.PI) / 180;
+        if (i === 0) ctx.moveTo(Math.cos(a) * R_INNER * 0.9, Math.sin(a) * R_INNER * 0.9);
+        else ctx.lineTo(Math.cos(a) * R_INNER * 0.9, Math.sin(a) * R_INNER * 0.9);
+      }
       ctx.closePath();
-      ctx.fillStyle = `${signColor}22`;
-      ctx.fill();
-
-      ctx.strokeStyle = 'rgba(223, 231, 255, 0.18)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(Math.cos(start) * innerRadius, Math.sin(start) * innerRadius);
-      ctx.lineTo(Math.cos(start) * outerRadius, Math.sin(start) * outerRadius);
       ctx.stroke();
-
-      const mid = (start + end) / 2;
-      const labelRadius = outerRadius + 64;
-      ctx.fillStyle = signColor;
-      ctx.font = '600 24px "Inter", sans-serif';
-      ctx.fillText(sign.slice(0, 3).toUpperCase(), Math.cos(mid) * labelRadius, Math.sin(mid) * labelRadius + 8);
     }
-
-    ctx.strokeStyle = 'rgba(232, 238, 255, 0.42)';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(0, 0, outerRadius, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(0, 0, innerRadius, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.strokeStyle = 'rgba(232, 238, 255, 0.35)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(-outerRadius - 40, 0);
-    ctx.lineTo(outerRadius + 40, 0);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(0, -outerRadius - 40);
-    ctx.lineTo(0, outerRadius + 40);
-    ctx.stroke();
-
-    sortedPositions.forEach((pos, index) => {
-      const chartDegrees = zodiacDegrees(pos?.sign, pos?.degree);
-      const angle = ((chartDegrees - 90) * Math.PI) / 180;
-      const bump = (index % 3) * 12 - 12;
-      const markerRadius = orbitRadius + bump;
-      const x = Math.cos(angle) * markerRadius;
-      const y = Math.sin(angle) * markerRadius;
-      const sign = normalizeSign(pos?.sign);
-      const color = SIGN_COLORS[sign] || '#f0d8a6';
-      const label = bodyAbbreviation(pos?.body);
-
-      ctx.strokeStyle = `${color}88`;
-      ctx.lineWidth = 1.5;
+    const phi = 1.618033988749;
+    for (let i = 1; i <= 4; i++) {
+      const r = R_INNER * 0.15 * Math.pow(phi, i);
+      if (r < R_OUTER) { ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke(); }
+    }
+    for (let deg = 0; deg < 360; deg += 15) {
+      const a = (deg * Math.PI) / 180;
       ctx.beginPath();
-      ctx.moveTo(Math.cos(angle) * (innerRadius - 8), Math.sin(angle) * (innerRadius - 8));
-      ctx.lineTo(x, y);
+      ctx.moveTo(Math.cos(a) * R_INNER * 0.3, Math.sin(a) * R_INNER * 0.3);
+      ctx.lineTo(Math.cos(a) * R_INNER * 0.85, Math.sin(a) * R_INNER * 0.85);
       ctx.stroke();
-
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.arc(x, y, 7.5, 0, Math.PI * 2);
-      ctx.fill();
-
-      const labelOffsetX = x >= 0 ? 16 : -16;
-      const labelOffsetY = y >= 0 ? 10 : -10;
-      ctx.textAlign = x >= 0 ? 'left' : 'right';
-      ctx.fillStyle = '#f4f7ff';
-      ctx.font = '600 19px "Inter", sans-serif';
-      ctx.fillText(label, x + labelOffsetX, y + labelOffsetY);
-    });
-
-    for (const anglePoint of angles) {
-      const name = String(anglePoint?.name || '').trim();
-      if (!name) continue;
-      const chartDegrees = zodiacDegrees(anglePoint?.sign, anglePoint?.degree);
-      const theta = ((chartDegrees - 90) * Math.PI) / 180;
-      const markerRadius = innerRadius - 56;
-      const x = Math.cos(theta) * markerRadius;
-      const y = Math.sin(theta) * markerRadius;
-
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.94)';
-      ctx.beginPath();
-      ctx.arc(x, y, 5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.textAlign = 'center';
-      ctx.font = '600 13px "Inter", sans-serif';
-      ctx.fillStyle = '#c8d4ef';
-      ctx.fillText(name.slice(0, 3).toUpperCase(), Math.cos(theta) * (markerRadius - 26), Math.sin(theta) * (markerRadius - 26));
     }
     ctx.restore();
 
-    const panelTop = 1320;
-    const panelHeight = 880;
-    const panelGap = 28;
-    const panelWidth = (width - 240 - panelGap) / 2;
-    const leftPanelX = 120;
-    const rightPanelX = leftPanelX + panelWidth + panelGap;
+    // --- Layer 5: Wheel structure ---
+    ctx.save();
+    ctx.translate(CX, CY);
 
-    ctx.fillStyle = 'rgba(9, 17, 35, 0.73)';
-    drawRoundedRect(leftPanelX, panelTop, panelWidth, panelHeight, 28);
-    ctx.fill();
-    drawRoundedRect(rightPanelX, panelTop, panelWidth, panelHeight, 28);
-    ctx.fill();
+    ctx.strokeStyle = 'rgba(214, 175, 114, 0.5)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(0, 0, R_OUTER, 0, Math.PI * 2); ctx.stroke();
 
-    ctx.strokeStyle = 'rgba(198, 214, 255, 0.26)';
+    ctx.strokeStyle = 'rgba(214, 175, 114, 0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(0, 0, R_SIGN_INNER, 0, Math.PI * 2); ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(214, 175, 114, 0.4)';
     ctx.lineWidth = 2;
-    drawRoundedRect(leftPanelX, panelTop, panelWidth, panelHeight, 28);
+    ctx.beginPath(); ctx.arc(0, 0, R_INNER, 0, Math.PI * 2); ctx.stroke();
+
+    for (let i = 0; i < 12; i++) {
+      const signLongStart = i * 30;
+      const startA = longToAngle(signLongStart);
+      const endA = longToAngle(signLongStart + 30);
+      const sign = SIGN_ORDER[i];
+      const signColor = SIGN_COLORS[sign] || '#9aa6c0';
+
+      ctx.beginPath();
+      ctx.arc(0, 0, R_OUTER, startA, endA, true);
+      ctx.arc(0, 0, R_SIGN_INNER, endA, startA, false);
+      ctx.closePath();
+      ctx.fillStyle = `${signColor}15`;
+      ctx.fill();
+
+      ctx.strokeStyle = 'rgba(214, 175, 114, 0.2)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(startA) * R_SIGN_INNER, Math.sin(startA) * R_SIGN_INNER);
+      ctx.lineTo(Math.cos(startA) * R_OUTER, Math.sin(startA) * R_OUTER);
+      ctx.stroke();
+
+      const midA = longToAngle(signLongStart + 15);
+      const glyphR = (R_OUTER + R_SIGN_INNER) / 2;
+      ctx.fillStyle = signColor;
+      ctx.font = '400 28px "EB Garamond", Georgia, serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(SIGN_GLYPHS[sign] || '', Math.cos(midA) * glyphR, Math.sin(midA) * glyphR);
+    }
+
+    for (let deg = 0; deg < 360; deg++) {
+      const a = longToAngle(deg);
+      const isMaj = deg % 10 === 0, isMin = deg % 5 === 0;
+      const tick = isMaj ? 8 : isMin ? 5 : 2;
+      ctx.strokeStyle = isMaj ? 'rgba(214, 175, 114, 0.3)' : 'rgba(214, 175, 114, 0.12)';
+      ctx.lineWidth = isMaj ? 1.2 : 0.6;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * R_OUTER, Math.sin(a) * R_OUTER);
+      ctx.lineTo(Math.cos(a) * (R_OUTER + tick), Math.sin(a) * (R_OUTER + tick));
+      ctx.stroke();
+    }
+
+    if (houseCusps.length === 12) {
+      for (let i = 0; i < 12; i++) {
+        const a = longToAngle(houseCusps[i]);
+        const isCard = i === 0 || i === 3 || i === 6 || i === 9;
+        ctx.strokeStyle = isCard ? 'rgba(214, 175, 114, 0.4)' : 'rgba(214, 175, 114, 0.15)';
+        ctx.lineWidth = isCard ? 1.8 : 0.8;
+        const outerR = isCard ? R_OUTER + 12 : R_SIGN_INNER;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(Math.cos(a) * outerR, Math.sin(a) * outerR);
+        ctx.stroke();
+      }
+    }
+
+    // --- Layer 6: Aspect web ---
+    const posLongMap: Record<string, number> = {};
+    for (const pos of positions) {
+      const body = String(pos?.body || '').toLowerCase();
+      posLongMap[body] = Number(pos?.longitude || zodiacDegrees(pos?.sign, pos?.degree));
+    }
+
+    for (const asp of aspects) {
+      const type = String(asp?.type || asp?.aspect_type || '').toLowerCase();
+      const sig = String(asp?.significance || '').toLowerCase();
+      if (sig === 'minor') continue;
+      const color = CHART_ASPECT_COLORS[type];
+      if (!color) continue;
+      const body1Long = posLongMap[String(asp?.body1 || '').toLowerCase()];
+      const body2Long = posLongMap[String(asp?.body2 || '').toLowerCase()];
+      if (body1Long == null || body2Long == null) continue;
+
+      const a1 = longToAngle(body1Long), a2 = longToAngle(body2Long);
+      const webR = R_INNER - 10;
+      const orb = Number(asp?.orb_degrees || asp?.orb || 0);
+      const opacity = Math.max(0.15, 0.7 * (1 - orb / 10));
+
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = opacity;
+      ctx.lineWidth = sig === 'major' ? 1.8 : 1;
+      ctx.setLineDash(asp?.applying === false ? [6, 4] : []);
+
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a1) * webR, Math.sin(a1) * webR);
+      ctx.lineTo(Math.cos(a2) * webR, Math.sin(a2) * webR);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.setLineDash([]);
+
+    // --- Layer 7: Planet markers (collision avoidance) ---
+    const planetData = positions.map((pos: any) => {
+      const lng = Number(pos?.longitude || zodiacDegrees(pos?.sign, pos?.degree));
+      return { ...pos, _longitude: lng, _angle: longToAngle(lng) };
+    }).sort((a: any, b: any) => a._longitude - b._longitude);
+
+    const MIN_ANGLE_SEP = 8, BASE_ORBIT = 345, ORBIT_STEP = 28;
+    const displayData = planetData.map((p: any, idx: number) => {
+      let stagger = 0;
+      for (let j = 0; j < idx; j++) {
+        const diff = Math.abs(p._longitude - planetData[j]._longitude);
+        if (Math.min(diff, 360 - diff) < MIN_ANGLE_SEP) stagger++;
+      }
+      return { ...p, _orbitR: BASE_ORBIT + (stagger % 3) * ORBIT_STEP };
+    });
+
+    for (const pos of displayData) {
+      const angle = pos._angle;
+      const orbitR = pos._orbitR;
+      const x = Math.cos(angle) * orbitR;
+      const y = Math.sin(angle) * orbitR;
+      const sign = normalizeSign(pos.sign);
+      const color = SIGN_COLORS[sign] || '#d6af72';
+      const glyph = PLANET_GLYPHS[String(pos.body || '')] || '';
+      const deg = Number(pos.degree || 0).toFixed(1);
+      const retro = Boolean(pos.retrograde);
+
+      ctx.strokeStyle = `${color}60`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(angle) * R_INNER, Math.sin(angle) * R_INNER);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+
+      const glowG = ctx.createRadialGradient(x, y, 0, x, y, 22);
+      glowG.addColorStop(0, `${color}30`);
+      glowG.addColorStop(1, `${color}00`);
+      ctx.fillStyle = glowG;
+      ctx.beginPath(); ctx.arc(x, y, 22, 0, Math.PI * 2); ctx.fill();
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = '#080c16';
+      ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.fill();
+
+      ctx.fillStyle = '#f0f4ff';
+      ctx.font = '400 18px "EB Garamond", Georgia, serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(glyph, x, y);
+
+      const labelR = orbitR + 20;
+      ctx.fillStyle = '#b0b8cc';
+      ctx.font = '500 12px "Inter", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`${deg}\u00B0`, Math.cos(angle) * labelR, Math.sin(angle) * labelR);
+
+      if (retro) {
+        ctx.fillStyle = '#e06050';
+        ctx.font = '500 13px "Inter", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('\u211E', x + 14, y - 14);
+      }
+    }
+
+    // --- Layer 8: Angle markers (ASC/MC/DSC/IC) ---
+    const angleMarkers = [
+      { key: 'ascendant', abbr: 'ASC' },
+      { key: 'midheaven', abbr: 'MC' },
+      { key: 'descendant', abbr: 'DSC' },
+      { key: 'imum coeli', abbr: 'IC' },
+    ];
+    for (const am of angleMarkers) {
+      const found = angles.find((a: any) => String(a?.name || '').toLowerCase() === am.key);
+      if (!found) continue;
+      const lng = Number(found.longitude || zodiacDegrees(found.sign, found.degree));
+      const a = longToAngle(lng);
+      const isMain = am.abbr === 'ASC' || am.abbr === 'MC';
+
+      ctx.strokeStyle = isMain ? BRASS : `${BRASS}80`;
+      ctx.lineWidth = isMain ? 2.5 : 1.5;
+      const outerR = R_OUTER + 20;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(a) * outerR, Math.sin(a) * outerR);
+      ctx.stroke();
+
+      if (isMain) {
+        const tipR = outerR + 12;
+        const backR = outerR - 4;
+        const spread = 0.08;
+        ctx.fillStyle = BRASS;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * tipR, Math.sin(a) * tipR);
+        ctx.lineTo(Math.cos(a - spread) * backR, Math.sin(a - spread) * backR);
+        ctx.lineTo(Math.cos(a + spread) * backR, Math.sin(a + spread) * backR);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      const lblR = R_OUTER + 44;
+      ctx.fillStyle = BRASS;
+      ctx.font = '600 16px "Inter", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`${am.abbr} ${Number(found.degree || 0).toFixed(1)}\u00B0`, Math.cos(a) * lblR, Math.sin(a) * lblR);
+    }
+
+    ctx.restore();
+
+    // --- Layer 9: Sign labels outside outer rim ---
+    ctx.save();
+    ctx.translate(CX, CY);
+    for (let i = 0; i < 12; i++) {
+      const midA = longToAngle(i * 30 + 15);
+      const labelR = R_OUTER + 55;
+      const sign = SIGN_ORDER[i];
+      ctx.fillStyle = SIGN_COLORS[sign] || '#9aa6c0';
+      ctx.font = '600 15px "Inter", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(sign.slice(0, 3).toUpperCase(), Math.cos(midA) * labelR, Math.sin(midA) * labelR);
+    }
+    ctx.restore();
+
+    // --- Layer 10: Header ---
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+
+    ctx.fillStyle = BRASS;
+    ctx.font = '600 18px "Inter", sans-serif';
+    ctx.fillText('V O I D W I R E', CX, 80);
+
+    ctx.fillStyle = '#efe8d9';
+    ctx.font = '400 60px "EB Garamond", Georgia, serif';
+    ctx.fillText('Natal Chart', CX, 156);
+
+    ctx.fillStyle = BRASS;
+    ctx.save();
+    ctx.translate(CX, 192);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillRect(-5, -5, 10, 10);
+    ctx.restore();
+
+    ctx.strokeStyle = `${BRASS}40`;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(CX - 120, 192); ctx.lineTo(CX - 18, 192); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(CX + 18, 192); ctx.lineTo(CX + 120, 192); ctx.stroke();
+
+    ctx.fillStyle = '#8898b8';
+    ctx.font = '400 18px "JetBrains Mono", monospace';
+    ctx.fillText(new Date().toISOString().slice(0, 10), CX, 236);
+
+    // --- Layer 11: Data panel ---
+    const panelTop = 1380;
+    const panelHeight = 870;
+    const panelLeft = 80;
+    const panelRight = W - 80;
+    const panelW = panelRight - panelLeft;
+
+    ctx.fillStyle = 'rgba(8, 12, 24, 0.8)';
+    drawRoundedRect(panelLeft, panelTop, panelW, panelHeight, 24);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(214, 175, 114, 0.2)';
+    ctx.lineWidth = 1.5;
+    drawRoundedRect(panelLeft, panelTop, panelW, panelHeight, 24);
     ctx.stroke();
-    drawRoundedRect(rightPanelX, panelTop, panelWidth, panelHeight, 28);
-    ctx.stroke();
+
+    const col1X = panelLeft + 40;
+    const col2X = panelLeft + panelW / 3 + 20;
+    const col3X = panelLeft + (panelW * 2) / 3 + 20;
+    const colW = panelW / 3 - 60;
+
+    ctx.strokeStyle = 'rgba(214, 175, 114, 0.12)';
+    ctx.lineWidth = 1;
+    const divX1 = panelLeft + panelW / 3;
+    const divX2 = panelLeft + (panelW * 2) / 3;
+    ctx.beginPath(); ctx.moveTo(divX1, panelTop + 30); ctx.lineTo(divX1, panelTop + panelHeight - 30); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(divX2, panelTop + 30); ctx.lineTo(divX2, panelTop + panelHeight - 30); ctx.stroke();
 
     ctx.textAlign = 'left';
-    ctx.fillStyle = '#f1e8d7';
-    ctx.font = '600 34px "EB Garamond", Georgia, serif';
-    ctx.fillText('Planetary Placements', leftPanelX + 34, panelTop + 56);
-    ctx.fillText('Angles and Highlights', rightPanelX + 34, panelTop + 56);
+    ctx.textBaseline = 'alphabetic';
 
-    const leftColumnX = leftPanelX + 34;
-    const secondColumnX = leftPanelX + panelWidth / 2 + 8;
-    const rowsPerColumn = Math.ceil(sortedPositions.length / 2);
-    const rowHeight = 62;
-    sortedPositions.forEach((pos, index) => {
-      const col = index < rowsPerColumn ? 0 : 1;
-      const row = col === 0 ? index : index - rowsPerColumn;
-      const baseX = col === 0 ? leftColumnX : secondColumnX;
-      const y = panelTop + 120 + row * rowHeight;
+    // Col 1: PLACEMENTS
+    ctx.fillStyle = BRASS;
+    ctx.font = '600 14px "Inter", sans-serif';
+    ctx.fillText('PLACEMENTS', col1X, panelTop + 50);
+
+    const sortedPos = [...positions].sort(
+      (a, b) => zodiacDegrees(a?.sign, a?.degree) - zodiacDegrees(b?.sign, b?.degree),
+    );
+    let py = panelTop + 84;
+    const pRowH = 48;
+    for (const pos of sortedPos) {
+      if (py + pRowH > panelTop + panelHeight - 20) break;
+      const body = String(pos?.body || '');
+      const glyph = PLANET_GLYPHS[body] || '';
       const sign = normalizeSign(pos?.sign);
-      const color = SIGN_COLORS[sign] || '#dfc994';
-      const body = String(pos?.body || 'Body');
-      const degree = Number(pos?.degree || 0).toFixed(1);
-      const house = pos?.house ? `H${pos.house}` : '--';
+      const deg = Number(pos?.degree || 0).toFixed(1);
+      const house = pos?.house ? `H${pos.house}` : '';
+      const retro = Boolean(pos?.retrograde);
+      const signGlyph = SIGN_GLYPHS[sign] || '';
+      const color = SIGN_COLORS[sign] || '#d6af72';
+
+      ctx.fillStyle = '#e8e0d0';
+      ctx.font = '400 20px "EB Garamond", Georgia, serif';
+      ctx.fillText(glyph, col1X, py);
+      ctx.fillStyle = color;
+      ctx.font = '600 15px "Inter", sans-serif';
+      ctx.fillText(body, col1X + 26, py);
+      if (retro) {
+        ctx.fillStyle = '#e06050';
+        ctx.font = '500 12px "Inter", sans-serif';
+        ctx.fillText('\u211E', col1X + 26 + ctx.measureText(body).width + 5, py);
+      }
+
+      ctx.fillStyle = '#8898b8';
+      ctx.font = '400 13px "Inter", sans-serif';
+      ctx.fillText(`${deg}\u00B0 ${signGlyph} ${sign}${house ? ' \u00B7 ' + house : ''}`, col1X + 26, py + 20);
+      py += pRowH;
+    }
+
+    // Col 2: ASPECTS
+    ctx.fillStyle = BRASS;
+    ctx.font = '600 14px "Inter", sans-serif';
+    ctx.fillText('ASPECTS', col2X, panelTop + 50);
+
+    const sortedAspects = [...aspects]
+      .filter((a: any) => CHART_ASPECT_COLORS[String(a?.type || '').toLowerCase()] != null)
+      .sort((a: any, b: any) => {
+        const sigOrd: Record<string, number> = { major: 0, moderate: 1, minor: 2 };
+        const sa = sigOrd[String(a?.significance || 'moderate').toLowerCase()] ?? 1;
+        const sb = sigOrd[String(b?.significance || 'moderate').toLowerCase()] ?? 1;
+        if (sa !== sb) return sa - sb;
+        return Number(a?.orb_degrees || 0) - Number(b?.orb_degrees || 0);
+      });
+
+    let ay = panelTop + 84;
+    const aRowH = 38;
+    for (const asp of sortedAspects) {
+      if (ay + aRowH > panelTop + panelHeight - 20) break;
+      const type = String(asp?.type || '').toLowerCase();
+      const b1 = String(asp?.body1 || ''), b2 = String(asp?.body2 || '');
+      const orb = Number(asp?.orb_degrees || 0).toFixed(1);
+      const applying = Boolean(asp?.applying);
+      const color = CHART_ASPECT_COLORS[type] || '#888';
+      const aspectGlyph = ASPECT_GLYPHS[type] || '';
+      const g1 = PLANET_GLYPHS[b1] || b1.slice(0, 2);
+      const g2 = PLANET_GLYPHS[b2] || b2.slice(0, 2);
 
       ctx.fillStyle = color;
-      ctx.font = '600 22px "Inter", sans-serif';
-      ctx.fillText(body, baseX, y);
-      ctx.fillStyle = '#dbe5ff';
-      ctx.font = '500 19px "Inter", sans-serif';
-      ctx.fillText(`${degree}° ${sign} · ${house}`, baseX, y + 26);
-    });
+      ctx.font = '400 18px "EB Garamond", Georgia, serif';
+      ctx.fillText(`${g1} ${aspectGlyph} ${g2}`, col2X, ay);
 
-    const safeAngles = angles.slice(0, 8);
-    safeAngles.forEach((anglePoint, index) => {
-      const y = panelTop + 120 + index * 68;
-      const sign = normalizeSign(anglePoint?.sign);
-      const color = SIGN_COLORS[sign] || '#adc1ff';
-      const name = String(anglePoint?.name || 'Angle');
-      const degree = Number(anglePoint?.degree || 0).toFixed(1);
-      ctx.fillStyle = color;
-      ctx.font = '600 22px "Inter", sans-serif';
-      ctx.fillText(name, rightPanelX + 34, y);
-      ctx.fillStyle = '#dbe5ff';
-      ctx.font = '500 19px "Inter", sans-serif';
-      ctx.fillText(`${degree}° ${sign}`, rightPanelX + 34, y + 26);
-    });
+      ctx.fillStyle = '#8898b8';
+      ctx.font = '400 12px "Inter", sans-serif';
+      ctx.fillText(`${type} ${orb}\u00B0 ${applying ? 'app' : 'sep'}`, col2X, ay + 18);
+      ay += aRowH;
+    }
 
-    const sun = sortedPositions.find((p) => String(p?.body || '').toLowerCase() === 'sun');
-    const moon = sortedPositions.find((p) => String(p?.body || '').toLowerCase() === 'moon');
-    const ascendant = angles.find((a) => String(a?.name || '').toLowerCase() === 'ascendant');
-    const highlights = [sun, moon, ascendant]
-      .filter(Boolean)
-      .map((item: any) => `${item.name || item.body}: ${Number(item.degree || 0).toFixed(1)}° ${normalizeSign(item.sign)}`);
-    const highlightsText = highlights.length > 0 ? highlights.join('  •  ') : 'Highlights unavailable';
+    // Col 3: CHART DETAILS
+    ctx.fillStyle = BRASS;
+    ctx.font = '600 14px "Inter", sans-serif';
+    ctx.fillText('CHART DETAILS', col3X, panelTop + 50);
 
-    ctx.fillStyle = '#f1e8d7';
-    ctx.font = '600 24px "EB Garamond", Georgia, serif';
-    ctx.fillText('Core Signature', rightPanelX + 34, panelTop + 740);
-    ctx.fillStyle = '#dbe5ff';
-    ctx.font = '500 18px "Inter", sans-serif';
-    const wrapped = highlightsText.match(/.{1,60}(\s|$)/g) || [highlightsText];
-    wrapped.slice(0, 4).forEach((line, index) => {
-      ctx.fillText(line.trim(), rightPanelX + 34, panelTop + 776 + index * 28);
-    });
+    let dy = panelTop + 84;
+    for (const angle of angles) {
+      const name = String(angle?.name || '');
+      const sign = normalizeSign(angle?.sign);
+      const deg = Number(angle?.degree || 0).toFixed(1);
+      ctx.fillStyle = '#d0c8b8';
+      ctx.font = '600 14px "Inter", sans-serif';
+      ctx.fillText(name, col3X, dy);
+      ctx.fillStyle = '#8898b8';
+      ctx.font = '400 13px "Inter", sans-serif';
+      ctx.fillText(`${deg}\u00B0 ${sign}`, col3X + ctx.measureText(name).width + 10, dy);
+      dy += 28;
+    }
 
+    dy += 10;
+    ctx.fillStyle = '#6f7a8e';
+    ctx.font = '400 12px "Inter", sans-serif';
+    ctx.fillText(`House System: ${houseSystem}`, col3X, dy);
+    dy += 32;
+
+    ctx.fillStyle = BRASS;
+    ctx.font = '600 13px "Inter", sans-serif';
+    ctx.fillText('ELEMENTS', col3X, dy);
+    dy += 22;
+
+    const elCounts: Record<string, number> = { Fire: 0, Earth: 0, Air: 0, Water: 0 };
+    for (const pos of positions) { const el = ELEMENT_MAP[normalizeSign(pos?.sign)]; if (el) elCounts[el]++; }
+    const elColors: Record<string, string> = { Fire: '#e07050', Earth: '#8ec5b8', Air: '#90b8e8', Water: '#6888d0' };
+    const maxEl = Math.max(...Object.values(elCounts), 1);
+    for (const [el, count] of Object.entries(elCounts)) {
+      ctx.fillStyle = '#8898b8';
+      ctx.font = '400 12px "Inter", sans-serif';
+      ctx.fillText(el, col3X, dy);
+      const barX = col3X + 60;
+      ctx.fillStyle = 'rgba(40, 48, 70, 0.6)';
+      ctx.fillRect(barX, dy - 10, colW - 80, 12);
+      ctx.fillStyle = elColors[el] || '#888';
+      ctx.fillRect(barX, dy - 10, (count / maxEl) * (colW - 80), 12);
+      ctx.fillStyle = '#d0d0d0';
+      ctx.font = '600 11px "Inter", sans-serif';
+      ctx.fillText(String(count), barX + colW - 78, dy);
+      dy += 24;
+    }
+
+    dy += 10;
+    ctx.fillStyle = BRASS;
+    ctx.font = '600 13px "Inter", sans-serif';
+    ctx.fillText('MODALITIES', col3X, dy);
+    dy += 22;
+
+    const modCounts: Record<string, number> = { Cardinal: 0, Fixed: 0, Mutable: 0 };
+    for (const pos of positions) { const m = MODALITY_MAP[normalizeSign(pos?.sign)]; if (m) modCounts[m]++; }
+    const modColors: Record<string, string> = { Cardinal: '#d6af72', Fixed: '#b070c0', Mutable: '#60b080' };
+    const maxMod = Math.max(...Object.values(modCounts), 1);
+    for (const [mod, count] of Object.entries(modCounts)) {
+      ctx.fillStyle = '#8898b8';
+      ctx.font = '400 12px "Inter", sans-serif';
+      ctx.fillText(mod, col3X, dy);
+      const barX = col3X + 80;
+      ctx.fillStyle = 'rgba(40, 48, 70, 0.6)';
+      ctx.fillRect(barX, dy - 10, colW - 100, 12);
+      ctx.fillStyle = modColors[mod] || '#888';
+      ctx.fillRect(barX, dy - 10, (count / maxMod) * (colW - 100), 12);
+      ctx.fillStyle = '#d0d0d0';
+      ctx.font = '600 11px "Inter", sans-serif';
+      ctx.fillText(String(count), barX + colW - 98, dy);
+      dy += 24;
+    }
+
+    dy += 16;
+    ctx.fillStyle = BRASS;
+    ctx.font = '600 13px "Inter", sans-serif';
+    ctx.fillText('CORE SIGNATURE', col3X, dy);
+    dy += 22;
+
+    const sun = positions.find((p: any) => String(p?.body || '').toLowerCase() === 'sun');
+    const moon = positions.find((p: any) => String(p?.body || '').toLowerCase() === 'moon');
+    const coreItems = [
+      sun ? { label: '\u2609 Sun', value: `${normalizeSign(sun.sign)} ${Number(sun.degree || 0).toFixed(1)}\u00B0` } : null,
+      moon ? { label: '\u263D Moon', value: `${normalizeSign(moon.sign)} ${Number(moon.degree || 0).toFixed(1)}\u00B0` } : null,
+      ascAngle ? { label: 'ASC', value: `${normalizeSign(ascAngle.sign)} ${Number(ascAngle.degree || 0).toFixed(1)}\u00B0` } : null,
+    ].filter(Boolean);
+
+    for (const item of coreItems) {
+      if (!item) continue;
+      ctx.fillStyle = '#d0c8b8';
+      ctx.font = '600 13px "Inter", sans-serif';
+      ctx.fillText(item.label, col3X, dy);
+      ctx.fillStyle = '#8898b8';
+      ctx.font = '400 13px "Inter", sans-serif';
+      ctx.fillText(item.value, col3X + 70, dy);
+      dy += 22;
+    }
+
+    // --- Layer 12: Vignette + grain ---
+    const vig = ctx.createRadialGradient(CX, H / 2, H * 0.25, CX, H / 2, H * 0.75);
+    vig.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    vig.addColorStop(0.7, 'rgba(0, 0, 0, 0)');
+    vig.addColorStop(1, 'rgba(0, 0, 0, 0.45)');
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, W, H);
+
+    const grainCanvas = document.createElement('canvas');
+    grainCanvas.width = 200;
+    grainCanvas.height = 200;
+    const gctx = grainCanvas.getContext('2d');
+    if (gctx) {
+      const gData = gctx.createImageData(200, 200);
+      for (let i = 0; i < gData.data.length; i += 4) {
+        const v = (rng() * 255) | 0;
+        gData.data[i] = v; gData.data[i + 1] = v; gData.data[i + 2] = v; gData.data[i + 3] = 255;
+      }
+      gctx.putImageData(gData, 0, 0);
+      ctx.globalAlpha = 0.03;
+      ctx.globalCompositeOperation = 'overlay';
+      const pattern = ctx.createPattern(grainCanvas, 'repeat');
+      if (pattern) { ctx.fillStyle = pattern; ctx.fillRect(0, 0, W, H); }
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    // --- Layer 13: Footer ---
     ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(234, 241, 255, 0.75)';
-    ctx.font = '500 16px "Inter", sans-serif';
-    ctx.fillText(chartBrandDomain, centerX, height - 66);
+    ctx.textBaseline = 'alphabetic';
 
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png', 0.98));
+    ctx.strokeStyle = `${BRASS}40`;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(W * 0.2, 2290); ctx.lineTo(W * 0.8, 2290); ctx.stroke();
+
+    ctx.fillStyle = `${BRASS}90`;
+    ctx.font = '400 16px "JetBrains Mono", monospace';
+    ctx.fillText(chartBrandDomain, CX, 2330);
+
+    for (let i = -1; i <= 1; i++) {
+      ctx.fillStyle = `${BRASS}50`;
+      ctx.beginPath(); ctx.arc(CX + i * 16, 2370, 2.5, 0, Math.PI * 2); ctx.fill();
+    }
+
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
     if (!blob) throw new Error('Could not generate chart image.');
     const stamp = new Date().toISOString().slice(0, 10);
     downloadBlob(`voidwire-natal-chart-${stamp}.png`, blob);
@@ -915,10 +1345,20 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     birthFormWrapper.style.display = birthFormWrapper.style.display === 'none' ? 'block' : 'none';
   });
 
-  document.getElementById('export-chart-text-btn')?.addEventListener('click', () => {
+  document.getElementById('export-chart-text-btn')?.addEventListener('click', async () => {
     if (!cachedChart) return;
-    const stamp = new Date().toISOString().slice(0, 10);
-    downloadText(`voidwire-natal-chart-${stamp}.txt`, natalChartText(cachedChart));
+    const btn = document.getElementById('export-chart-text-btn') as HTMLButtonElement | null;
+    try {
+      await navigator.clipboard.writeText(natalChartText(cachedChart));
+      if (btn) {
+        const original = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = original; }, 2000);
+      }
+    } catch {
+      const stamp = new Date().toISOString().slice(0, 10);
+      downloadText(`voidwire-natal-chart-${stamp}.txt`, natalChartText(cachedChart));
+    }
   });
 
   document.getElementById('export-chart-image-btn')?.addEventListener('click', () => {
@@ -1097,7 +1537,17 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     text-transform: uppercase;
   }
 
-  .reading-actions,
+  .reading-actions {
+    display: none;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-top: 1rem;
+  }
+
+  .reading-actions.visible {
+    display: flex;
+  }
+
   .chart-actions {
     display: flex;
     flex-wrap: wrap;
