@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from voidwire.models import AsyncJob, PersonalReading, User
+from voidwire.models import AdminUser, AsyncJob, PersonalReading, User
 
 from api.dependencies import get_current_public_user, get_db
 from api.services.async_job_service import (
@@ -25,6 +25,21 @@ router = APIRouter()
 
 class PersonalReadingJobRequest(BaseModel):
     tier: str = "auto"  # auto|free|pro
+    force_refresh: bool = False
+
+
+async def _can_force_refresh_reading(user: User, db: AsyncSession) -> bool:
+    if bool(getattr(user, "is_test_user", False)) or bool(getattr(user, "is_admin_user", False)):
+        return True
+    if not str(getattr(user, "email", "")).strip():
+        return False
+    admin_result = await db.execute(
+        select(AdminUser.id).where(
+            AdminUser.email == user.email,
+            AdminUser.is_active.is_(True),
+        )
+    )
+    return admin_result.scalars().first() is not None
 
 
 def _coverage_window(reading: PersonalReading) -> tuple[date, date]:
@@ -142,6 +157,12 @@ async def enqueue_personal_reading_generation(
     requested_tier = str(req.tier or "auto").strip().lower() or "auto"
     if requested_tier not in {"auto", "free", "pro"}:
         raise HTTPException(status_code=400, detail="tier must be one of: auto, free, pro")
+    force_refresh = bool(req.force_refresh)
+    if force_refresh and not await _can_force_refresh_reading(user, db):
+        raise HTTPException(
+            status_code=403,
+            detail="Force refresh is only available for admin/test users",
+        )
 
     tier = requested_tier
     if tier == "auto":
@@ -152,6 +173,7 @@ async def enqueue_personal_reading_generation(
         user_id=user.id,
         tier=tier,
         target_date=date.today(),
+        force_refresh=force_refresh,
     )
     return serialize_async_job(job)
 

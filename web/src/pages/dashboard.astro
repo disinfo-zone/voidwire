@@ -115,6 +115,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
   let readingPollTimer: number | null = null;
   let readingPollStartedAt = 0;
   let cachedChart: Record<string, unknown> | null = null;
+  let chartBrandDomain = 'voidwire.app';
   const SIGN_ORDER = [
     'Aries',
     'Taurus',
@@ -191,6 +192,21 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     return label.slice(0, 2).toUpperCase();
   }
 
+  function siteDomainLabel(value: unknown): string {
+    const raw = String(value || '').trim();
+    if (!raw) return 'voidwire.app';
+
+    const withoutProtocol = raw.replace(/^https?:\/\//i, '');
+    const withoutQuery = withoutProtocol.split(/[?#]/)[0] || withoutProtocol;
+    try {
+      const parsed = new URL(raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`);
+      const path = parsed.pathname && parsed.pathname !== '/' ? parsed.pathname.replace(/\/+$/, '') : '';
+      return `${parsed.host}${path}` || withoutQuery;
+    } catch {
+      return withoutQuery.replace(/\/+$/, '') || 'voidwire.app';
+    }
+  }
+
   function setReadingActionVisibility() {
     const readingActions = document.getElementById('reading-actions') as HTMLElement | null;
     if (!readingActions) return;
@@ -203,6 +219,17 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     readingActions.hidden = true;
     readingActions.setAttribute('aria-hidden', 'true');
     readingActions.style.display = 'none';
+  }
+
+  async function loadBrandDomain() {
+    try {
+      const res = await fetch('/v1/site/config', { credentials: 'include' });
+      if (!res.ok) return;
+      const cfg = await res.json();
+      chartBrandDomain = siteDomainLabel(cfg?.site_url);
+    } catch {
+      chartBrandDomain = chartBrandDomain || 'voidwire.app';
+    }
   }
 
   function setView(view: 'reading' | 'settings') {
@@ -296,23 +323,30 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     return await readingRes.json();
   }
 
-  async function enqueueOrReuseReadingJob() {
-    const jobsRes = await authFetch('/v1/user/readings/personal/jobs?limit=20');
-    if (jobsRes.ok) {
-      const jobs = await jobsRes.json();
-      if (Array.isArray(jobs)) {
-        const today = new Date().toISOString().slice(0, 10);
-        const active = jobs.find(
-          (job: any) =>
-            (job.status === 'queued' || job.status === 'running') &&
-            String(job?.payload?.target_date || '') === today,
-        );
-        if (active?.id) return String(active.id);
+  async function enqueueOrReuseReadingJob(options?: { forceRefresh?: boolean; reuseActive?: boolean }) {
+    const forceRefresh = Boolean(options?.forceRefresh);
+    const reuseActive = options?.reuseActive !== false;
+    if (reuseActive) {
+      const jobsRes = await authFetch('/v1/user/readings/personal/jobs?limit=20');
+      if (jobsRes.ok) {
+        const jobs = await jobsRes.json();
+        if (Array.isArray(jobs)) {
+          const today = new Date().toISOString().slice(0, 10);
+          const active = jobs.find((job: any) => {
+            const jobForce = Boolean(job?.payload?.force_refresh);
+            return (
+              (job.status === 'queued' || job.status === 'running') &&
+              String(job?.payload?.target_date || '') === today &&
+              jobForce === forceRefresh
+            );
+          });
+          if (active?.id) return String(active.id);
+        }
       }
     }
     const createRes = await authFetch('/v1/user/readings/personal/jobs', {
       method: 'POST',
-      body: JSON.stringify({ tier: 'auto' }),
+      body: JSON.stringify({ tier: 'auto', force_refresh: forceRefresh }),
     });
     if (!createRes.ok) {
       const data = await createRes.json().catch(() => ({}));
@@ -731,7 +765,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(234, 241, 255, 0.75)';
     ctx.font = '500 16px "Inter", sans-serif';
-    ctx.fillText('voidwire.app', centerX, height - 66);
+    ctx.fillText(chartBrandDomain, centerX, height - 66);
 
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png', 0.98));
     if (!blob) throw new Error('Could not generate chart image.');
@@ -767,6 +801,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       }
 
       const me = (await meRes.json()) as DashboardUser;
+      void loadBrandDomain();
       hasProfile = !!me.has_profile;
       canManageReadings = Boolean(me.is_admin_user || me.is_test_user);
       setReadingActionVisibility();
@@ -861,7 +896,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     updateReadingStatus('Requesting a fresh reading...');
     renderReadingMessage('Preparing a fresh reading...');
     try {
-      activeJobId = await enqueueOrReuseReadingJob();
+      activeJobId = await enqueueOrReuseReadingJob({ forceRefresh: true, reuseActive: false });
       readingPollStartedAt = Date.now();
       await pollReadingJob();
       if (activeJobId) {

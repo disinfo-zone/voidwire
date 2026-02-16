@@ -188,6 +188,7 @@ class PersonalReadingService:
         user: User,
         db: AsyncSession,
         redis=None,
+        force_refresh: bool = False,
     ) -> PersonalReading | None:
         """Get or generate a free weekly personal reading."""
         profile = user.profile
@@ -196,9 +197,10 @@ class PersonalReadingService:
 
         today = date.today()
         week_key = _current_week_key(today)
+        existing_for_week: PersonalReading | None = None
 
         # Check Redis cache
-        if redis:
+        if redis and not force_refresh:
             try:
                 cache_key = f"personal_reading:free:{user.id}:{week_key}"
                 cached = await redis.get(cache_key)
@@ -225,13 +227,20 @@ class PersonalReadingService:
                 PersonalReading.week_key == week_key,
             )
         )
-        existing = result.scalars().first()
-        if existing:
-            return existing
+        existing_for_week = result.scalars().first()
+        if existing_for_week and not force_refresh:
+            return existing_for_week
 
         # Generate new reading
+        target_date = existing_for_week.date_context if (force_refresh and existing_for_week) else today
         reading = await PersonalReadingService._generate_reading(
-            user, profile, db, "free", today, week_key=week_key
+            user,
+            profile,
+            db,
+            "free",
+            target_date,
+            week_key=week_key,
+            force_refresh=force_refresh,
         )
         if not reading:
             return None
@@ -253,6 +262,7 @@ class PersonalReadingService:
     async def get_or_generate_pro_reading(
         user: User,
         db: AsyncSession,
+        force_refresh: bool = False,
     ) -> PersonalReading | None:
         """Get or generate a pro daily personal reading."""
         profile = user.profile
@@ -262,19 +272,27 @@ class PersonalReadingService:
         today = date.today()
 
         # Check DB for today's reading
-        result = await db.execute(
-            select(PersonalReading).where(
-                PersonalReading.user_id == user.id,
-                PersonalReading.tier == "pro",
-                PersonalReading.date_context == today,
+        if not force_refresh:
+            result = await db.execute(
+                select(PersonalReading).where(
+                    PersonalReading.user_id == user.id,
+                    PersonalReading.tier == "pro",
+                    PersonalReading.date_context == today,
+                )
             )
-        )
-        existing = result.scalars().first()
-        if existing:
-            return existing
+            existing = result.scalars().first()
+            if existing:
+                return existing
 
         # Generate on-demand (batch may not have run yet)
-        return await PersonalReadingService._generate_reading(user, profile, db, "pro", today)
+        return await PersonalReadingService._generate_reading(
+            user,
+            profile,
+            db,
+            "pro",
+            today,
+            force_refresh=force_refresh,
+        )
 
     @staticmethod
     async def _generate_reading(
@@ -284,6 +302,7 @@ class PersonalReadingService:
         tier: str,
         target_date: date,
         week_key: str | None = None,
+        force_refresh: bool = False,
     ) -> PersonalReading | None:
         """Generate a personalized reading using the appropriate LLM slot."""
         slot_name = f"personal_{tier}"
@@ -429,6 +448,53 @@ class PersonalReadingService:
                 client, slot_name, messages, _validate_reading_json
             )
             elapsed = time.monotonic() - start
+            metadata = {
+                "elapsed_seconds": round(elapsed, 2),
+                "template_version": template_version,
+                "template": template_usage(template) if template else None,
+                "banned_phrase_count": len(banned_phrases),
+                "coverage": {
+                    "start": week_start.isoformat() if tier == "free" else target_date.isoformat(),
+                    "end": week_end.isoformat() if tier == "free" else target_date.isoformat(),
+                },
+            }
+
+            if force_refresh:
+                if tier == "free":
+                    refresh_result = await db.execute(
+                        select(PersonalReading)
+                        .where(
+                            PersonalReading.user_id == user.id,
+                            PersonalReading.tier == "free",
+                            PersonalReading.week_key == (week_key or _current_week_key(target_date)),
+                        )
+                        .order_by(PersonalReading.created_at.desc())
+                        .limit(1)
+                    )
+                else:
+                    refresh_result = await db.execute(
+                        select(PersonalReading)
+                        .where(
+                            PersonalReading.user_id == user.id,
+                            PersonalReading.tier == tier,
+                            PersonalReading.date_context == target_date,
+                        )
+                        .order_by(PersonalReading.created_at.desc())
+                        .limit(1)
+                    )
+                existing_refresh = refresh_result.scalars().first()
+                if existing_refresh:
+                    existing_refresh.content = content
+                    existing_refresh.week_key = (
+                        week_key or _current_week_key(target_date)
+                        if tier == "free"
+                        else existing_refresh.week_key
+                    )
+                    existing_refresh.house_system_used = profile.house_system
+                    existing_refresh.llm_slot_used = slot_name
+                    existing_refresh.generation_metadata = metadata
+                    await db.flush()
+                    return existing_refresh
 
             reading = PersonalReading(
                 user_id=user.id,
@@ -438,16 +504,7 @@ class PersonalReadingService:
                 content=content,
                 house_system_used=profile.house_system,
                 llm_slot_used=slot_name,
-                generation_metadata={
-                    "elapsed_seconds": round(elapsed, 2),
-                    "template_version": template_version,
-                    "template": template_usage(template) if template else None,
-                    "banned_phrase_count": len(banned_phrases),
-                    "coverage": {
-                        "start": week_start.isoformat() if tier == "free" else target_date.isoformat(),
-                        "end": week_end.isoformat() if tier == "free" else target_date.isoformat(),
-                    },
-                },
+                generation_metadata=metadata,
             )
             db.add(reading)
             try:

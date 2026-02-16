@@ -43,25 +43,29 @@ async def enqueue_personal_reading_job(
     user_id: uuid.UUID,
     tier: str,
     target_date: date,
+    force_refresh: bool = False,
 ) -> AsyncJob:
     payload = {
         "tier": tier,
         "target_date": target_date.isoformat(),
+        "force_refresh": bool(force_refresh),
     }
 
-    # Deduplicate active jobs for same user/tier/day.
-    existing_result = await db.execute(
-        select(AsyncJob).where(
-            AsyncJob.user_id == user_id,
-            AsyncJob.job_type == ASYNC_JOB_TYPE_PERSONAL_READING,
-            AsyncJob.status.in_(("queued", "running")),
-            AsyncJob.payload["tier"].astext == tier,  # type: ignore[index]
-            AsyncJob.payload["target_date"].astext == target_date.isoformat(),  # type: ignore[index]
+    # Deduplicate active jobs for the same user/tier/day in normal mode.
+    # Force-refresh intentionally creates a fresh job.
+    if not force_refresh:
+        existing_result = await db.execute(
+            select(AsyncJob).where(
+                AsyncJob.user_id == user_id,
+                AsyncJob.job_type == ASYNC_JOB_TYPE_PERSONAL_READING,
+                AsyncJob.status.in_(("queued", "running")),
+                AsyncJob.payload["tier"].astext == tier,  # type: ignore[index]
+                AsyncJob.payload["target_date"].astext == target_date.isoformat(),  # type: ignore[index]
+            )
         )
-    )
-    existing = existing_result.scalars().first()
-    if existing:
-        return existing
+        existing = existing_result.scalars().first()
+        if existing:
+            return existing
 
     job = AsyncJob(
         user_id=user_id,
@@ -97,6 +101,7 @@ async def _process_personal_reading_job(db: AsyncSession, job: AsyncJob) -> dict
     payload = job.payload or {}
     tier = str(payload.get("tier", "free")).strip().lower()
     target_date_raw = str(payload.get("target_date", "")).strip()
+    force_refresh = bool(payload.get("force_refresh", False))
     if tier not in {"free", "pro"}:
         raise ValueError("Unsupported personal reading tier")
 
@@ -112,9 +117,13 @@ async def _process_personal_reading_job(db: AsyncSession, job: AsyncJob) -> dict
         raise ValueError("User profile is missing")
 
     if tier == "pro":
-        reading = await PersonalReadingService.get_or_generate_pro_reading(user, db)
+        reading = await PersonalReadingService.get_or_generate_pro_reading(
+            user, db, force_refresh=force_refresh
+        )
     else:
-        reading = await PersonalReadingService.get_or_generate_free_reading(user, db)
+        reading = await PersonalReadingService.get_or_generate_free_reading(
+            user, db, force_refresh=force_refresh
+        )
 
     if reading is None:
         raise RuntimeError("Failed to generate personal reading")
@@ -123,6 +132,7 @@ async def _process_personal_reading_job(db: AsyncSession, job: AsyncJob) -> dict
         "reading_id": str(reading.id) if getattr(reading, "id", None) else None,
         "tier": tier,
         "date_context": target_date.isoformat(),
+        "force_refresh": force_refresh,
     }
 
 

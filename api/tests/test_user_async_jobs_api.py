@@ -18,6 +18,8 @@ def public_user():
         id=uuid.uuid4(),
         email="jobs@test.local",
         is_active=True,
+        is_test_user=False,
+        is_admin_user=False,
         profile=SimpleNamespace(),
         subscriptions=[],
     )
@@ -57,16 +59,52 @@ def _fake_job() -> SimpleNamespace:
 @pytest.mark.asyncio
 async def test_enqueue_personal_job(user_client: AsyncClient):
     fake = _fake_job()
+    enqueue_mock = AsyncMock(return_value=fake)
     with (
         patch("api.routers.user_readings.get_user_tier", new=AsyncMock(return_value="pro")),
         patch(
             "api.routers.user_readings.enqueue_personal_reading_job",
-            new=AsyncMock(return_value=fake),
+            new=enqueue_mock,
         ),
     ):
         response = await user_client.post("/v1/user/readings/personal/jobs", json={"tier": "auto"})
     assert response.status_code == 200
     assert response.json()["job_type"] == "personal_reading.generate"
+    assert enqueue_mock.await_args.kwargs["force_refresh"] is False
+
+
+@pytest.mark.asyncio
+async def test_enqueue_personal_job_force_refresh_allowed_for_test_user(
+    user_client: AsyncClient,
+    public_user,
+):
+    public_user.is_test_user = True
+    fake = _fake_job()
+    enqueue_mock = AsyncMock(return_value=fake)
+    with (
+        patch("api.routers.user_readings.get_user_tier", new=AsyncMock(return_value="pro")),
+        patch(
+            "api.routers.user_readings.enqueue_personal_reading_job",
+            new=enqueue_mock,
+        ),
+    ):
+        response = await user_client.post(
+            "/v1/user/readings/personal/jobs",
+            json={"tier": "auto", "force_refresh": True},
+        )
+    assert response.status_code == 200
+    assert enqueue_mock.await_args.kwargs["force_refresh"] is True
+
+
+@pytest.mark.asyncio
+async def test_enqueue_personal_job_force_refresh_rejected_for_regular_user(
+    user_client: AsyncClient,
+):
+    response = await user_client.post(
+        "/v1/user/readings/personal/jobs",
+        json={"tier": "auto", "force_refresh": True},
+    )
+    assert response.status_code == 403
 
 
 @pytest.mark.asyncio
