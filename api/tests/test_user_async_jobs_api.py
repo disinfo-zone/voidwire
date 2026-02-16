@@ -165,3 +165,79 @@ async def test_get_current_personal_reading_includes_week_coverage(user_client: 
     expected_end = (today - timedelta(days=today.weekday()) + timedelta(days=6)).isoformat()
     assert body["coverage_start"] == expected_start
     assert body["coverage_end"] == expected_end
+
+
+@pytest.mark.asyncio
+async def test_get_current_personal_reading_hides_template_for_regular_user(
+    user_client: AsyncClient,
+    mock_db,
+):
+    today = date.today()
+    fake_reading = SimpleNamespace(
+        id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        tier="free",
+        date_context=today,
+        content={
+            "title": "Weekly",
+            "body": "Body",
+            "sections": [],
+            "word_count": 420,
+            "transit_highlights": [],
+        },
+        generation_metadata={"template_version": "starter_personal_reading_free.v3"},
+        house_system_used="placidus",
+        created_at=datetime(2026, 2, 16, tzinfo=UTC),
+    )
+    db_result = MagicMock()
+    db_result.scalars.return_value.all.return_value = [fake_reading]
+    mock_db.execute.return_value = db_result
+    with (
+        patch("api.routers.user_readings.get_user_tier", new=AsyncMock(return_value="free")),
+        patch(
+            "api.routers.user_readings._can_force_refresh_reading",
+            new=AsyncMock(return_value=False),
+        ),
+    ):
+        response = await user_client.get("/v1/user/readings/personal/current")
+    assert response.status_code == 200
+    body = response.json()
+    assert "template_version" not in body
+
+
+@pytest.mark.asyncio
+async def test_get_current_personal_reading_includes_template_for_admin_test_user(
+    user_client: AsyncClient,
+    mock_db,
+):
+    today = date.today()
+    fake_reading = SimpleNamespace(
+        id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        tier="free",
+        date_context=today,
+        content={
+            "title": "Weekly",
+            "body": "Body",
+            "sections": [],
+            "word_count": 420,
+            "transit_highlights": [],
+        },
+        generation_metadata={"template_version": "starter_personal_reading_free.v3"},
+        house_system_used="placidus",
+        created_at=datetime(2026, 2, 16, tzinfo=UTC),
+    )
+    db_result = MagicMock()
+    db_result.scalars.return_value.all.return_value = [fake_reading]
+    mock_db.execute.return_value = db_result
+    with (
+        patch("api.routers.user_readings.get_user_tier", new=AsyncMock(return_value="free")),
+        patch(
+            "api.routers.user_readings._can_force_refresh_reading",
+            new=AsyncMock(return_value=True),
+        ),
+    ):
+        response = await user_client.get("/v1/user/readings/personal/current")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["template_version"] == "starter_personal_reading_free.v3"

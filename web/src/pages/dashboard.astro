@@ -289,6 +289,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const safeCoverage = escapeHtml(reading.coverage_label || '');
     const safeWordCount = Number(reading.word_count) || 0;
     const safeTemplate = reading.template_version ? escapeHtml(reading.template_version) : '';
+    const showTemplate = canManageReadings && !!safeTemplate;
 
     readingContent.innerHTML = `
       <div class="reading-tier-badge">${escapeHtml(tierLabel)}</div>
@@ -296,7 +297,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       <div class="reading-meta">${safeDateContext}${safeCoverage ? ` · ${safeCoverage}` : ''} · ${safeWordCount} words</div>
       <div class="reading-body">${bodyHtml}</div>
       ${sectionsHtml}
-      ${safeTemplate ? `<div class="reading-template">Template: ${safeTemplate}</div>` : ''}
+      ${showTemplate ? `<div class="reading-template">Template: ${safeTemplate}</div>` : ''}
     `;
     setReadingActionVisibility();
     updateReadingStatus('');

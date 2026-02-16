@@ -56,12 +56,16 @@ def _coverage_label(reading: PersonalReading, start: date, end: date) -> str:
     return f"Daily reading for {start.isoformat()}"
 
 
-def _reading_payload(reading: PersonalReading) -> dict:
+def _reading_payload(
+    reading: PersonalReading,
+    *,
+    include_template_version: bool = False,
+) -> dict:
     content = reading.content or {}
     metadata_raw = getattr(reading, "generation_metadata", None)
     metadata = metadata_raw if isinstance(metadata_raw, dict) else {}
     coverage_start, coverage_end = _coverage_window(reading)
-    return {
+    payload = {
         "id": str(reading.id) if reading.id else None,
         "tier": reading.tier,
         "date_context": reading.date_context.isoformat(),
@@ -73,10 +77,12 @@ def _reading_payload(reading: PersonalReading) -> dict:
         "sections": content.get("sections", []),
         "word_count": content.get("word_count", 0),
         "transit_highlights": content.get("transit_highlights", []),
-        "template_version": metadata.get("template_version"),
         "house_system_used": reading.house_system_used,
         "created_at": reading.created_at.isoformat() if reading.created_at else None,
     }
+    if include_template_version:
+        payload["template_version"] = metadata.get("template_version")
+    return payload
 
 
 @router.get("/personal")
@@ -104,7 +110,8 @@ async def get_current_personal_reading(
             detail="Unable to generate reading. Personal reading LLM slot may not be configured.",
         )
 
-    return _reading_payload(reading)
+    include_template_version = await _can_force_refresh_reading(user, db)
+    return _reading_payload(reading, include_template_version=include_template_version)
 
 
 @router.get("/personal/current")
@@ -119,6 +126,7 @@ async def get_current_personal_reading_without_generation(
         )
 
     tier = await get_user_tier(user, db)
+    include_template_version = await _can_force_refresh_reading(user, db)
     today = date.today()
     target_week = today.isocalendar()
     result = await db.execute(
@@ -135,9 +143,15 @@ async def get_current_personal_reading_without_generation(
         if tier == "free":
             iso = reading.date_context.isocalendar()
             if (iso[0], iso[1]) == (target_week[0], target_week[1]):
-                return _reading_payload(reading)
+                return _reading_payload(
+                    reading,
+                    include_template_version=include_template_version,
+                )
         elif reading.date_context == today:
-            return _reading_payload(reading)
+            return _reading_payload(
+                reading,
+                include_template_version=include_template_version,
+            )
 
     raise HTTPException(status_code=404, detail="No current reading yet")
 
@@ -237,7 +251,14 @@ async def get_reading_history(
         .limit(per_page)
     )
     readings = result.scalars().all()
-    return [_reading_payload(r) for r in readings]
+    include_template_version = await _can_force_refresh_reading(user, db)
+    return [
+        _reading_payload(
+            r,
+            include_template_version=include_template_version,
+        )
+        for r in readings
+    ]
 
 
 @router.get("/personal/{date_str}")
@@ -265,4 +286,5 @@ async def get_reading_by_date(
     if not reading:
         raise HTTPException(status_code=404, detail="No reading for this date")
 
-    return _reading_payload(reading)
+    include_template_version = await _can_force_refresh_reading(user, db)
+    return _reading_payload(reading, include_template_version=include_template_version)
