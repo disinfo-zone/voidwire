@@ -638,10 +638,10 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           const deg = Number(item?.degree || 0).toFixed(1);
           const planetTip = isAngle ? 'Rising sign \u2014 how you present to the world' : (PLANET_TIPS[body] || PLANET_TIPS[rawBody] || '');
           const signTip = SIGN_TIPS[sign] || '';
-          return `<div class="chart-hero-item" title="${escapeHtml(planetTip)}">
+          return `<div class="chart-hero-item" data-tip="${escapeHtml(planetTip)}">
             <span class="chart-hero-glyph" style="color: ${color}">${escapeHtml(glyph || (isAngle ? 'ASC' : ''))}</span>
             <span class="chart-hero-label">${escapeHtml(body)}</span>
-            <span class="chart-hero-detail" title="${escapeHtml(signTip)}">${escapeHtml(deg)}\u00B0 ${escapeHtml(signGlyph)} ${escapeHtml(sign)}</span>
+            <span class="chart-hero-detail" data-tip="${escapeHtml(signTip)}">${escapeHtml(deg)}\u00B0 ${escapeHtml(signGlyph)} ${escapeHtml(sign)}</span>
           </div>`;
         }).join('');
 
@@ -663,10 +663,10 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           const signTip = SIGN_TIPS[sign] || '';
           const houseTip = pos?.house ? (HOUSE_TIPS[String(pos.house)] || '') : '';
           const retroTip = retro ? 'Retrograde \u2014 inward energy, review, and revision' : '';
-          return `<div class="chart-placement" title="${escapeHtml(planetTip)}">
+          return `<div class="chart-placement" data-tip="${escapeHtml(planetTip)}">
             <span class="chart-placement-glyph" style="color: ${color}">${escapeHtml(glyph)}</span>
-            <span class="chart-placement-name">${escapeHtml(body)}${retro ? ` <span class="chart-retro" title="${escapeHtml(retroTip)}">\u211E</span>` : ''}</span>
-            <span class="chart-placement-detail" title="${escapeHtml(signTip)}${houseTip ? (signTip ? ' | ' : '') + escapeHtml(houseTip) : ''}">${escapeHtml(deg)}\u00B0 ${escapeHtml(signGlyph)} ${escapeHtml(sign)}${house ? ` \u00B7 ${escapeHtml(house)}` : ''}</span>
+            <span class="chart-placement-name">${escapeHtml(body)}${retro ? ` <span class="chart-retro" data-tip="${escapeHtml(retroTip)}">\u211E</span>` : ''}</span>
+            <span class="chart-placement-detail" data-tip="${escapeHtml(signTip)}${houseTip ? (signTip ? ' | ' : '') + escapeHtml(houseTip) : ''}">${escapeHtml(deg)}\u00B0 ${escapeHtml(signGlyph)} ${escapeHtml(sign)}${house ? ` \u00B7 ${escapeHtml(house)}` : ''}</span>
           </div>`;
         }).join('');
 
@@ -690,10 +690,10 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           const applying = asp?.applying !== false ? 'applying' : 'separating';
           const aspectTip = ASPECT_TIPS[type] || '';
           const applyTip = applying === 'applying' ? 'Building toward exact alignment' : 'Moving past exact alignment';
-          return `<div class="chart-aspect" title="${escapeHtml(aspectTip)}">
+          return `<div class="chart-aspect" data-tip="${escapeHtml(aspectTip)}">
             <span class="chart-aspect-glyph" style="color: ${color}">${escapeHtml(glyph)}</span>
             <span class="chart-aspect-bodies">${escapeHtml(body1)} ${escapeHtml(glyph)} ${escapeHtml(body2)}</span>
-            <span class="chart-aspect-detail" title="${escapeHtml(applyTip)}">${escapeHtml(orb)}\u00B0 \u00B7 ${escapeHtml(applying)}</span>
+            <span class="chart-aspect-detail" data-tip="${escapeHtml(applyTip)}">${escapeHtml(orb)}\u00B0 \u00B7 ${escapeHtml(applying)}</span>
           </div>`;
         }).join('');
         const aspectsHtml = filteredAspects.length > 0
@@ -724,7 +724,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
         function buildBarRow(label: string, count: number, max: number, color: string, tip: string): string {
           const pct = Math.round((count / max) * 100);
-          return `<div class="chart-bar-row" title="${escapeHtml(tip)}">
+          return `<div class="chart-bar-row" data-tip="${escapeHtml(tip)}">
             <span class="chart-bar-label">${escapeHtml(label)}</span>
             <span class="chart-bar-track"><span class="chart-bar-fill" style="width: ${pct}%; background: ${color}"></span></span>
             <span class="chart-bar-count">${count}</span>
@@ -741,11 +741,11 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         const masculine = elementCounts['Fire'] + elementCounts['Air'];
         const feminine = elementCounts['Earth'] + elementCounts['Water'];
         const polarityLabel = masculine > feminine ? 'Yang-dominant' : feminine > masculine ? 'Yin-dominant' : 'Balanced';
-        const polarityHtml = `<div class="chart-polarity" title="Yang (Fire &amp; Air): outward, active expression. Yin (Earth &amp; Water): inward, receptive reflection.">
+        const polarityHtml = `<div class="chart-polarity" data-tip="Yang (Fire &amp; Air): outward, active expression. Yin (Earth &amp; Water): inward, receptive reflection.">
           <span class="chart-polarity-label">Polarity</span>
           <span class="chart-polarity-bar">
-            <span class="chart-polarity-fill chart-polarity-yang" style="width: ${Math.round((masculine / totalPlanets) * 100)}%" title="Yang (Fire &amp; Air): ${masculine}"></span>
-            <span class="chart-polarity-fill chart-polarity-yin" style="width: ${Math.round((feminine / totalPlanets) * 100)}%" title="Yin (Earth &amp; Water): ${feminine}"></span>
+            <span class="chart-polarity-fill chart-polarity-yang" style="width: ${Math.round((masculine / totalPlanets) * 100)}%" data-tip="Yang (Fire &amp; Air): ${masculine}"></span>
+            <span class="chart-polarity-fill chart-polarity-yin" style="width: ${Math.round((feminine / totalPlanets) * 100)}%" data-tip="Yin (Earth &amp; Water): ${feminine}"></span>
           </span>
           <span class="chart-polarity-value">${escapeHtml(polarityLabel)}</span>
         </div>`;
@@ -755,8 +755,8 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           .filter(([, count]) => count >= 3)
           .sort((a, b) => b[1] - a[1]);
         const stelliumHtml = stelliums.length > 0
-          ? `<div class="chart-stelliums" title="A stellium is 3+ planets concentrated in one sign \u2014 intensified focus in that area of life"><span class="chart-detail-sublabel">Stelliums</span>${stelliums.map(
-              ([sign, count]) => `<span class="chart-stellium-tag" style="color: ${SIGN_COLORS[sign] || '#d6af72'}" title="${escapeHtml(SIGN_TIPS[sign] || '')}">${escapeHtml(sign)} (${count})</span>`
+          ? `<div class="chart-stelliums" data-tip="A stellium is 3+ planets concentrated in one sign \u2014 intensified focus in that area of life"><span class="chart-detail-sublabel">Stelliums</span>${stelliums.map(
+              ([sign, count]) => `<span class="chart-stellium-tag" style="color: ${SIGN_COLORS[sign] || '#d6af72'}" data-tip="${escapeHtml(SIGN_TIPS[sign] || '')}">${escapeHtml(sign)} (${count})</span>`
             ).join('')}</div>`
           : '';
 
@@ -772,7 +772,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
             const glyph = ASPECT_GLYPHS[t] || '';
             const color = CHART_ASPECT_COLORS[t] || '#d6af72';
             const label = t.charAt(0).toUpperCase() + t.slice(1);
-            return `<span class="chart-aspect-stat" style="color: ${color}" title="${escapeHtml(ASPECT_TIPS[t] || '')}">${escapeHtml(glyph)} ${aspectTypeCounts[t]} ${escapeHtml(label)}${aspectTypeCounts[t] > 1 ? 's' : ''}</span>`;
+            return `<span class="chart-aspect-stat" style="color: ${color}" data-tip="${escapeHtml(ASPECT_TIPS[t] || '')}">${escapeHtml(glyph)} ${aspectTypeCounts[t]} ${escapeHtml(label)}${aspectTypeCounts[t] > 1 ? 's' : ''}</span>`;
           }).join('');
         const aspectSummaryHtml = aspectSummaryItems
           ? `<div class="chart-aspect-summary"><span class="chart-detail-sublabel">Aspect Breakdown</span><div class="chart-aspect-stats">${aspectSummaryItems}</div></div>`
@@ -781,7 +781,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         // Retrograde count
         const retroCount = positions.filter((p: any) => Boolean(p?.retrograde)).length;
         const retroHtml = retroCount > 0
-          ? `<div class="chart-retro-summary" title="Retrograde planets appear to move backward \u2014 their energy turns inward for review and revision"><span class="chart-detail-sublabel">Retrograde</span><span class="chart-retro-value">${retroCount} planet${retroCount > 1 ? 's' : ''} in retrograde</span></div>`
+          ? `<div class="chart-retro-summary" data-tip="Retrograde planets appear to move backward \u2014 their energy turns inward for review and revision"><span class="chart-detail-sublabel">Retrograde</span><span class="chart-retro-value">${retroCount} planet${retroCount > 1 ? 's' : ''} in retrograde</span></div>`
           : '';
 
         const chartDetailsHtml = `
@@ -1773,10 +1773,92 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     stopReadingPolling();
   });
 
+  // --- Custom tooltip system (works on hover + tap) ---
+  (() => {
+    const tip = document.createElement('div');
+    tip.className = 'tip-popup';
+    tip.style.display = 'none';
+    document.body.appendChild(tip);
+
+    let activeTarget: Element | null = null;
+    let hideTimer: number | null = null;
+
+    function showTip(target: Element) {
+      const text = target.getAttribute('data-tip');
+      if (!text) return;
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+      activeTarget = target;
+      tip.textContent = text;
+      tip.style.display = 'block';
+
+      const rect = target.getBoundingClientRect();
+      const tipRect = tip.getBoundingClientRect();
+      let left = rect.left + rect.width / 2 - tipRect.width / 2;
+      let top = rect.top - tipRect.height - 8;
+
+      // Flip below if no room above
+      if (top < 4) top = rect.bottom + 8;
+      // Clamp horizontal
+      left = Math.max(8, Math.min(left, window.innerWidth - tipRect.width - 8));
+
+      tip.style.left = `${left}px`;
+      tip.style.top = `${top}px`;
+    }
+
+    function hideTip() {
+      tip.style.display = 'none';
+      activeTarget = null;
+    }
+
+    function scheduledHide() {
+      hideTimer = window.setTimeout(hideTip, 120);
+    }
+
+    // Desktop: hover
+    document.addEventListener('mouseenter', (e) => {
+      const target = (e.target as Element)?.closest?.('[data-tip]');
+      if (target && target.getAttribute('data-tip')) showTip(target);
+    }, true);
+    document.addEventListener('mouseleave', (e) => {
+      const target = (e.target as Element)?.closest?.('[data-tip]');
+      if (target && target === activeTarget) scheduledHide();
+    }, true);
+
+    // Mobile: tap to show, tap elsewhere to dismiss
+    document.addEventListener('click', (e) => {
+      const target = (e.target as Element)?.closest?.('[data-tip]');
+      if (target && target.getAttribute('data-tip')) {
+        if (activeTarget === target) {
+          hideTip();
+        } else {
+          showTip(target);
+        }
+      } else {
+        if (activeTarget) hideTip();
+      }
+    });
+  })();
+
   void loadDashboard();
 </script>
 
 <style>
+  :global(.tip-popup) {
+    position: fixed;
+    z-index: 2000;
+    max-width: 280px;
+    padding: 0.5rem 0.75rem;
+    background: #181c2a;
+    border: 1px solid rgba(214, 175, 114, 0.2);
+    border-radius: 6px;
+    font-family: var(--font-sans);
+    font-size: 0.68rem;
+    line-height: 1.45;
+    color: var(--text-secondary);
+    pointer-events: none;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  }
+
   .dashboard-container {
     max-width: var(--max-width);
     margin: 1rem auto;
