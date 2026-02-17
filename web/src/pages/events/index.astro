@@ -16,8 +16,48 @@ interface AstroEvent {
   reading_url?: string | null;
 }
 
+interface EphemerisPosition {
+  sign: string;
+  degree: number;
+  longitude: number;
+  speed_deg_day: number;
+  retrograde: boolean;
+}
+
+interface LunarData {
+  phase_name: string;
+  phase_pct: number;
+  void_of_course: boolean;
+  void_of_course_starts?: string | null;
+  next_sign_ingress?: { sign?: string; at?: string } | null;
+}
+
+interface StationOrIngress {
+  type: string;
+  body: string;
+  sign?: string | null;
+  at: string;
+  core_meaning?: string;
+}
+
+interface ForwardEvent {
+  at: string;
+  event: string;
+  significance?: string;
+  core_meaning?: string | null;
+}
+
+interface EphemerisData {
+  positions: Record<string, EphemerisPosition>;
+  lunar: LunarData;
+  aspects: any[];
+  stations_and_ingresses: StationOrIngress[];
+  forward_ephemeris: ForwardEvent[];
+}
+
 let events: AstroEvent[] = [];
 let error: string | null = null;
+let ephemeris: EphemerisData | null = null;
 let siteTimezone = 'UTC';
 const apiHeaders = forwardedApiHeaders(Astro.clientAddress);
 
@@ -29,20 +69,36 @@ try {
   }
 } catch {}
 
-try {
-  const res = await fetch(apiUrl('/v1/events?limit=50'), { headers: apiHeaders });
+// Fetch events and ephemeris in parallel
+const [eventsResult, ephemerisResult] = await Promise.allSettled([
+  fetch(apiUrl('/v1/events?limit=50'), { headers: apiHeaders }),
+  fetch(apiUrl('/v1/ephemeris/today'), { headers: apiHeaders }),
+]);
+
+if (eventsResult.status === 'fulfilled') {
+  const res = eventsResult.value;
   if (res.ok) {
     const data = await res.json();
     events = data.items || data;
   } else {
     error = `Failed to load events (${res.status})`;
   }
-} catch (e) {
-  error = e instanceof Error ? e.message : 'Unknown error';
+} else {
+  error = eventsResult.reason instanceof Error ? eventsResult.reason.message : 'Unknown error';
+}
+
+if (ephemerisResult.status === 'fulfilled' && ephemerisResult.value.ok) {
+  try {
+    ephemeris = await ephemerisResult.value.json();
+  } catch {}
 }
 
 function formatEventType(type: string): string {
   return type.replace(/_/g, ' ');
+}
+
+function formatPhaseName(phase: string): string {
+  return phase.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function formatDate(iso: string): string {
@@ -60,9 +116,55 @@ function formatDate(iso: string): string {
     return iso;
   }
 }
+
+function formatShortDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: siteTimezone,
+    });
+  } catch {
+    return iso;
+  }
+}
+
+// Derived data
+const retroPlanets = ephemeris
+  ? Object.entries(ephemeris.positions)
+      .filter(([name, pos]) => pos.retrograde && !['sun', 'moon', 'north_node'].includes(name.toLowerCase()))
+      .map(([name, pos]) => ({
+        name: name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+        sign: pos.sign,
+      }))
+  : [];
+
+// Only separate eclipses when ephemeris data is available to display them
+const eclipseEvents = ephemeris
+  ? events.filter((e) => e.event_type === 'lunar_eclipse' || e.event_type === 'solar_eclipse')
+  : [];
+const nonEclipseEvents = ephemeris
+  ? events.filter((e) => e.event_type !== 'lunar_eclipse' && e.event_type !== 'solar_eclipse')
+  : events;
+
+// Moon sign from positions
+const moonPos = ephemeris?.positions?.moon || ephemeris?.positions?.Moon;
+const moonSign = moonPos?.sign || '';
+
+// Phase data attribute for CSS moon visual
+function phaseDataAttr(phaseName: string): string {
+  const map: Record<string, string> = {
+    new_moon: 'new', waxing_crescent: 'wax-crescent', first_quarter: 'first-quarter',
+    waxing_gibbous: 'wax-gibbous', full_moon: 'full', waning_gibbous: 'wan-gibbous',
+    last_quarter: 'last-quarter', waning_crescent: 'wan-crescent',
+  };
+  return map[phaseName] || 'new';
+}
 ---
 
-<Base title="Events">
+<Base title="Celestial Weather">
   <Background />
 
   <header class="site-header">
@@ -75,8 +177,105 @@ function formatDate(iso: string): string {
   </header>
 
   <main class="page-container">
-    <h2 class="page-title">Upcoming Events</h2>
+    <h2 class="page-title">Celestial Weather</h2>
 
+    {ephemeris && (
+      <div class="celestial-weather">
+
+        <!-- Moon Phase -->
+        <div class="weather-card">
+          <div class="weather-label">Current Moon</div>
+          <div class="moon-phase-row">
+            <div class="moon-disc" data-phase={phaseDataAttr(ephemeris.lunar.phase_name)}></div>
+            <div class="moon-info">
+              <div class="moon-phase-name">{formatPhaseName(ephemeris.lunar.phase_name)}</div>
+              <div class="moon-detail">
+                {Math.round(ephemeris.lunar.phase_pct * 100)}% illuminated
+                {moonSign && <span> &middot; Moon in {moonSign}</span>}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Void of Course -->
+        <div class="weather-card">
+          <div class="weather-label">Void of Course Moon</div>
+          {ephemeris.lunar.void_of_course ? (
+            <div class="voc-row">
+              <span class="voc-badge voc-active">Active</span>
+              <span class="voc-note">Avoid initiating major actions &mdash; rest, reflect, review</span>
+            </div>
+          ) : (
+            <div class="voc-row">
+              <span class="voc-badge voc-clear">Clear</span>
+              {ephemeris.lunar.next_sign_ingress?.at && (
+                <span class="voc-next">Moon enters {ephemeris.lunar.next_sign_ingress.sign || 'next sign'} &middot; {formatShortDate(ephemeris.lunar.next_sign_ingress.at)}</span>
+              )}
+            </div>
+          )}
+        </div>
+
+        <!-- Retrograde Tracker -->
+        {retroPlanets.length > 0 && (
+          <div class="weather-card">
+            <div class="weather-label">Retrograde Planets</div>
+            <div class="retro-chips">
+              {retroPlanets.map((p) => (
+                <span class="retro-chip">&#8478; {p.name} in {p.sign}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <!-- Transit Timeline -->
+        {(ephemeris.stations_and_ingresses.length > 0 || ephemeris.forward_ephemeris.length > 0) && (
+          <div class="weather-card">
+            <div class="weather-label">Transit Timeline</div>
+            <div class="timeline">
+              {ephemeris.stations_and_ingresses.map((si) => (
+                <div class={`timeline-item ${si.type.includes('station') ? 'timeline-major' : ''}`}>
+                  <div class="timeline-event">{formatEventType(si.type)}: {si.body}{si.sign ? ` in ${si.sign}` : ''}</div>
+                  <div class="timeline-date">{formatShortDate(si.at)}</div>
+                  {si.core_meaning && <div class="timeline-meaning">{si.core_meaning}</div>}
+                </div>
+              ))}
+              {ephemeris.forward_ephemeris.map((fe) => (
+                <div class={`timeline-item ${fe.significance === 'major' ? 'timeline-major' : ''}`}>
+                  <div class="timeline-event">{fe.event}</div>
+                  <div class="timeline-date">{formatShortDate(fe.at)}</div>
+                  {fe.core_meaning && <div class="timeline-meaning">{fe.core_meaning}</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <!-- Eclipses -->
+        {eclipseEvents.length > 0 && (
+          <div class="weather-card">
+            <div class="weather-label">Upcoming Eclipses</div>
+            {eclipseEvents.map((event) => (
+              <div class="eclipse-item">
+                <div class="eclipse-type">{formatEventType(event.event_type)}</div>
+                <div class="eclipse-detail">
+                  {event.body && <span>{event.body}</span>}
+                  {event.body && event.sign && <span> in </span>}
+                  {event.sign && <span>{event.sign}</span>}
+                </div>
+                <div class="eclipse-date">{formatDate(event.at)}</div>
+                {event.reading_available && (
+                  <div class="event-reading-link">
+                    <a href={event.reading_url || `/events/${event.id}`}>Read Event Reading</a>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )}
+
+    <!-- Event Articles -->
     {error && (
       <div class="status-message">
         <p>Signal disrupted</p>
@@ -84,38 +283,332 @@ function formatDate(iso: string): string {
       </div>
     )}
 
-    {!error && events.length === 0 && (
+    {!error && nonEclipseEvents.length === 0 && events.length === 0 && (
       <div class="status-message">
         <p>No upcoming events detected</p>
       </div>
     )}
 
-    {events.length > 0 && (
-      <div>
-        {events.map((event) => (
-          <div class="event-item">
-            <div class="event-type">{formatEventType(event.event_type)}</div>
-            <div class="event-detail">
-              {event.body && <span>{event.body}</span>}
-              {event.body && event.sign && <span> in </span>}
-              {event.sign && <span>{event.sign}</span>}
-              {event.significance && <span class="event-significance"> &mdash; {event.significance}</span>}
-            </div>
-            <div class="event-date">{formatDate(event.at)}</div>
-            {event.reading_available && (
-              <div class="event-reading-link">
-                <a href={event.reading_url || `/events/${event.id}`}>Read Event Reading</a>
-                {event.reading_title && <span class="event-reading-title">- {event.reading_title}</span>}
+    {nonEclipseEvents.length > 0 && (
+      <div class="events-section">
+        <div class="weather-label">Event Articles</div>
+        <div>
+          {nonEclipseEvents.map((event) => (
+            <div class="event-item">
+              <div class="event-type">{formatEventType(event.event_type)}</div>
+              <div class="event-detail">
+                {event.body && <span>{event.body}</span>}
+                {event.body && event.sign && <span> in </span>}
+                {event.sign && <span>{event.sign}</span>}
+                {event.significance && <span class="event-significance"> &mdash; {event.significance}</span>}
               </div>
-            )}
-          </div>
-        ))}
+              <div class="event-date">{formatDate(event.at)}</div>
+              {event.reading_available && (
+                <div class="event-reading-link">
+                  <a href={event.reading_url || `/events/${event.id}`}>Read Event Reading</a>
+                  {event.reading_title && <span class="event-reading-title">- {event.reading_title}</span>}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     )}
   </main>
 </Base>
 
 <style>
+  /* Celestial Weather Container */
+  .celestial-weather {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin-bottom: 2rem;
+  }
+
+  .weather-card {
+    padding: 1.2rem 0;
+    border-bottom: 1px solid var(--text-ghost);
+  }
+
+  .weather-card:first-child {
+    padding-top: 0;
+  }
+
+  .weather-label {
+    font-family: var(--font-sans);
+    font-size: 0.6rem;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 0.6rem;
+  }
+
+  /* Moon Phase */
+  .moon-phase-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .moon-disc {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    position: relative;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  .moon-disc::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: var(--text-secondary);
+  }
+
+  .moon-disc::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+  }
+
+  .moon-disc[data-phase="new"]::after {
+    background: var(--void);
+  }
+
+  .moon-disc[data-phase="wax-crescent"]::after {
+    background: linear-gradient(to left, transparent 35%, var(--void) 65%);
+  }
+
+  .moon-disc[data-phase="first-quarter"]::after {
+    background: linear-gradient(to left, transparent 50%, var(--void) 50%);
+  }
+
+  .moon-disc[data-phase="wax-gibbous"]::after {
+    background: linear-gradient(to right, transparent 65%, var(--void) 100%);
+    opacity: 0.6;
+  }
+
+  .moon-disc[data-phase="full"]::after {
+    background: transparent;
+  }
+
+  .moon-disc[data-phase="wan-gibbous"]::after {
+    background: linear-gradient(to left, transparent 65%, var(--void) 100%);
+    opacity: 0.6;
+  }
+
+  .moon-disc[data-phase="last-quarter"]::after {
+    background: linear-gradient(to right, transparent 50%, var(--void) 50%);
+  }
+
+  .moon-disc[data-phase="wan-crescent"]::after {
+    background: linear-gradient(to right, transparent 35%, var(--void) 65%);
+  }
+
+  .moon-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .moon-phase-name {
+    font-family: var(--font-body);
+    font-size: 1.1rem;
+    color: var(--text-primary);
+  }
+
+  .moon-detail {
+    font-family: var(--font-sans);
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+  }
+
+  /* Void of Course */
+  .voc-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .voc-badge {
+    font-family: var(--font-sans);
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.2em 0.6em;
+    border-radius: 3px;
+  }
+
+  .voc-active {
+    background: rgba(224, 112, 96, 0.15);
+    color: #e07060;
+    border: 1px solid rgba(224, 112, 96, 0.3);
+  }
+
+  .voc-clear {
+    background: rgba(80, 168, 104, 0.1);
+    color: #50a868;
+    border: 1px solid rgba(80, 168, 104, 0.2);
+  }
+
+  .voc-note {
+    font-family: var(--font-sans);
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    font-style: italic;
+  }
+
+  .voc-next {
+    font-family: var(--font-sans);
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+  }
+
+  /* Retrograde Chips */
+  .retro-chips {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .retro-chip {
+    font-family: var(--font-sans);
+    font-size: 0.68rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    padding: 0.25em 0.6em;
+    border: 1px solid var(--text-ghost);
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+
+  /* Transit Timeline */
+  .timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .timeline-item {
+    padding: 0.6rem 0 0.6rem 0.8rem;
+    border-left: 2px solid var(--text-ghost);
+    position: relative;
+  }
+
+  .timeline-item:first-child {
+    padding-top: 0;
+  }
+
+  .timeline-item:last-child {
+    padding-bottom: 0;
+  }
+
+  .timeline-major {
+    border-left-color: var(--accent);
+  }
+
+  .timeline-event {
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+    color: var(--text-primary);
+    text-transform: capitalize;
+  }
+
+  .timeline-date {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    margin-top: 0.15rem;
+  }
+
+  .timeline-meaning {
+    font-family: var(--font-sans);
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+    line-height: 1.5;
+  }
+
+  /* Eclipse Items */
+  .eclipse-item {
+    padding: 0.6rem 0;
+  }
+
+  .eclipse-item + .eclipse-item {
+    border-top: 1px solid var(--text-ghost);
+  }
+
+  .eclipse-type {
+    font-family: var(--font-sans);
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.2rem;
+  }
+
+  .eclipse-detail {
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+    color: var(--text-primary);
+  }
+
+  .eclipse-date {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    margin-top: 0.15rem;
+  }
+
+  /* Event Articles Section */
+  .events-section {
+    margin-top: 1.5rem;
+  }
+
+  .events-section .weather-label {
+    margin-bottom: 0.8rem;
+  }
+
+  /* Event Items */
+  .event-item {
+    padding: 1rem 0;
+    border-bottom: 1px solid var(--text-ghost);
+  }
+
+  .event-type {
+    font-family: var(--font-sans);
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.2rem;
+  }
+
+  .event-detail {
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+    color: var(--text-primary);
+  }
+
+  .event-significance {
+    color: var(--text-secondary);
+  }
+
+  .event-date {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    margin-top: 0.15rem;
+  }
+
   .event-reading-link {
     margin-top: 0.8rem;
     font-family: var(--font-sans);
@@ -138,5 +631,50 @@ function formatDate(iso: string): string {
     margin-left: 0.5rem;
     text-transform: none;
     letter-spacing: 0;
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .moon-disc {
+      width: 44px;
+      height: 44px;
+    }
+
+    .moon-phase-name {
+      font-size: 1rem;
+    }
+
+    .weather-card {
+      padding: 1rem 0;
+    }
+
+    .timeline-meaning {
+      font-size: 0.68rem;
+    }
+  }
+
+  @media (max-width: 400px) {
+    .moon-phase-row {
+      gap: 0.75rem;
+    }
+
+    .moon-disc {
+      width: 36px;
+      height: 36px;
+    }
+
+    .voc-row {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.4rem;
+    }
+
+    .retro-chips {
+      gap: 0.35rem;
+    }
+
+    .retro-chip {
+      font-size: 0.62rem;
+    }
   }
 </style>

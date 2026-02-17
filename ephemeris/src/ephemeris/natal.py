@@ -193,6 +193,24 @@ def calculate_natal_chart(
         },
     ]
 
+    # Part of Fortune: (Ascendant + Moon - Sun) % 360
+    sun_pos = positions_raw.get("sun")
+    moon_pos = positions_raw.get("moon")
+    if sun_pos and moon_pos:
+        pof_longitude = (ascendant + moon_pos["longitude"] - sun_pos["longitude"]) % 360
+        pof_sign, pof_degree = longitude_to_sign(pof_longitude)
+        positions_list.append(
+            {
+                "body": "part_of_fortune",
+                "sign": pof_sign,
+                "degree": round(pof_degree, 2),
+                "longitude": round(pof_longitude, 2),
+                "speed_deg_day": 0.0,
+                "retrograde": False,
+                "house": _find_house(pof_longitude, cusps) if birth_time else None,
+            }
+        )
+
     # Calculate natal aspects (natal-to-natal)
     # Reuse find_aspects with base_dt=None to skip perfection timing
     aspects_raw = find_aspects(positions_raw, base_dt=None)

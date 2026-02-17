@@ -24,7 +24,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           <h1 class="page-title">Your Dashboard</h1>
           <div class="view-toggle">
             <button id="view-reading-btn" class="view-toggle-button active">Reading</button>
-            <button id="view-settings-btn" class="view-toggle-button">Settings</button>
+            <button id="view-settings-btn" class="view-toggle-button">Your Chart</button>
           </div>
         </div>
 
@@ -191,6 +191,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     Sun: `\u2609${VS15}`, Moon: `\u263D${VS15}`, Mercury: `\u263F${VS15}`, Venus: `\u2640${VS15}`,
     Mars: `\u2642${VS15}`, Jupiter: `\u2643${VS15}`, Saturn: `\u2644${VS15}`, Uranus: `\u2645${VS15}`,
     Neptune: `\u2646${VS15}`, Pluto: `\u2647${VS15}`, Chiron: `\u26B7${VS15}`, 'North Node': `\u260A${VS15}`,
+    'Part Of Fortune': `\u2297${VS15}`,
   };
   const SIGN_GLYPHS: Record<string, string> = {
     Aries: `\u2648${VS15}`, Taurus: `\u2649${VS15}`, Gemini: `\u264A${VS15}`, Cancer: `\u264B${VS15}`,
@@ -228,6 +229,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     Pluto: 'Transformation, power, and rebirth',
     Chiron: 'Healing, wounds, and wisdom',
     'North Node': 'Life direction and soul growth',
+    'Part Of Fortune': 'Prosperity, happiness, and worldly success \u2014 where fortune flows most naturally',
   };
   const SIGN_TIPS: Record<string, string> = {
     Aries: 'Cardinal Fire \u2014 bold, pioneering, assertive',
@@ -345,6 +347,153 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     if (bigGaps >= 3) return { name: 'Splay', description: 'Planets in distinct clusters \u2014 individualistic, strong-willed, multi-talented' };
 
     return { name: 'Splash', description: 'Planets distributed across most of the zodiac \u2014 versatile with wide-ranging interests' };
+  }
+
+  function detectAspectPatterns(aspects: any[]): { name: string; description: string; bodies: string[] }[] {
+    // Build lookup maps
+    const byType: Record<string, [string, string][]> = {};
+    for (const asp of aspects) {
+      const type = String(asp?.type || asp?.aspect_type || '').toLowerCase();
+      const b1 = displayBody(asp?.body1);
+      const b2 = displayBody(asp?.body2);
+      if (!type || !b1 || !b2) continue;
+      if (!byType[type]) byType[type] = [];
+      byType[type].push([b1, b2]);
+    }
+
+    function hasAspect(type: string, a: string, b: string): boolean {
+      const pairs = byType[type] || [];
+      return pairs.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
+    }
+
+    function allBodies(): string[] {
+      const set = new Set<string>();
+      for (const pairs of Object.values(byType)) {
+        for (const [a, b] of pairs) { set.add(a); set.add(b); }
+      }
+      return [...set];
+    }
+
+    const bodies = allBodies();
+    const patterns: { name: string; description: string; bodies: string[] }[] = [];
+    const seen = new Set<string>();
+
+    // Grand Trine: 3 planets all mutually in trine
+    for (let i = 0; i < bodies.length; i++) {
+      for (let j = i + 1; j < bodies.length; j++) {
+        for (let k = j + 1; k < bodies.length; k++) {
+          const [a, b, c] = [bodies[i], bodies[j], bodies[k]];
+          if (hasAspect('trine', a, b) && hasAspect('trine', b, c) && hasAspect('trine', a, c)) {
+            const key = `grand_trine:${[a, b, c].sort().join(',')}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              patterns.push({ name: 'Grand Trine', description: 'Three planets in harmonious flow \u2014 natural talent and ease in the connected signs', bodies: [a, b, c] });
+            }
+          }
+        }
+      }
+    }
+
+    // T-Square: 2 planets in opposition, 3rd square to both
+    for (const [a, b] of (byType['opposition'] || [])) {
+      for (const c of bodies) {
+        if (c === a || c === b) continue;
+        if (hasAspect('square', c, a) && hasAspect('square', c, b)) {
+          const key = `t_square:${[a, b, c].sort().join(',')}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            patterns.push({ name: 'T-Square', description: 'Dynamic tension driving action \u2014 the apex planet channels the opposition\u2019s energy', bodies: [a, b, c] });
+          }
+        }
+      }
+    }
+
+    // Grand Cross: 2 pairs of oppositions, 4 mutual squares
+    for (let i = 0; i < bodies.length; i++) {
+      for (let j = i + 1; j < bodies.length; j++) {
+        for (let k = j + 1; k < bodies.length; k++) {
+          for (let l = k + 1; l < bodies.length; l++) {
+            const four = [bodies[i], bodies[j], bodies[k], bodies[l]];
+            // Need 2 oppositions and 4 squares
+            let opps = 0; let sqs = 0;
+            for (let x = 0; x < 4; x++) {
+              for (let y = x + 1; y < 4; y++) {
+                if (hasAspect('opposition', four[x], four[y])) opps++;
+                if (hasAspect('square', four[x], four[y])) sqs++;
+              }
+            }
+            if (opps >= 2 && sqs >= 4) {
+              const key = `grand_cross:${four.sort().join(',')}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                patterns.push({ name: 'Grand Cross', description: 'Maximum tension and cardinal energy \u2014 powerful drive born from four-way friction', bodies: four });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Yod: 2 planets sextile each other, both quincunx a 3rd (apex)
+    for (const [a, b] of (byType['sextile'] || [])) {
+      for (const c of bodies) {
+        if (c === a || c === b) continue;
+        if (hasAspect('quincunx', a, c) && hasAspect('quincunx', b, c)) {
+          const key = `yod:${[a, b, c].sort().join(',')}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            patterns.push({ name: 'Yod', description: 'The Finger of God \u2014 fated adjustment through the apex planet, a call to specialized purpose', bodies: [a, b, c] });
+          }
+        }
+      }
+    }
+
+    // Kite: Grand Trine + 4th planet opposing one vertex, sextile the other two
+    for (const gt of patterns.filter(p => p.name === 'Grand Trine')) {
+      const [a, b, c] = gt.bodies;
+      for (const d of bodies) {
+        if (d === a || d === b || d === c) continue;
+        for (const vertex of [a, b, c]) {
+          const others = [a, b, c].filter(x => x !== vertex);
+          if (hasAspect('opposition', d, vertex) && hasAspect('sextile', d, others[0]) && hasAspect('sextile', d, others[1])) {
+            const key = `kite:${[a, b, c, d].sort().join(',')}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              patterns.push({ name: 'Kite', description: 'Grand Trine focused through an opposition \u2014 talent given direction and productive outlet', bodies: [a, b, c, d] });
+            }
+          }
+        }
+      }
+    }
+
+    // Mystic Rectangle: 2 oppositions connected by sextiles and trines
+    for (let i = 0; i < bodies.length; i++) {
+      for (let j = i + 1; j < bodies.length; j++) {
+        if (!hasAspect('opposition', bodies[i], bodies[j])) continue;
+        for (let k = j + 1; k < bodies.length; k++) {
+          for (let l = k + 1; l < bodies.length; l++) {
+            if (!hasAspect('opposition', bodies[k], bodies[l])) continue;
+            const four = [bodies[i], bodies[j], bodies[k], bodies[l]];
+            // Check sextile+trine connections between the two opposition pairs
+            let trines = 0; let sextiles = 0;
+            const pairs = [[0,2],[0,3],[1,2],[1,3]];
+            for (const [x, y] of pairs) {
+              if (hasAspect('trine', four[x], four[y])) trines++;
+              if (hasAspect('sextile', four[x], four[y])) sextiles++;
+            }
+            if (trines >= 2 && sextiles >= 2) {
+              const key = `mystic_rect:${four.sort().join(',')}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                patterns.push({ name: 'Mystic Rectangle', description: 'Structured harmony \u2014 practical talent from balanced oppositions linked by trines and sextiles', bodies: four });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return patterns;
   }
 
   function escapeHtml(value: unknown): string {
@@ -844,7 +993,8 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         const modalityCounts: Record<string, number> = { Cardinal: 0, Fixed: 0, Mutable: 0 };
         const signCounts: Record<string, number> = {};
 
-        for (const pos of positions) {
+        const countablePositions = positions.filter((p: any) => String(p?.body || '').toLowerCase() !== 'part_of_fortune');
+        for (const pos of countablePositions) {
           const sign = normalizeSign(pos?.sign);
           const el = ELEMENT_MAP[sign];
           const mod = MODALITY_MAP[sign];
@@ -853,7 +1003,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           signCounts[sign] = (signCounts[sign] || 0) + 1;
         }
 
-        const totalPlanets = positions.length || 1;
+        const totalPlanets = countablePositions.length || 1;
 
         function buildBarRow(label: string, count: number, max: number, color: string, tip: string): string {
           const pct = Math.round((count / max) * 100);
@@ -890,6 +1040,16 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         const stelliumHtml = stelliums.length > 0
           ? `<div class="chart-stelliums" data-tip="A stellium is 3+ planets concentrated in one sign \u2014 intensified focus in that area of life"><span class="chart-detail-sublabel">Stelliums</span>${stelliums.map(
               ([sign, count]) => `<span class="chart-stellium-tag" style="color: ${SIGN_COLORS[sign] || '#d6af72'}" data-tip="${escapeHtml(SIGN_TIPS[sign] || '')}">${escapeHtml(sign)} (${count})</span>`
+            ).join('')}</div>`
+          : '';
+
+        // Aspect Patterns
+        const aspectPatterns = detectAspectPatterns(aspects);
+        const aspectPatternsHtml = aspectPatterns.length > 0
+          ? `<div class="chart-aspect-patterns" data-tip="Geometric configurations formed by multiple aspects \u2014 complex dynamics that shape your chart\u2019s signature"><span class="chart-detail-sublabel">Aspect Patterns</span>${aspectPatterns.map(
+              (p) => `<div class="chart-pattern-card" data-tip="${escapeHtml(p.description)}"><span class="chart-pattern-name">${escapeHtml(p.name)}</span><span class="chart-pattern-bodies">${p.bodies.map(
+                (b) => `<span class="chart-pattern-body">${escapeHtml(PLANET_GLYPHS[b] || '')} ${escapeHtml(b)}</span>`
+              ).join('')}</span></div>`
             ).join('')}</div>`
           : '';
 
@@ -1012,7 +1172,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           : '';
 
         // Aspect Matrix Grid
-        const matrixBodies = positions.map((p: any) => displayBody(p?.body));
+        const matrixBodies = positions.filter((p: any) => String(p?.body || '').toLowerCase() !== 'part_of_fortune').map((p: any) => displayBody(p?.body));
         const aspectLookup: Record<string, { type: string; glyph: string; color: string }> = {};
         for (const asp of filteredAspects) {
           const b1 = displayBody(asp?.body1);
@@ -1064,6 +1224,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
               ${chartRulerHtml}${dominantHtml}${patternHtml}
             </div>
             ${stelliumHtml ? `<div class="chart-details-secondary">${stelliumHtml}</div>` : ''}
+            ${aspectPatternsHtml ? `<div class="chart-details-secondary">${aspectPatternsHtml}</div>` : ''}
             <div class="chart-details-secondary">${aspectSummaryHtml}${retroHtml}</div>
             ${houseCuspsHtml}
             ${aspectMatrixHtml}
@@ -1147,10 +1308,10 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       }
     }
 
-    // Elements & Modalities
+    // Elements & Modalities (exclude Part of Fortune)
     const elCounts: Record<string, number> = { Fire: 0, Earth: 0, Air: 0, Water: 0 };
     const modCounts: Record<string, number> = { Cardinal: 0, Fixed: 0, Mutable: 0 };
-    for (const pos of positions) {
+    for (const pos of positions.filter((p: any) => String(p?.body || '').toLowerCase() !== 'part_of_fortune')) {
       const s = normalizeSign(pos?.sign);
       const el = ELEMENT_MAP[s]; if (el) elCounts[el]++;
       const mod = MODALITY_MAP[s]; if (mod) modCounts[mod]++;
@@ -1174,6 +1335,16 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const pattern = detectChartPattern(longs);
     if (pattern.name !== 'Unknown') {
       lines.push(`Chart Shape: ${pattern.name}`);
+    }
+
+    // Aspect Patterns
+    const aspPatterns = detectAspectPatterns(aspects);
+    if (aspPatterns.length > 0) {
+      lines.push('');
+      lines.push('Aspect Patterns:');
+      for (const p of aspPatterns) {
+        lines.push(`  ${p.name}: ${p.bodies.join(', ')}`);
+      }
     }
 
     // Aspects
@@ -3034,6 +3205,42 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     font-family: var(--font-sans);
     font-size: 0.68rem;
     font-weight: 500;
+  }
+
+  .chart-content :global(.chart-aspect-patterns) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    cursor: default;
+  }
+
+  .chart-content :global(.chart-pattern-card) {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .chart-content :global(.chart-pattern-name) {
+    font-family: var(--font-sans);
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .chart-content :global(.chart-pattern-bodies) {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+
+  .chart-content :global(.chart-pattern-body) {
+    font-family: var(--font-sans);
+    font-size: 0.68rem;
+    font-weight: 500;
+    color: var(--text-secondary);
   }
 
   .chart-content :global(.chart-aspect-summary) {
