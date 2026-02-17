@@ -41,6 +41,9 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         <section id="settings-section" class="settings-section" style="display: none;">
           <div class="section-label">Natal Chart</div>
           <div id="chart-status" class="reading-status">Your chart is loading.</div>
+          <div class="chart-wheel-wrap">
+            <canvas id="chart-wheel-canvas"></canvas>
+          </div>
           <div id="chart-content" class="chart-content"></div>
           <div class="chart-actions">
             <button id="export-chart-text-btn" class="action-button" style="display: none;">Copy Chart</button>
@@ -497,43 +500,102 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       const chart = await res.json();
       cachedChart = chart;
       const positions = Array.isArray(chart?.positions) ? chart.positions : [];
-      const rows = positions
-        .map((pos: any) => {
-          const body = escapeHtml(pos?.body || '');
-          const sign = escapeHtml(pos?.sign || '');
-          const degree = escapeHtml(pos?.degree ?? '');
-          const house = pos?.house ? escapeHtml(pos.house) : '—';
-          return `<tr><td>${body}</td><td>${degree}° ${sign}</td><td>${house}</td></tr>`;
-        })
-        .join('');
+      const angles = Array.isArray(chart?.angles) ? chart.angles : [];
+      const houseSystem = String(chart?.house_system || 'Placidus');
+
+      // --- Render chart wheel on canvas ---
+      const wheelCanvas = document.getElementById('chart-wheel-canvas') as HTMLCanvasElement | null;
+      if (wheelCanvas) {
+        const container = wheelCanvas.parentElement;
+        const displaySize = Math.min(container?.clientWidth || 500, 500);
+        const dpr = window.devicePixelRatio || 1;
+        wheelCanvas.width = displaySize * dpr;
+        wheelCanvas.height = displaySize * dpr;
+        wheelCanvas.style.width = `${displaySize}px`;
+        wheelCanvas.style.height = `${displaySize}px`;
+        const wctx = wheelCanvas.getContext('2d');
+        if (wctx) {
+          // Dark background fill
+          const bg = wctx.createRadialGradient(
+            wheelCanvas.width / 2, wheelCanvas.height / 2, 0,
+            wheelCanvas.width / 2, wheelCanvas.height / 2, wheelCanvas.width / 2,
+          );
+          bg.addColorStop(0, '#0a1228');
+          bg.addColorStop(1, '#080510');
+          wctx.fillStyle = bg;
+          wctx.fillRect(0, 0, wheelCanvas.width, wheelCanvas.height);
+          drawChartWheel(wctx, chart, displaySize * dpr, (displaySize * dpr) / 2, (displaySize * dpr) / 2);
+        }
+      }
+
+      // --- Build designed chart content ---
       if (chartContent) {
         const sun = positions.find((p: any) => String(p?.body || '').toLowerCase() === 'sun');
         const moon = positions.find((p: any) => String(p?.body || '').toLowerCase() === 'moon');
-        const asc = Array.isArray(chart?.angles)
-          ? chart.angles.find((a: any) => String(a?.name || '').toLowerCase() === 'ascendant')
-          : null;
-        const summaryLine = [sun, moon, asc]
-          .filter(Boolean)
-          .map((item: any) => {
-            if (item?.name) return `${item.name}: ${item.sign} ${Number(item.degree || 0).toFixed(1)}°`;
-            return `${item.body}: ${item.sign} ${Number(item.degree || 0).toFixed(1)}°`;
-          })
-          .join(' · ');
+        const asc = angles.find((a: any) => String(a?.name || '').toLowerCase() === 'ascendant');
+        const mc = angles.find((a: any) => {
+          const n = String(a?.name || '').toLowerCase();
+          return n === 'midheaven' || n === 'mc';
+        });
+
+        // Core signature hero row
+        const heroItems = [sun, moon, asc].filter(Boolean).map((item: any) => {
+          const isAngle = !!item?.name;
+          const rawBody = isAngle ? 'ASC' : String(item?.body || '');
+          const body = isAngle ? 'ASC' : displayBody(rawBody);
+          const glyph = isAngle ? '' : (PLANET_GLYPHS[body] || PLANET_GLYPHS[rawBody] || '');
+          const sign = normalizeSign(item?.sign);
+          const signGlyph = SIGN_GLYPHS[sign] || '';
+          const color = SIGN_COLORS[sign] || '#d6af72';
+          const deg = Number(item?.degree || 0).toFixed(1);
+          return `<div class="chart-hero-item">
+            <span class="chart-hero-glyph" style="color: ${color}">${escapeHtml(glyph || (isAngle ? 'ASC' : ''))}</span>
+            <span class="chart-hero-label">${escapeHtml(body)}</span>
+            <span class="chart-hero-detail">${escapeHtml(deg)}\u00B0 ${escapeHtml(signGlyph)} ${escapeHtml(sign)}</span>
+          </div>`;
+        }).join('');
+
+        // Placements grid
+        const sortedPos = [...positions].sort(
+          (a: any, b: any) => zodiacDegrees(a?.sign, a?.degree) - zodiacDegrees(b?.sign, b?.degree),
+        );
+        const placementItems = sortedPos.map((pos: any) => {
+          const rawBody = String(pos?.body || '');
+          const body = displayBody(rawBody);
+          const glyph = PLANET_GLYPHS[body] || PLANET_GLYPHS[rawBody] || '';
+          const sign = normalizeSign(pos?.sign);
+          const signGlyph = SIGN_GLYPHS[sign] || '';
+          const color = SIGN_COLORS[sign] || '#d6af72';
+          const deg = Number(pos?.degree || 0).toFixed(1);
+          const house = pos?.house ? `H${pos.house}` : '';
+          const retro = Boolean(pos?.retrograde);
+          return `<div class="chart-placement">
+            <span class="chart-placement-glyph" style="color: ${color}">${escapeHtml(glyph)}</span>
+            <span class="chart-placement-name">${escapeHtml(body)}${retro ? ' <span class="chart-retro">\u211E</span>' : ''}</span>
+            <span class="chart-placement-detail">${escapeHtml(deg)}\u00B0 ${escapeHtml(signGlyph)} ${escapeHtml(sign)}${house ? ` \u00B7 ${escapeHtml(house)}` : ''}</span>
+          </div>`;
+        }).join('');
+
+        // Footer line
+        const footerParts: string[] = [];
+        if (asc) footerParts.push(`Asc ${Number(asc.degree || 0).toFixed(1)}\u00B0 ${normalizeSign(asc.sign)}`);
+        if (mc) footerParts.push(`MC ${Number(mc.degree || 0).toFixed(1)}\u00B0 ${normalizeSign(mc.sign)}`);
+        footerParts.push(houseSystem);
+
         chartContent.innerHTML = `
-          ${summaryLine ? `<div class="chart-summary">${escapeHtml(summaryLine)}</div>` : ''}
-          <table class="chart-table">
-            <thead><tr><th>Body</th><th>Placement</th><th>House</th></tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
+          <div class="chart-hero">${heroItems}</div>
+          <div class="chart-placements">${placementItems}</div>
+          <div class="chart-detail-footer">${escapeHtml(footerParts.join('  \u00B7  '))}</div>
         `;
       }
-      if (chartStatus) chartStatus.textContent = 'Natal chart loaded.';
+      if (chartStatus) chartStatus.style.display = 'none';
       if (exportTextButton) exportTextButton.style.display = 'inline-flex';
       if (exportImageButton) exportImageButton.style.display = 'inline-flex';
     } catch (err) {
       if (exportTextButton) exportTextButton.style.display = 'none';
       if (exportImageButton) exportImageButton.style.display = 'none';
       if (chartStatus) {
+        chartStatus.style.display = 'block';
         chartStatus.textContent = err instanceof Error ? err.message : 'Could not load natal chart';
       }
     }
@@ -578,35 +640,13 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     ]);
   }
 
-  async function exportNatalChartImage(chart: Record<string, unknown>) {
-    const data = chart as any;
-    const positions = Array.isArray(data.positions) ? (data.positions as any[]) : [];
-    const angles = Array.isArray(data.angles) ? (data.angles as any[]) : [];
-    const aspects = Array.isArray(data.aspects) ? (data.aspects as any[]) : [];
-    const houseCusps = Array.isArray(data.house_cusps) ? (data.house_cusps as number[]) : [];
-    const houseSystem = String(data.house_system || 'Placidus');
-    if (positions.length === 0) throw new Error('No chart data to export.');
+  function drawChartWheel(ctx: CanvasRenderingContext2D, chart: any, size: number, cx: number, cy: number) {
+    const scale = size / 1100;
+    const positions = Array.isArray(chart.positions) ? (chart.positions as any[]) : [];
+    const angles = Array.isArray(chart.angles) ? (chart.angles as any[]) : [];
+    const aspects = Array.isArray(chart.aspects) ? (chart.aspects as any[]) : [];
+    const houseCusps = Array.isArray(chart.house_cusps) ? (chart.house_cusps as number[]) : [];
 
-    await ensureFontsLoaded();
-
-    // Pre-compute canvas height from data
-    const _placementRows = Math.ceil(positions.length / 2);
-    const _panelEst = 60
-      + (56 + _placementRows * 62 + 14)   // placements
-      + 30                                  // divider
-      + (42 + 48 + 18)                     // core signature (label + gap + row + pad)
-      + 30                                  // divider
-      + 50;                                 // footer line
-    const H = 1380 + _panelEst + 160;
-
-    const canvas = document.createElement('canvas');
-    canvas.width = 1800;
-    canvas.height = H;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Could not initialize image export.');
-
-    const W = 1800;
-    const CX = 900, CY = 800;
     const R_OUTER = 460, R_SIGN_INNER = 390, R_INNER = 255;
     const BRASS = '#d6af72';
 
@@ -617,90 +657,12 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       return Math.PI - ((longitude - ascLong) * Math.PI) / 180;
     }
 
-    function createSeededRng(pos: any[]): () => number {
-      let s = 0;
-      for (const p of pos) {
-        const lng = Number(p?.longitude || zodiacDegrees(p?.sign, p?.degree));
-        s = (s * 31 + Math.round(lng * 100)) | 0;
-      }
-      s = Math.abs(s) || 12345;
-      return () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
-    }
-
-    const rng = createSeededRng(positions);
-
-    function drawRoundedRect(x: number, y: number, w: number, h: number, radius: number) {
-      const r = Math.max(0, Math.min(radius, Math.min(w, h) / 2));
-      ctx!.beginPath();
-      ctx!.moveTo(x + r, y);
-      ctx!.lineTo(x + w - r, y);
-      ctx!.quadraticCurveTo(x + w, y, x + w, y + r);
-      ctx!.lineTo(x + w, y + h - r);
-      ctx!.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-      ctx!.lineTo(x + r, y + h);
-      ctx!.quadraticCurveTo(x, y + h, x, y + h - r);
-      ctx!.lineTo(x, y + r);
-      ctx!.quadraticCurveTo(x, y, x + r, y);
-      ctx!.closePath();
-    }
-
-    // --- Layer 1: Background gradient ---
-    const bg = ctx.createLinearGradient(0, 0, W, H);
-    bg.addColorStop(0, '#05070f');
-    bg.addColorStop(0.35, '#0a1228');
-    bg.addColorStop(0.65, '#0e0a20');
-    bg.addColorStop(1, '#080510');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-
-    // --- Layer 2: Nebula glows ---
-    const nebulae = [
-      { x: CX - 200, y: CY - 100, r: 600, color: [70, 110, 180] },
-      { x: CX + 250, y: CY + 50, r: 500, color: [180, 145, 80] },
-      { x: CX - 50, y: CY + 200, r: 550, color: [90, 50, 130] },
-    ];
-    for (const n of nebulae) {
-      const g = ctx.createRadialGradient(n.x, n.y, 30, n.x, n.y, n.r);
-      g.addColorStop(0, `rgba(${n.color[0]}, ${n.color[1]}, ${n.color[2]}, 0.18)`);
-      g.addColorStop(0.5, `rgba(${n.color[0]}, ${n.color[1]}, ${n.color[2]}, 0.06)`);
-      g.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, W, H);
-    }
-
-    // --- Layer 3: Star field ---
-    for (let i = 0; i < 350; i++) {
-      const x = rng() * W, y = rng() * H * 0.85;
-      const sz = rng() * 1.2 + 0.3, a = rng() * 0.25 + 0.05;
-      ctx.fillStyle = `rgba(220, 226, 240, ${a.toFixed(3)})`;
-      ctx.beginPath(); ctx.arc(x, y, sz, 0, Math.PI * 2); ctx.fill();
-    }
-    for (let i = 0; i < 80; i++) {
-      const x = rng() * W, y = rng() * H * 0.8;
-      const sz = rng() * 1.8 + 0.8, a = rng() * 0.45 + 0.2;
-      const warm = rng() > 0.5;
-      ctx.fillStyle = warm ? `rgba(240, 220, 180, ${a.toFixed(3)})` : `rgba(200, 215, 255, ${a.toFixed(3)})`;
-      ctx.beginPath(); ctx.arc(x, y, sz, 0, Math.PI * 2); ctx.fill();
-    }
-    for (let i = 0; i < 12; i++) {
-      const x = rng() * W, y = rng() * H * 0.7;
-      const sz = rng() * 1.5 + 1.5;
-      const halo = ctx.createRadialGradient(x, y, 0, x, y, sz * 6);
-      halo.addColorStop(0, 'rgba(220, 230, 255, 0.15)');
-      halo.addColorStop(1, 'rgba(220, 230, 255, 0)');
-      ctx.fillStyle = halo;
-      ctx.beginPath(); ctx.arc(x, y, sz * 6, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = 'rgba(245, 248, 255, 0.8)';
-      ctx.beginPath(); ctx.arc(x, y, sz, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = 'rgba(230, 238, 255, 0.25)';
-      ctx.lineWidth = 0.8;
-      ctx.beginPath(); ctx.moveTo(x - sz * 4, y); ctx.lineTo(x + sz * 4, y); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(x, y - sz * 4); ctx.lineTo(x, y + sz * 4); ctx.stroke();
-    }
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(scale, scale);
 
     // --- Layer 4: Sacred geometry ---
     ctx.save();
-    ctx.translate(CX, CY);
     ctx.strokeStyle = 'rgba(214, 175, 114, 0.055)';
     ctx.lineWidth = 1;
     for (let k = 0; k < 2; k++) {
@@ -729,7 +691,6 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
     // --- Layer 5: Wheel structure ---
     ctx.save();
-    ctx.translate(CX, CY);
 
     ctx.strokeStyle = 'rgba(214, 175, 114, 0.5)';
     ctx.lineWidth = 2.5;
@@ -946,7 +907,6 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
     // --- Layer 9: Sign labels outside outer rim ---
     ctx.save();
-    ctx.translate(CX, CY);
     for (let i = 0; i < 12; i++) {
       const midA = longToAngle(i * 30 + 15);
       const labelR = R_OUTER + 72;
@@ -958,6 +918,125 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       ctx.fillText(sign.slice(0, 3).toUpperCase(), Math.cos(midA) * labelR, Math.sin(midA) * labelR);
     }
     ctx.restore();
+
+    ctx.restore();
+  }
+
+  async function exportNatalChartImage(chart: Record<string, unknown>) {
+    const data = chart as any;
+    const positions = Array.isArray(data.positions) ? (data.positions as any[]) : [];
+    const angles = Array.isArray(data.angles) ? (data.angles as any[]) : [];
+    const aspects = Array.isArray(data.aspects) ? (data.aspects as any[]) : [];
+    const houseCusps = Array.isArray(data.house_cusps) ? (data.house_cusps as number[]) : [];
+    const houseSystem = String(data.house_system || 'Placidus');
+    if (positions.length === 0) throw new Error('No chart data to export.');
+
+    await ensureFontsLoaded();
+
+    // Pre-compute canvas height from data
+    const _placementRows = Math.ceil(positions.length / 2);
+    const _panelEst = 60
+      + (56 + _placementRows * 62 + 14)   // placements
+      + 30                                  // divider
+      + (42 + 48 + 18)                     // core signature (label + gap + row + pad)
+      + 30                                  // divider
+      + 50;                                 // footer line
+    const H = 1380 + _panelEst + 160;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 1800;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Could not initialize image export.');
+
+    const W = 1800;
+    const CX = 900, CY = 800;
+    const BRASS = '#d6af72';
+
+    const ascAngle = angles.find((a: any) => String(a?.name || '').toLowerCase() === 'ascendant');
+
+    function createSeededRng(pos: any[]): () => number {
+      let s = 0;
+      for (const p of pos) {
+        const lng = Number(p?.longitude || zodiacDegrees(p?.sign, p?.degree));
+        s = (s * 31 + Math.round(lng * 100)) | 0;
+      }
+      s = Math.abs(s) || 12345;
+      return () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+    }
+
+    const rng = createSeededRng(positions);
+
+    function drawRoundedRect(x: number, y: number, w: number, h: number, radius: number) {
+      const r = Math.max(0, Math.min(radius, Math.min(w, h) / 2));
+      ctx!.beginPath();
+      ctx!.moveTo(x + r, y);
+      ctx!.lineTo(x + w - r, y);
+      ctx!.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx!.lineTo(x + w, y + h - r);
+      ctx!.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx!.lineTo(x + r, y + h);
+      ctx!.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx!.lineTo(x, y + r);
+      ctx!.quadraticCurveTo(x, y, x + r, y);
+      ctx!.closePath();
+    }
+
+    // --- Layer 1: Background gradient ---
+    const bg = ctx.createLinearGradient(0, 0, W, H);
+    bg.addColorStop(0, '#05070f');
+    bg.addColorStop(0.35, '#0a1228');
+    bg.addColorStop(0.65, '#0e0a20');
+    bg.addColorStop(1, '#080510');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    // --- Layer 2: Nebula glows ---
+    const nebulae = [
+      { x: CX - 200, y: CY - 100, r: 600, color: [70, 110, 180] },
+      { x: CX + 250, y: CY + 50, r: 500, color: [180, 145, 80] },
+      { x: CX - 50, y: CY + 200, r: 550, color: [90, 50, 130] },
+    ];
+    for (const n of nebulae) {
+      const g = ctx.createRadialGradient(n.x, n.y, 30, n.x, n.y, n.r);
+      g.addColorStop(0, `rgba(${n.color[0]}, ${n.color[1]}, ${n.color[2]}, 0.18)`);
+      g.addColorStop(0.5, `rgba(${n.color[0]}, ${n.color[1]}, ${n.color[2]}, 0.06)`);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    // --- Layer 3: Star field ---
+    for (let i = 0; i < 350; i++) {
+      const x = rng() * W, y = rng() * H * 0.85;
+      const sz = rng() * 1.2 + 0.3, a = rng() * 0.25 + 0.05;
+      ctx.fillStyle = `rgba(220, 226, 240, ${a.toFixed(3)})`;
+      ctx.beginPath(); ctx.arc(x, y, sz, 0, Math.PI * 2); ctx.fill();
+    }
+    for (let i = 0; i < 80; i++) {
+      const x = rng() * W, y = rng() * H * 0.8;
+      const sz = rng() * 1.8 + 0.8, a = rng() * 0.45 + 0.2;
+      const warm = rng() > 0.5;
+      ctx.fillStyle = warm ? `rgba(240, 220, 180, ${a.toFixed(3)})` : `rgba(200, 215, 255, ${a.toFixed(3)})`;
+      ctx.beginPath(); ctx.arc(x, y, sz, 0, Math.PI * 2); ctx.fill();
+    }
+    for (let i = 0; i < 12; i++) {
+      const x = rng() * W, y = rng() * H * 0.7;
+      const sz = rng() * 1.5 + 1.5;
+      const halo = ctx.createRadialGradient(x, y, 0, x, y, sz * 6);
+      halo.addColorStop(0, 'rgba(220, 230, 255, 0.15)');
+      halo.addColorStop(1, 'rgba(220, 230, 255, 0)');
+      ctx.fillStyle = halo;
+      ctx.beginPath(); ctx.arc(x, y, sz * 6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(245, 248, 255, 0.8)';
+      ctx.beginPath(); ctx.arc(x, y, sz, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(230, 238, 255, 0.25)';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(x - sz * 4, y); ctx.lineTo(x + sz * 4, y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, y - sz * 4); ctx.lineTo(x, y + sz * 4); ctx.stroke();
+    }
+
+    drawChartWheel(ctx, chart, 1100, CX, CY);
 
     // --- Layer 10: Header ---
     ctx.textAlign = 'center';
@@ -1596,39 +1675,110 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     margin-bottom: 1rem;
   }
 
+  .chart-wheel-wrap {
+    display: flex;
+    justify-content: center;
+    margin: 0.8rem 0 1.2rem;
+  }
+
+  .chart-wheel-wrap canvas {
+    border-radius: 12px;
+    max-width: 100%;
+    height: auto !important;
+  }
+
   .chart-content {
     margin-top: 0.8rem;
   }
 
-  .chart-content :global(.chart-summary) {
-    margin-bottom: 0.9rem;
-    font-family: var(--font-mono);
-    font-size: 0.62rem;
-    letter-spacing: 0.08em;
+  .chart-content :global(.chart-hero) {
+    display: flex;
+    justify-content: center;
+    gap: 1.5rem;
+    padding: 1rem 0;
+    margin-bottom: 1rem;
+    border-top: 1px solid var(--text-ghost);
+    border-bottom: 1px solid var(--text-ghost);
+  }
+
+  .chart-content :global(.chart-hero-item) {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.2rem;
+  }
+
+  .chart-content :global(.chart-hero-glyph) {
+    font-family: "Segoe UI Symbol", "EB Garamond", Georgia, serif;
+    font-size: 1.4rem;
+    line-height: 1;
+  }
+
+  .chart-content :global(.chart-hero-label) {
+    font-family: var(--font-sans);
+    font-size: 0.55rem;
+    letter-spacing: 0.2em;
     text-transform: uppercase;
     color: var(--text-muted);
   }
 
-  .chart-content :global(.chart-table) {
-    width: 100%;
-    border-collapse: collapse;
-    font-family: var(--font-sans);
-    font-size: 0.75rem;
-  }
-
-  .chart-content :global(th),
-  .chart-content :global(td) {
-    border-bottom: 1px solid var(--text-ghost);
-    text-align: left;
-    padding: 0.45rem 0.4rem;
+  .chart-content :global(.chart-hero-detail) {
+    font-family: "Segoe UI Symbol", var(--font-body);
+    font-size: 0.8rem;
     color: var(--text-secondary);
   }
 
-  .chart-content :global(th) {
+  .chart-content :global(.chart-placements) {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.15rem 1.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .chart-content :global(.chart-placement) {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    padding: 0.35rem 0;
+    font-family: var(--font-sans);
+    font-size: 0.78rem;
+  }
+
+  .chart-content :global(.chart-placement-glyph) {
+    font-family: "Segoe UI Symbol", "EB Garamond", Georgia, serif;
+    font-size: 1rem;
+    flex-shrink: 0;
+    width: 1.2rem;
+    text-align: center;
+  }
+
+  .chart-content :global(.chart-placement-name) {
+    color: var(--text-primary);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .chart-content :global(.chart-retro) {
     color: var(--text-muted);
-    text-transform: uppercase;
+    font-size: 0.7rem;
+    margin-left: 0.15rem;
+  }
+
+  .chart-content :global(.chart-placement-detail) {
+    font-family: "Segoe UI Symbol", var(--font-body);
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    white-space: nowrap;
+  }
+
+  .chart-content :global(.chart-detail-footer) {
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
     letter-spacing: 0.08em;
-    font-size: 0.62rem;
+    color: var(--text-muted);
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--text-ghost);
   }
 
   .logout-wrapper {
@@ -1684,6 +1834,20 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
     .logout-wrapper {
       margin: 1.5rem 0 2rem;
+    }
+
+    .chart-content :global(.chart-hero) {
+      gap: 1rem;
+      padding: 0.75rem 0;
+    }
+
+    .chart-content :global(.chart-hero-glyph) {
+      font-size: 1.1rem;
+    }
+
+    .chart-content :global(.chart-placements) {
+      grid-template-columns: 1fr;
+      gap: 0.1rem;
     }
   }
 </style>
