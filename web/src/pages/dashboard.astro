@@ -592,7 +592,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     // Pre-compute canvas height from data
     const _placementRows = Math.ceil(positions.length / 2);
     const _panelEst = 60
-      + (50 + _placementRows * 62 + 24)   // placements
+      + (56 + _placementRows * 62 + 14)   // placements
       + 30                                  // divider
       + (42 + 48 + 18)                     // core signature (label + gap + row + pad)
       + 30                                  // divider
@@ -1004,7 +1004,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
     // Pre-compute panel height from data
     const panelHeight = 60
-      + 50 + placementRows * placeRowH + 24   // placements
+      + 56 + placementRows * placeRowH + 14   // placements
       + 30                                      // divider
       + 42 + coreRowH + 18                     // core signature (label + gap + row + pad)
       + 30                                      // divider
@@ -1054,19 +1054,22 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     let panelY = panelTop + 60;
 
     // ── PLACEMENTS (2 columns, inset to align with core signature) ──
-    // Centered header
+    // Centered header with letter-spacing
     ctx.fillStyle = BRASS;
     ctx.font = '600 34px "EB Garamond", Georgia, serif';
-    ctx.textAlign = 'center';
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
     const _plLabel = 'PLACEMENTS';
-    let _plX = CX - ctx.measureText(_plLabel).width / 2;
-    for (const ch of _plLabel) { ctx.fillText(ch, _plX, panelY); _plX += ctx.measureText(ch).width + 2.5; }
+    const _plSpacing = 2.5;
+    let _plTotalW = 0;
+    for (const ch of _plLabel) _plTotalW += ctx.measureText(ch).width + _plSpacing;
+    _plTotalW -= _plSpacing;
+    let _plX = CX - _plTotalW / 2;
+    for (const ch of _plLabel) { ctx.fillText(ch, _plX, panelY); _plX += ctx.measureText(ch).width + _plSpacing; }
     ctx.strokeStyle = `${BRASS}20`;
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(contentLeft, panelY + 12); ctx.lineTo(contentRight, panelY + 12); ctx.stroke();
-    ctx.textAlign = 'left';
-    panelY += 50;
+    panelY += 56;
     const placeInset = 160;
     const placeLeft = contentLeft + placeInset;
     const placeColW = (contentW - 2 * placeInset) / 2;
@@ -1111,7 +1114,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       const detailX = colX + 44 + bodyW + (retro ? 24 : 12);
       ctx.fillText(`${deg}\u00B0 ${signGlyph} ${sign}${house ? ' \u00B7 ' + house : ''}`, detailX, y);
     }
-    panelY += placementRows * placeRowH + 24;
+    panelY += placementRows * placeRowH + 14;
 
     // ── CORE SIGNATURE (single row, three equal center-aligned columns) ──
     panelY = drawPanelDivider(panelY);
