@@ -47,10 +47,12 @@ body {
   position: relative;
   z-index: 2;
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.4rem 0.6rem;
   margin: 2rem 0 1.5rem;
+  padding: 0 1rem;
   font-family: var(--font-sans);
   font-size: 0.62rem;
   letter-spacing: 0.12em;
@@ -108,6 +110,8 @@ a:hover {
 
 .site-nav {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 2.5rem;
 }
 
@@ -284,7 +288,7 @@ a:hover {
   }
 
   .site-nav {
-    gap: 1.5rem;
+    gap: 1.2rem 1.5rem;
   }
 
   .reading-title {
@@ -323,5 +327,31 @@ a:hover {
 
   .legal-footer {
     margin: 1.5rem 0 1rem;
+  }
+}
+
+@media (max-width: 400px) {
+  .site-header {
+    padding: 0.6rem 0.75rem;
+    gap: 0.5rem;
+  }
+
+  .site-title {
+    font-size: 0.7rem;
+    letter-spacing: 0.25em;
+  }
+
+  .site-nav {
+    gap: 0.8rem 1.1rem;
+  }
+
+  .site-nav a {
+    font-size: 0.6rem;
+  }
+
+  .legal-footer {
+    font-size: 0.55rem;
+    gap: 0.3rem 0.5rem;
+    padding: 0 0.75rem;
   }
 }
