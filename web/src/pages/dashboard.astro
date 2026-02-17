@@ -33,14 +33,29 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         <section id="reading-section" class="reading-section" style="display: none;">
           <div id="reading-status" class="reading-status" style="display: none;"></div>
           <div id="reading-content" class="reading-content">
-            <div class="loading">Tuning into the wire\u2026</div>
+            <div class="loading">Tuning into the wire&hellip;</div>
           </div>
           <div id="reading-actions" class="reading-actions"></div>
+          <div id="transit-overlay" class="transit-overlay" style="display: none;">
+            <div class="section-label">Current Transits</div>
+            <div class="chart-wheel-wrap">
+              <canvas id="transit-wheel-canvas"></canvas>
+            </div>
+            <div id="transit-content" class="chart-content"></div>
+          </div>
         </section>
 
         <section id="settings-section" class="settings-section" style="display: none;">
           <div class="section-label">Natal Chart</div>
-          <div id="chart-status" class="reading-status">Your chart is loading.</div>
+          <div id="chart-status" class="chart-skeleton">
+            <div class="skeleton-wheel"></div>
+            <div class="skeleton-lines">
+              <div class="skeleton-line"></div>
+              <div class="skeleton-line short"></div>
+              <div class="skeleton-line"></div>
+              <div class="skeleton-line short"></div>
+            </div>
+          </div>
           <div class="chart-wheel-wrap">
             <canvas id="chart-wheel-canvas"></canvas>
             <div class="chart-actions chart-actions-centered">
@@ -141,6 +156,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
   let readingPollTimer: number | null = null;
   let readingPollStartedAt = 0;
   let cachedChart: Record<string, unknown> | null = null;
+  let chartPlanetScreenPositions: Array<{ body: string; sx: number; sy: number; sign: string; deg: string; house: string; retro: boolean }> = [];
   let chartBrandDomain = 'voidwire.app';
   const SIGN_ORDER = [
     'Aries',
@@ -259,6 +275,77 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     Fixed: 'Persistence, determination, and stability',
     Mutable: 'Adaptability, flexibility, and change',
   };
+  const DIGNITY_TABLE: Record<string, { domicile: string[]; exaltation: string; detriment: string[]; fall: string }> = {
+    Sun: { domicile: ['Leo'], exaltation: 'Aries', detriment: ['Aquarius'], fall: 'Libra' },
+    Moon: { domicile: ['Cancer'], exaltation: 'Taurus', detriment: ['Capricorn'], fall: 'Scorpio' },
+    Mercury: { domicile: ['Gemini', 'Virgo'], exaltation: 'Virgo', detriment: ['Sagittarius', 'Pisces'], fall: 'Pisces' },
+    Venus: { domicile: ['Taurus', 'Libra'], exaltation: 'Pisces', detriment: ['Aries', 'Scorpio'], fall: 'Virgo' },
+    Mars: { domicile: ['Aries', 'Scorpio'], exaltation: 'Capricorn', detriment: ['Taurus', 'Libra'], fall: 'Cancer' },
+    Jupiter: { domicile: ['Sagittarius', 'Pisces'], exaltation: 'Cancer', detriment: ['Gemini', 'Virgo'], fall: 'Capricorn' },
+    Saturn: { domicile: ['Capricorn', 'Aquarius'], exaltation: 'Libra', detriment: ['Cancer', 'Leo'], fall: 'Aries' },
+  };
+  const DIGNITY_LABELS: Record<string, { symbol: string; label: string; tip: string }> = {
+    domicile: { symbol: '\u2302', label: 'Domicile', tip: 'Planet in its home sign \u2014 strongest, most natural expression' },
+    exaltation: { symbol: '\u2191', label: 'Exalted', tip: 'Planet in its exaltation sign \u2014 honored, elevated expression' },
+    detriment: { symbol: '\u2193', label: 'Detriment', tip: 'Planet in its detriment \u2014 challenged, must work harder to express' },
+    fall: { symbol: '\u2913', label: 'Fall', tip: 'Planet in its fall \u2014 weakened, requires conscious effort' },
+  };
+  const SIGN_RULERS: Record<string, string> = {
+    Aries: 'Mars', Taurus: 'Venus', Gemini: 'Mercury', Cancer: 'Moon',
+    Leo: 'Sun', Virgo: 'Mercury', Libra: 'Venus', Scorpio: 'Pluto',
+    Sagittarius: 'Jupiter', Capricorn: 'Saturn', Aquarius: 'Uranus', Pisces: 'Neptune',
+  };
+
+  function getDignity(body: string, sign: string): string | null {
+    const entry = DIGNITY_TABLE[body];
+    if (!entry) return null;
+    if (entry.domicile.includes(sign)) return 'domicile';
+    if (entry.exaltation === sign) return 'exaltation';
+    if (entry.detriment.includes(sign)) return 'detriment';
+    if (entry.fall === sign) return 'fall';
+    return null;
+  }
+
+  function detectChartPattern(longitudes: number[]): { name: string; description: string } {
+    if (longitudes.length < 4) return { name: 'Unknown', description: '' };
+    const sorted = [...longitudes].sort((a, b) => a - b);
+    const gaps: number[] = [];
+    for (let i = 0; i < sorted.length; i++) {
+      const next = (i + 1) % sorted.length;
+      let gap = sorted[next] - sorted[i];
+      if (gap <= 0) gap += 360;
+      gaps.push(gap);
+    }
+    const maxGap = Math.max(...gaps);
+    const span = 360 - maxGap;
+    const bigGaps = gaps.filter((g) => g > 60).length;
+
+    if (span <= 120) return { name: 'Bundle', description: 'All planets concentrated within 120\u00B0 \u2014 intense focus and specialization' };
+
+    // Bucket: bowl shape but one planet is isolated on the other side
+    if (span <= 200) {
+      const gapIdx = gaps.indexOf(maxGap);
+      const isolatedIdx = (gapIdx + 1) % sorted.length;
+      const oppGapStart = sorted[gapIdx];
+      const oppGapEnd = sorted[isolatedIdx];
+      let secondGap = 0;
+      const othersNoIsolated = gaps.filter((_, i) => i !== gapIdx);
+      if (othersNoIsolated.length > 0) secondGap = Math.max(...othersNoIsolated);
+      if (maxGap > 150 && secondGap < 60) {
+        return { name: 'Bucket', description: 'Bowl shape with one planet as the handle \u2014 a focal point channeling concentrated energy' };
+      }
+      if (span <= 180) return { name: 'Bowl', description: 'All planets within one hemisphere \u2014 self-contained energy with a strong sense of purpose' };
+    }
+
+    if (maxGap >= 100 && maxGap <= 150) return { name: 'Locomotive', description: 'Planets span 240\u00B0 with an empty sector \u2014 drive and determination with a missing quality to develop' };
+
+    // See-Saw: two groups separated by two gaps > 60°
+    if (bigGaps === 2) return { name: 'See-Saw', description: 'Two opposing groups of planets \u2014 awareness of contrasts, seeking balance between extremes' };
+
+    if (bigGaps >= 3) return { name: 'Splay', description: 'Planets in distinct clusters \u2014 individualistic, strong-willed, multi-talented' };
+
+    return { name: 'Splash', description: 'Planets distributed across most of the zodiac \u2014 versatile with wide-ranging interests' };
+  }
 
   function escapeHtml(value: unknown): string {
     return String(value ?? '')
@@ -576,7 +663,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const chartContent = document.getElementById('chart-content');
     const exportTextButton = document.getElementById('export-chart-text-btn') as HTMLButtonElement | null;
     const exportImageButton = document.getElementById('export-chart-image-btn') as HTMLButtonElement | null;
-    if (chartStatus) chartStatus.textContent = 'Loading natal chart...';
+    if (chartStatus) chartStatus.style.display = 'block';
     try {
       const res = await authFetch('/v1/user/profile/natal-chart');
       if (!res.ok) {
@@ -613,6 +700,35 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           // Render wheel at 92% size for breathing room around sign labels
           const wheelSize = displaySize * dpr * 0.92;
           drawChartWheel(wctx, chart, wheelSize, (displaySize * dpr) / 2, (displaySize * dpr) / 2);
+
+          // Compute planet screen positions for interactive click detection
+          const wScale = wheelSize / 1100;
+          const ascA = angles.find((a: any) => String(a?.name || '').toLowerCase() === 'ascendant');
+          const ascLng = ascA ? Number(ascA.longitude || 0) : 0;
+          const BASE_ORBIT_I = 340, ORBIT_STEP_I = 44, MIN_DEG_SEP_I = 12;
+          const sPlanets = [...positions].map((pos: any) => {
+            const lng = Number(pos?.longitude || zodiacDegrees(pos?.sign, pos?.degree));
+            return { ...pos, _lng: lng };
+          }).sort((a: any, b: any) => a._lng - b._lng);
+          chartPlanetScreenPositions = sPlanets.map((p: any, idx: number) => {
+            let depth = 0;
+            for (let j = 0; j < idx; j++) {
+              const diff = Math.abs(p._lng - sPlanets[j]._lng);
+              if (Math.min(diff, 360 - diff) < MIN_DEG_SEP_I) depth++;
+            }
+            const orbitR = BASE_ORBIT_I + depth * ORBIT_STEP_I;
+            const angle = Math.PI - ((p._lng - ascLng) * Math.PI) / 180;
+            const cx = displaySize / 2 + Math.cos(angle) * orbitR * wScale;
+            const cy = displaySize / 2 + Math.sin(angle) * orbitR * wScale;
+            return {
+              body: displayBody(p.body),
+              sx: cx, sy: cy,
+              sign: normalizeSign(p.sign),
+              deg: Number(p.degree || 0).toFixed(1),
+              house: p.house ? `House ${p.house}` : '',
+              retro: Boolean(p.retrograde),
+            };
+          });
         }
       }
 
@@ -663,9 +779,14 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           const signTip = SIGN_TIPS[sign] || '';
           const houseTip = pos?.house ? (HOUSE_TIPS[String(pos.house)] || '') : '';
           const retroTip = retro ? 'Retrograde \u2014 inward energy, review, and revision' : '';
+          const dignity = getDignity(body, sign);
+          const dignityInfo = dignity ? DIGNITY_LABELS[dignity] : null;
+          const dignityHtml = dignityInfo
+            ? ` <span class="chart-dignity chart-dignity-${dignity}" data-tip="${escapeHtml(dignityInfo.tip)}">${escapeHtml(dignityInfo.symbol)}</span>`
+            : '';
           return `<div class="chart-placement" data-tip="${escapeHtml(planetTip)}">
             <span class="chart-placement-glyph" style="color: ${color}">${escapeHtml(glyph)}</span>
-            <span class="chart-placement-name">${escapeHtml(body)}${retro ? ` <span class="chart-retro" data-tip="${escapeHtml(retroTip)}">\u211E</span>` : ''}</span>
+            <span class="chart-placement-name">${escapeHtml(body)}${retro ? ` <span class="chart-retro" data-tip="${escapeHtml(retroTip)}">\u211E</span>` : ''}${dignityHtml}</span>
             <span class="chart-placement-detail" data-tip="${escapeHtml(signTip)}${houseTip ? (signTip ? ' | ' : '') + escapeHtml(houseTip) : ''}">${escapeHtml(deg)}\u00B0 ${escapeHtml(signGlyph)} ${escapeHtml(sign)}${house ? ` \u00B7 ${escapeHtml(house)}` : ''}</span>
           </div>`;
         }).join('');
@@ -784,6 +905,133 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           ? `<div class="chart-retro-summary" data-tip="Retrograde planets appear to move backward \u2014 their energy turns inward for review and revision"><span class="chart-detail-sublabel">Retrograde</span><span class="chart-retro-value">${retroCount} planet${retroCount > 1 ? 's' : ''} in retrograde</span></div>`
           : '';
 
+        // Chart Ruler
+        const ascSign = asc ? normalizeSign(asc.sign) : '';
+        const chartRulerName = ascSign ? (SIGN_RULERS[ascSign] || '') : '';
+        const chartRulerPos = chartRulerName ? positions.find((p: any) => displayBody(p?.body) === chartRulerName) : null;
+        const chartRulerHtml = chartRulerPos ? (() => {
+          const rSign = normalizeSign(chartRulerPos.sign);
+          const rDeg = Number(chartRulerPos.degree || 0).toFixed(1);
+          const rHouse = chartRulerPos.house ? `H${chartRulerPos.house}` : '';
+          const rGlyph = PLANET_GLYPHS[chartRulerName] || '';
+          const rColor = SIGN_COLORS[rSign] || '#d6af72';
+          const rSignGlyph = SIGN_GLYPHS[rSign] || '';
+          return `<div class="chart-ruler" data-tip="The chart ruler is the planet that rules the Ascendant sign \u2014 it colors your entire life approach">
+            <span class="chart-detail-sublabel">Chart Ruler</span>
+            <span class="chart-ruler-value"><span style="color: ${rColor}">${escapeHtml(rGlyph)}</span> ${escapeHtml(chartRulerName)} in ${escapeHtml(rDeg)}\u00B0 ${escapeHtml(rSignGlyph)} ${escapeHtml(rSign)}${rHouse ? ` \u00B7 ${escapeHtml(rHouse)}` : ''}</span>
+          </div>`;
+        })() : '';
+
+        // House Cusps Table
+        const houseCusps = Array.isArray(chart?.house_cusps) ? chart.house_cusps : [];
+        const houseCuspsHtml = houseCusps.length === 12 ? (() => {
+          const rows = houseCusps.map((cusp: number, i: number) => {
+            const houseNum = i + 1;
+            const totalDeg = ((cusp % 360) + 360) % 360;
+            const signIdx = Math.floor(totalDeg / 30);
+            const sign = SIGN_ORDER[signIdx] || '';
+            const deg = (totalDeg % 30).toFixed(1);
+            const signGlyph = SIGN_GLYPHS[sign] || '';
+            const color = SIGN_COLORS[sign] || '#d6af72';
+            const tip = HOUSE_TIPS[String(houseNum)] || '';
+            return `<div class="chart-cusp-row" data-tip="${escapeHtml(tip)}">
+              <span class="chart-cusp-num">H${houseNum}</span>
+              <span class="chart-cusp-deg" style="color: ${color}">${escapeHtml(deg)}\u00B0 ${escapeHtml(signGlyph)} ${escapeHtml(sign)}</span>
+            </div>`;
+          }).join('');
+          return `<div class="chart-cusps-section">
+            <span class="chart-detail-sublabel">House Cusps</span>
+            <div class="chart-cusps-grid">${rows}</div>
+          </div>`;
+        })() : '';
+
+        // Dominant Planet Analysis
+        const aspectCountPerPlanet: Record<string, number> = {};
+        for (const asp of filteredAspects) {
+          const b1 = displayBody(asp?.body1);
+          const b2 = displayBody(asp?.body2);
+          aspectCountPerPlanet[b1] = (aspectCountPerPlanet[b1] || 0) + 1;
+          aspectCountPerPlanet[b2] = (aspectCountPerPlanet[b2] || 0) + 1;
+        }
+        // Weight: aspects + chart ruler bonus + Sun ruler bonus + Moon ruler bonus
+        const sunSign = sun ? normalizeSign(sun.sign) : '';
+        const moonSign = moon ? normalizeSign(moon.sign) : '';
+        const sunRuler = sunSign ? (SIGN_RULERS[sunSign] || '') : '';
+        const moonRuler = moonSign ? (SIGN_RULERS[moonSign] || '') : '';
+        let dominantPlanet = '';
+        let dominantScore = 0;
+        for (const pos of positions) {
+          const body = displayBody(pos?.body);
+          let score = aspectCountPerPlanet[body] || 0;
+          if (body === chartRulerName) score += 3;
+          if (body === sunRuler) score += 2;
+          if (body === moonRuler) score += 2;
+          const dig = getDignity(body, normalizeSign(pos?.sign));
+          if (dig === 'domicile' || dig === 'exaltation') score += 1;
+          if (score > dominantScore) { dominantScore = score; dominantPlanet = body; }
+        }
+        const dominantPos = dominantPlanet ? positions.find((p: any) => displayBody(p?.body) === dominantPlanet) : null;
+        const dominantHtml = dominantPos ? (() => {
+          const dSign = normalizeSign(dominantPos.sign);
+          const dGlyph = PLANET_GLYPHS[dominantPlanet] || '';
+          const dColor = SIGN_COLORS[dSign] || '#d6af72';
+          const reasons: string[] = [];
+          if (dominantPlanet === chartRulerName) reasons.push('chart ruler');
+          if (dominantPlanet === sunRuler) reasons.push('Sun ruler');
+          if (dominantPlanet === moonRuler) reasons.push('Moon ruler');
+          const aspCount = aspectCountPerPlanet[dominantPlanet] || 0;
+          if (aspCount > 0) reasons.push(`${aspCount} aspects`);
+          return `<div class="chart-dominant" data-tip="Most influential planet based on aspects, rulerships, and dignities">
+            <span class="chart-detail-sublabel">Dominant Planet</span>
+            <span class="chart-dominant-value"><span style="color: ${dColor}">${escapeHtml(dGlyph)}</span> ${escapeHtml(dominantPlanet)}${reasons.length ? ` <span class="chart-dominant-reason">(${escapeHtml(reasons.join(', '))})</span>` : ''}</span>
+          </div>`;
+        })() : '';
+
+        // Chart Pattern
+        const planetLongitudes = positions.map((p: any) => Number(p?.longitude || zodiacDegrees(p?.sign, p?.degree)));
+        const chartPattern = detectChartPattern(planetLongitudes);
+        const patternHtml = chartPattern.name !== 'Unknown'
+          ? `<div class="chart-pattern" data-tip="${escapeHtml(chartPattern.description)}">
+              <span class="chart-detail-sublabel">Chart Shape</span>
+              <span class="chart-pattern-value">${escapeHtml(chartPattern.name)}</span>
+            </div>`
+          : '';
+
+        // Aspect Matrix Grid
+        const matrixBodies = positions.map((p: any) => displayBody(p?.body));
+        const aspectLookup: Record<string, { type: string; glyph: string; color: string }> = {};
+        for (const asp of filteredAspects) {
+          const b1 = displayBody(asp?.body1);
+          const b2 = displayBody(asp?.body2);
+          const type = String(asp?.type || asp?.aspect_type || '').toLowerCase();
+          const info = { type, glyph: ASPECT_GLYPHS[type] || '', color: CHART_ASPECT_COLORS[type] || '#d6af72' };
+          aspectLookup[`${b1}|${b2}`] = info;
+          aspectLookup[`${b2}|${b1}`] = info;
+        }
+        const matrixHeaderCells = matrixBodies.map((b) => {
+          const g = PLANET_GLYPHS[b] || '';
+          return `<span class="matrix-hdr" data-tip="${escapeHtml(PLANET_TIPS[b] || '')}">${escapeHtml(g || bodyAbbreviation(b))}</span>`;
+        }).join('');
+        const matrixRows = matrixBodies.map((rowBody, ri) => {
+          const rowGlyph = PLANET_GLYPHS[rowBody] || '';
+          const cells = matrixBodies.map((colBody, ci) => {
+            if (ri === ci) return '<span class="matrix-cell matrix-diag"></span>';
+            const key = `${rowBody}|${colBody}`;
+            const asp = aspectLookup[key];
+            if (!asp) return '<span class="matrix-cell"></span>';
+            return `<span class="matrix-cell" style="color: ${asp.color}" data-tip="${escapeHtml(ASPECT_TIPS[asp.type] || asp.type)}">${escapeHtml(asp.glyph)}</span>`;
+          }).join('');
+          return `<div class="matrix-row"><span class="matrix-hdr" data-tip="${escapeHtml(PLANET_TIPS[rowBody] || '')}">${escapeHtml(rowGlyph || bodyAbbreviation(rowBody))}</span>${cells}</div>`;
+        }).join('');
+        const aspectMatrixHtml = `
+          <div class="chart-matrix-section">
+            <span class="chart-detail-sublabel">Aspect Matrix</span>
+            <div class="chart-matrix">
+              <div class="matrix-row matrix-header-row"><span class="matrix-hdr"></span>${matrixHeaderCells}</div>
+              ${matrixRows}
+            </div>
+          </div>`;
+
         const chartDetailsHtml = `
           <div class="chart-details-label">Chart Details</div>
           <div class="chart-details">
@@ -799,10 +1047,15 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
             </div>
             ${polarityHtml}
             <div class="chart-details-meta">
+              ${chartRulerHtml}
+              ${dominantHtml}
+              ${patternHtml}
               ${stelliumHtml}
               ${aspectSummaryHtml}
               ${retroHtml}
             </div>
+            ${houseCuspsHtml}
+            ${aspectMatrixHtml}
           </div>
         `;
 
@@ -813,11 +1066,11 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         footerParts.push(houseSystem);
 
         chartContent.innerHTML = `
-          <div class="chart-hero">${heroItems}</div>
-          <div class="chart-placements">${placementItems}</div>
-          ${aspectsHtml}
-          ${chartDetailsHtml}
-          <div class="chart-detail-footer">${escapeHtml(footerParts.join('  \u00B7  '))}</div>
+          <div class="chart-hero chart-fadein" style="animation-delay: 0s">${heroItems}</div>
+          <div class="chart-placements chart-fadein" style="animation-delay: 0.08s">${placementItems}</div>
+          <div class="chart-fadein" style="animation-delay: 0.16s">${aspectsHtml}</div>
+          <div class="chart-fadein" style="animation-delay: 0.24s">${chartDetailsHtml}</div>
+          <div class="chart-detail-footer chart-fadein" style="animation-delay: 0.32s">${escapeHtml(footerParts.join('  \u00B7  '))}</div>
         `;
       }
       if (chartStatus) chartStatus.style.display = 'none';
@@ -828,6 +1081,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       if (exportImageButton) exportImageButton.style.display = 'none';
       if (chartStatus) {
         chartStatus.style.display = 'block';
+        chartStatus.className = 'reading-status';
         chartStatus.textContent = err instanceof Error ? err.message : 'Could not load natal chart';
       }
     }
@@ -1152,6 +1406,141 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     ctx.restore();
 
     ctx.restore();
+  }
+
+  async function loadTransitOverlay() {
+    if (!cachedChart || !hasProfile) return;
+    const overlay = document.getElementById('transit-overlay');
+    const transitContent = document.getElementById('transit-content');
+    const transitCanvas = document.getElementById('transit-wheel-canvas') as HTMLCanvasElement | null;
+    if (!overlay || !transitCanvas) return;
+    try {
+      const ephRes = await authFetch('/v1/ephemeris/today');
+      if (!ephRes.ok) return;
+      const ephData = await ephRes.json();
+      const transitPositions = Array.isArray(ephData?.positions) ? ephData.positions : [];
+      const transitAspects = Array.isArray(ephData?.aspects) ? ephData.aspects : [];
+      if (transitPositions.length === 0) return;
+      overlay.style.display = 'block';
+
+      // Draw natal wheel with transit overlay
+      const natalChart = cachedChart as any;
+      const container = transitCanvas.parentElement;
+      const displaySize = Math.min(container?.clientWidth || 500, 500);
+      const dpr = window.devicePixelRatio || 1;
+      transitCanvas.width = displaySize * dpr;
+      transitCanvas.height = displaySize * dpr;
+      transitCanvas.style.width = `${displaySize}px`;
+      transitCanvas.style.height = `${displaySize}px`;
+      const ctx = transitCanvas.getContext('2d');
+      if (!ctx) return;
+
+      // Background
+      const bg = ctx.createRadialGradient(
+        transitCanvas.width / 2, transitCanvas.height / 2, 0,
+        transitCanvas.width / 2, transitCanvas.height / 2, transitCanvas.width / 2,
+      );
+      bg.addColorStop(0, '#0a1228');
+      bg.addColorStop(1, '#080510');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, transitCanvas.width, transitCanvas.height);
+
+      // Draw natal wheel at 92% size
+      const wheelSize = displaySize * dpr * 0.92;
+      const cx = (displaySize * dpr) / 2;
+      const cy = (displaySize * dpr) / 2;
+      drawChartWheel(ctx, natalChart, wheelSize, cx, cy);
+
+      // Draw transit planets on outer rim
+      const scale = wheelSize / 1100;
+      const R_TRANSIT = 510;
+      const natalAngles = Array.isArray(natalChart.angles) ? natalChart.angles : [];
+      const natalAsc = natalAngles.find((a: any) => String(a?.name || '').toLowerCase() === 'ascendant');
+      const ascLong = natalAsc ? Number(natalAsc.longitude || 0) : 0;
+      function longToAngle(lng: number): number {
+        return Math.PI - ((lng - ascLong) * Math.PI) / 180;
+      }
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(scale, scale);
+      for (const tPos of transitPositions) {
+        const body = displayBody(tPos?.body);
+        const lng = Number(tPos?.longitude || 0);
+        const sign = normalizeSign(tPos?.sign);
+        const color = SIGN_COLORS[sign] || '#d6af72';
+        const glyph = PLANET_GLYPHS[body] || '';
+        const a = longToAngle(lng);
+        const x = Math.cos(a) * R_TRANSIT;
+        const y = Math.sin(a) * R_TRANSIT;
+
+        // Hollow circle marker for transits
+        ctx.strokeStyle = `${color}90`;
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(x, y, 16, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = `${color}20`;
+        ctx.fill();
+
+        ctx.fillStyle = `${color}cc`;
+        ctx.font = '400 22px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(glyph, x, y + 1);
+      }
+
+      // Draw transit-to-natal aspect lines
+      const natalPositions = Array.isArray(natalChart.positions) ? natalChart.positions : [];
+      const natalLongMap: Record<string, number> = {};
+      for (const np of natalPositions) {
+        natalLongMap[String(np?.body || '').toLowerCase()] = Number(np?.longitude || zodiacDegrees(np?.sign, np?.degree));
+      }
+      const R_INNER = 255;
+      for (const asp of transitAspects) {
+        const type = String(asp?.type || asp?.aspect_type || '').toLowerCase();
+        const color = CHART_ASPECT_COLORS[type];
+        if (!color) continue;
+        // Transit body → natal body
+        const transitBody = String(asp?.body1 || '').toLowerCase();
+        const natalBody = String(asp?.body2 || '').toLowerCase();
+        const transitLng = transitPositions.find((p: any) => String(p?.body || '').toLowerCase() === transitBody);
+        const natalLng = natalLongMap[natalBody];
+        if (!transitLng || natalLng == null) continue;
+        const a1 = longToAngle(Number(transitLng.longitude || 0));
+        const a2 = longToAngle(natalLng);
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = 0.3;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a1) * R_TRANSIT, Math.sin(a1) * R_TRANSIT);
+        ctx.lineTo(Math.cos(a2) * (R_INNER - 10), Math.sin(a2) * (R_INNER - 10));
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.setLineDash([]);
+      ctx.restore();
+
+      // Transit list below wheel
+      if (transitContent) {
+        const transitItems = transitPositions.map((tp: any) => {
+          const body = displayBody(tp?.body);
+          const sign = normalizeSign(tp?.sign);
+          const deg = Number(tp?.degree || 0).toFixed(1);
+          const glyph = PLANET_GLYPHS[body] || '';
+          const signGlyph = SIGN_GLYPHS[sign] || '';
+          const color = SIGN_COLORS[sign] || '#d6af72';
+          const retro = Boolean(tp?.retrograde);
+          return `<div class="chart-placement" data-tip="${escapeHtml((PLANET_TIPS[body] || '') + ' (transit)')}">
+            <span class="chart-placement-glyph" style="color: ${color}">${escapeHtml(glyph)}</span>
+            <span class="chart-placement-name">${escapeHtml(body)}${retro ? ' <span class="chart-retro">\u211E</span>' : ''}</span>
+            <span class="chart-placement-detail">${escapeHtml(deg)}\u00B0 ${escapeHtml(signGlyph)} ${escapeHtml(sign)}</span>
+          </div>`;
+        }).join('');
+        transitContent.innerHTML = `<div class="chart-placements">${transitItems}</div>`;
+      }
+    } catch {
+      // Transit overlay is non-critical; silently fail
+    }
   }
 
   async function exportNatalChartImage(chart: Record<string, unknown>) {
@@ -1517,8 +1906,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
     if (!blob) throw new Error('Could not generate chart image.');
-    const stamp = new Date().toISOString().slice(0, 10);
-    downloadBlob(`voidwire-natal-chart-${stamp}.jpg`, blob);
+    return blob;
   }
 
   async function exportAccountData() {
@@ -1581,7 +1969,10 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         }
         if (readingSection) readingSection.style.display = 'none';
         const chartStatus = document.getElementById('chart-status');
-        if (chartStatus) chartStatus.textContent = 'Add birth data to generate your natal chart.';
+        if (chartStatus) {
+          chartStatus.className = 'reading-status';
+          chartStatus.textContent = 'Add birth data to generate your natal chart.';
+        }
         if (profileStatus) {
           profileStatus.innerHTML = '<p class="profile-prompt">Add your birth data to generate natal-chart-based readings.</p>';
         }
@@ -1621,6 +2012,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       void loadNatalChart();
       setView('reading');
       await startReadingFlow();
+      void loadTransitOverlay();
     } catch (err) {
       console.error('Dashboard load error:', err);
       renderReadingMessage('Could not load dashboard.');
@@ -1660,11 +2052,28 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     }
   });
 
-  document.getElementById('export-chart-image-btn')?.addEventListener('click', () => {
+  document.getElementById('export-chart-image-btn')?.addEventListener('click', async () => {
     if (!cachedChart) return;
-    void exportNatalChartImage(cachedChart).catch((err) => {
-      alert(err instanceof Error ? err.message : 'Could not export chart image');
-    });
+    const btn = document.getElementById('export-chart-image-btn') as HTMLButtonElement | null;
+    const original = btn?.textContent || 'Export Chart Image';
+    try {
+      if (btn) btn.textContent = 'Preparing\u2026';
+      const blob = await exportNatalChartImage(cachedChart);
+      const stamp = new Date().toISOString().slice(0, 10);
+      const filename = `voidwire-natal-chart-${stamp}.jpg`;
+      const file = new File([blob], filename, { type: 'image/jpeg' });
+      if (typeof navigator.share === 'function' && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ title: 'My Natal Chart', files: [file] });
+      } else {
+        downloadBlob(filename, blob);
+      }
+    } catch (err) {
+      if ((err as any)?.name !== 'AbortError') {
+        alert(err instanceof Error ? err.message : 'Could not export chart image');
+      }
+    } finally {
+      if (btn) btn.textContent = original;
+    }
   });
 
   document.getElementById('export-account-btn')?.addEventListener('click', () => {
@@ -1772,6 +2181,57 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
   window.addEventListener('beforeunload', () => {
     stopReadingPolling();
   });
+
+  // --- Interactive chart wheel (click/tap planet to see details) ---
+  (() => {
+    const wheelCanvas = document.getElementById('chart-wheel-canvas');
+    if (!wheelCanvas) return;
+    wheelCanvas.style.cursor = 'pointer';
+    wheelCanvas.addEventListener('click', (e) => {
+      if (!cachedChart || chartPlanetScreenPositions.length === 0) return;
+      const rect = wheelCanvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const scaleX = rect.width > 0 ? 1 : 1;
+      let nearest: typeof chartPlanetScreenPositions[0] | null = null;
+      let nearestDist = Infinity;
+      for (const p of chartPlanetScreenPositions) {
+        const dx = mx - p.sx, dy = my - p.sy;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < nearestDist) { nearestDist = dist; nearest = p; }
+      }
+      if (!nearest || nearestDist > 30) return;
+      // Build detail text for tooltip
+      const aspects = Array.isArray((cachedChart as any)?.aspects) ? (cachedChart as any).aspects : [];
+      const bodyAspects = aspects.filter((a: any) =>
+        displayBody(a?.body1) === nearest!.body || displayBody(a?.body2) === nearest!.body
+      ).filter((a: any) => String(a?.significance || '').toLowerCase() !== 'minor');
+      const aspectLines = bodyAspects.map((a: any) => {
+        const other = displayBody(a.body1) === nearest!.body ? displayBody(a.body2) : displayBody(a.body1);
+        const type = String(a?.type || a?.aspect_type || '');
+        const orb = Number(a?.orb_degrees || a?.orb || 0).toFixed(1);
+        return `${type} ${other} (${orb}\u00B0)`;
+      }).join(', ');
+      const dignity = getDignity(nearest.body, nearest.sign);
+      const dignityLabel = dignity ? ` \u2014 ${DIGNITY_LABELS[dignity]?.label || ''}` : '';
+      const planetTip = PLANET_TIPS[nearest.body] || '';
+      let tipText = `${nearest.body}: ${nearest.deg}\u00B0 ${nearest.sign}`;
+      if (nearest.house) tipText += ` \u00B7 ${nearest.house}`;
+      if (nearest.retro) tipText += ' (Retrograde)';
+      if (dignityLabel) tipText += dignityLabel;
+      if (planetTip) tipText += ` \u2014 ${planetTip}`;
+      if (aspectLines) tipText += `\nAspects: ${aspectLines}`;
+      // Show via custom tooltip
+      const tipEl = document.querySelector('.tip-popup') as HTMLElement;
+      if (tipEl) {
+        tipEl.textContent = tipText;
+        tipEl.style.display = 'block';
+        tipEl.style.left = `${Math.min(e.clientX + 12, window.innerWidth - 300)}px`;
+        tipEl.style.top = `${Math.max(e.clientY - 60, 8)}px`;
+        setTimeout(() => { tipEl.style.display = 'none'; }, 5000);
+      }
+    });
+  })();
 
   // --- Custom tooltip system (works on hover + tap) ---
   (() => {
@@ -2237,8 +2697,17 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     transform: rotate(90deg);
   }
 
+  .section-body {
+    max-height: 2000px;
+    overflow: hidden;
+    transition: max-height 0.4s ease, opacity 0.3s ease;
+    opacity: 1;
+  }
+
   .section-body.collapsed {
-    display: none;
+    max-height: 0;
+    opacity: 0;
+    pointer-events: none;
   }
 
   /* --- Aspects grid --- */
@@ -2578,6 +3047,247 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     cursor: not-allowed;
   }
 
+  /* --- Dignity badges --- */
+  .chart-content :global(.chart-dignity) {
+    font-size: 0.6rem;
+    margin-left: 0.15rem;
+    vertical-align: super;
+    cursor: help;
+  }
+
+  .chart-content :global(.chart-dignity-domicile) {
+    color: #50a868;
+  }
+
+  .chart-content :global(.chart-dignity-exaltation) {
+    color: #d6af72;
+  }
+
+  .chart-content :global(.chart-dignity-detriment) {
+    color: #c07050;
+  }
+
+  .chart-content :global(.chart-dignity-fall) {
+    color: #a05050;
+  }
+
+  /* --- Chart Ruler --- */
+  .chart-content :global(.chart-ruler) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    cursor: default;
+  }
+
+  .chart-content :global(.chart-ruler-value) {
+    font-family: "Segoe UI Symbol", var(--font-sans);
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+  }
+
+  /* --- Dominant planet --- */
+  .chart-content :global(.chart-dominant) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    cursor: default;
+  }
+
+  .chart-content :global(.chart-dominant-value) {
+    font-family: "Segoe UI Symbol", var(--font-sans);
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+  }
+
+  .chart-content :global(.chart-dominant-reason) {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+  }
+
+  /* --- Chart pattern --- */
+  .chart-content :global(.chart-pattern) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    cursor: default;
+  }
+
+  .chart-content :global(.chart-pattern-value) {
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+
+  /* --- House Cusps --- */
+  .chart-content :global(.chart-cusps-section) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--text-ghost);
+  }
+
+  .chart-content :global(.chart-cusps-grid) {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.2rem 1rem;
+  }
+
+  .chart-content :global(.chart-cusp-row) {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    font-family: var(--font-sans);
+    font-size: 0.65rem;
+    cursor: default;
+  }
+
+  .chart-content :global(.chart-cusp-num) {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.55rem;
+    width: 1.8rem;
+    flex-shrink: 0;
+  }
+
+  .chart-content :global(.chart-cusp-deg) {
+    font-family: "Segoe UI Symbol", var(--font-body);
+    font-size: 0.62rem;
+    white-space: nowrap;
+  }
+
+  /* --- Aspect Matrix --- */
+  .chart-content :global(.chart-matrix-section) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--text-ghost);
+    overflow-x: auto;
+  }
+
+  .chart-content :global(.chart-matrix) {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    font-family: "Segoe UI Symbol", var(--font-sans);
+    font-size: 0.62rem;
+  }
+
+  .chart-content :global(.matrix-row) {
+    display: flex;
+    gap: 1px;
+  }
+
+  .chart-content :global(.matrix-hdr) {
+    width: 1.6rem;
+    height: 1.6rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    flex-shrink: 0;
+  }
+
+  .chart-content :global(.matrix-cell) {
+    width: 1.6rem;
+    height: 1.6rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.015);
+    font-size: 0.7rem;
+    flex-shrink: 0;
+    cursor: default;
+    border-radius: 2px;
+  }
+
+  .chart-content :global(.matrix-cell:hover) {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .chart-content :global(.matrix-diag) {
+    background: rgba(214, 175, 114, 0.04);
+  }
+
+  .chart-content :global(.matrix-header-row .matrix-hdr) {
+    font-size: 0.6rem;
+    color: var(--accent);
+  }
+
+  /* --- Transit Overlay --- */
+  .transit-overlay {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--text-ghost);
+  }
+
+  /* --- Loading Skeleton --- */
+  .chart-skeleton {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 0;
+  }
+
+  .skeleton-wheel {
+    width: 200px;
+    height: 200px;
+    border-radius: 50%;
+    background: linear-gradient(110deg, rgba(255,255,255,0.02) 30%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.02) 70%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+
+  .skeleton-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 100%;
+    max-width: 300px;
+  }
+
+  .skeleton-line {
+    height: 10px;
+    border-radius: 4px;
+    background: linear-gradient(110deg, rgba(255,255,255,0.02) 30%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.02) 70%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+
+  .skeleton-line.short {
+    width: 60%;
+  }
+
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* --- Fade-in animation --- */
+  .chart-content :global(.chart-fadein) {
+    animation: fadeSlideIn 0.5s ease both;
+  }
+
+  @keyframes fadeSlideIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* --- Canvas fade-in --- */
+  .chart-wheel-wrap canvas {
+    animation: fadeSlideIn 0.4s ease both;
+  }
+
   @media (max-width: 768px) {
     .dashboard-container {
       margin: 0.5rem auto;
@@ -2632,6 +3342,23 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     .chart-content :global(.chart-details-grid) {
       grid-template-columns: 1fr;
       gap: 0.8rem;
+    }
+
+    .chart-content :global(.chart-cusps-grid) {
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.15rem 0.6rem;
+    }
+
+    .chart-content :global(.chart-matrix-section) {
+      margin-left: -0.5rem;
+      margin-right: -0.5rem;
+    }
+
+    .chart-content :global(.matrix-hdr),
+    .chart-content :global(.matrix-cell) {
+      width: 1.3rem;
+      height: 1.3rem;
+      font-size: 0.55rem;
     }
   }
 </style>
