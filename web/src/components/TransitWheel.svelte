@@ -36,10 +36,12 @@
   export let positions: Record<string, PlanetPosition> = {};
   export let aspects: AspectInput[] = [];
 
-  // --- Constants (aligned with dashboard.astro) ---
-  // VS15 forces text presentation (not emoji) for Unicode symbols
+  // --- Constants ---
   const VS15 = '\uFE0E';
   const BRASS = '#d6af72';
+
+  // Unique ID prefix to prevent SVG ID collisions across instances
+  const uid = `tw${Math.random().toString(36).slice(2, 8)}`;
 
   const SIGN_ORDER = [
     'Aries', 'Taurus', 'Gemini', 'Cancer', 'Leo', 'Virgo',
@@ -104,14 +106,12 @@
   const R_ASPECT = R_INNER - 5;
   const R_LABEL = 243;
 
-  // Planet marker sizing
   const MARKER_R = 10;
   const GLYPH_PX = 14;
   const BASE_ORBIT = 160;
   const ORBIT_STEP = 22;
   const MIN_DEG_SEP = 12;
 
-  // Mobile detection
   let isTouchDevice = false;
   onMount(() => {
     isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -129,6 +129,17 @@
     const s2 = toXY(endDeg, r2);
     const e2 = toXY(startDeg, r2);
     return `M ${s1.x} ${s1.y} A ${r1} ${r1} 0 0 1 ${e1.x} ${e1.y} L ${s2.x} ${s2.y} A ${r2} ${r2} 0 0 0 ${e2.x} ${e2.y} Z`;
+  }
+
+  // Batch tick marks into a single <path> d string for performance
+  function buildTickPath(outerR: number, tickLengths: { deg: number; len: number }[], inward: boolean): string {
+    let d = '';
+    for (const { deg, len } of tickLengths) {
+      const p1 = toXY(deg, outerR);
+      const p2 = toXY(deg, inward ? outerR - len : outerR + len);
+      d += `M${p1.x} ${p1.y}L${p2.x} ${p2.y}`;
+    }
+    return d;
   }
 
   // --- Normalize helpers ---
@@ -174,7 +185,6 @@
     }))
     .filter((a) => a.body1 && a.body2 && a.aspect_type);
 
-  // Planet display data with radial fan-out collision avoidance
   type PlanetDisplay = {
     name: string;
     glyph: string;
@@ -267,13 +277,12 @@
     sacredRadials = lines;
   }
 
-  // --- Zodiac ring data ---
+  // --- Zodiac ring ---
   type SignSegment = {
     sign: string;
     glyph: string;
     abbr: string;
     color: string;
-    startDeg: number;
     path: string;
     glyphPos: { x: number; y: number };
     labelPos: { x: number; y: number };
@@ -289,48 +298,42 @@
       glyph: SIGN_GLYPHS[sign] || '',
       abbr: SIGN_ABBR[sign] || sign.slice(0, 3).toUpperCase(),
       color: SIGN_COLORS[sign] || '#9aa6c0',
-      startDeg,
       path: arcPath(R_OUTER, R_SIGN_INNER, startDeg, startDeg + 30),
       glyphPos: toXY(midDeg, glyphR),
       labelPos: toXY(midDeg, R_LABEL),
     };
   });
 
-  // Fine tick marks
-  type Tick = { x1: number; y1: number; x2: number; y2: number; weight: 'major' | 'minor' | 'fine' };
-
-  let innerTicks: Tick[] = [];
+  // Batched tick mark paths (6 paths instead of 720 elements)
+  let innerTickMajor = '', innerTickMinor = '', innerTickFine = '';
+  let outerTickMajor = '', outerTickMinor = '', outerTickFine = '';
   $: {
-    const t: Tick[] = [];
+    const majI: { deg: number; len: number }[] = [];
+    const minI: { deg: number; len: number }[] = [];
+    const fineI: { deg: number; len: number }[] = [];
+    const majO: { deg: number; len: number }[] = [];
+    const minO: { deg: number; len: number }[] = [];
+    const fineO: { deg: number; len: number }[] = [];
     for (let deg = 0; deg < 360; deg++) {
       const isMaj = deg % 10 === 0;
       const isMin = deg % 5 === 0;
-      const tickLen = isMaj ? 4 : isMin ? 2.5 : 1;
-      const p1 = toXY(deg, R_SIGN_INNER);
-      const p2 = toXY(deg, R_SIGN_INNER - tickLen);
-      t.push({
-        x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y,
-        weight: isMaj ? 'major' : isMin ? 'minor' : 'fine',
-      });
+      if (isMaj) {
+        majI.push({ deg, len: 4 });
+        majO.push({ deg, len: 3.5 });
+      } else if (isMin) {
+        minI.push({ deg, len: 2.5 });
+        minO.push({ deg, len: 2 });
+      } else {
+        fineI.push({ deg, len: 1 });
+        fineO.push({ deg, len: 1 });
+      }
     }
-    innerTicks = t;
-  }
-
-  let outerTicks: Tick[] = [];
-  $: {
-    const t: Tick[] = [];
-    for (let deg = 0; deg < 360; deg++) {
-      const isMaj = deg % 10 === 0;
-      const isMin = deg % 5 === 0;
-      const tickLen = isMaj ? 3.5 : isMin ? 2 : 1;
-      const p1 = toXY(deg, R_OUTER);
-      const p2 = toXY(deg, R_OUTER + tickLen);
-      t.push({
-        x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y,
-        weight: isMaj ? 'major' : isMin ? 'minor' : 'fine',
-      });
-    }
-    outerTicks = t;
+    innerTickMajor = buildTickPath(R_SIGN_INNER, majI, true);
+    innerTickMinor = buildTickPath(R_SIGN_INNER, minI, true);
+    innerTickFine = buildTickPath(R_SIGN_INNER, fineI, true);
+    outerTickMajor = buildTickPath(R_OUTER, majO, false);
+    outerTickMinor = buildTickPath(R_OUTER, minO, false);
+    outerTickFine = buildTickPath(R_OUTER, fineO, false);
   }
 
   // Sign boundary lines
@@ -385,7 +388,7 @@
     aspectLines = lines;
   }
 
-  // --- Tooltip + hover state ---
+  // --- Tooltip + hover ---
   let wrapperEl: HTMLDivElement | null = null;
   let tooltip = { visible: false, x: 0, y: 0, lines: [] as string[] };
   let tooltipPinned = false;
@@ -421,14 +424,15 @@
   function positionTooltip(event: MouseEvent | Touch, lines: string[]) {
     if (!wrapperEl) return;
     const rect = wrapperEl.getBoundingClientRect();
-    const clientX = event.clientX;
-    const clientY = event.clientY;
-    tooltip = {
-      visible: true,
-      x: clientX - rect.left + 15,
-      y: clientY - rect.top + 15,
-      lines,
-    };
+    let x = event.clientX - rect.left + 15;
+    let y = event.clientY - rect.top + 15;
+    // Clamp to wrapper bounds (approximate tooltip size: 240x120)
+    const tipW = 240, tipH = 120;
+    if (x + tipW > rect.width) x = rect.width - tipW - 8;
+    if (y + tipH > rect.height) y = y - tipH - 30;
+    if (x < 8) x = 8;
+    if (y < 8) y = 8;
+    tooltip = { visible: true, x, y, lines };
   }
 
   function hideTooltip() {
@@ -437,7 +441,6 @@
     hoveredAspectId = null;
   }
 
-  // Desktop: hover
   function showPlanetTooltip(event: MouseEvent, planet: PlanetDisplay) {
     if (tooltipPinned) return;
     positionTooltip(event, buildPlanetLines(planet));
@@ -454,7 +457,6 @@
     hideTooltip();
   }
 
-  // Mobile + desktop: tap/click toggles pinned tooltip
   function handlePlanetTap(event: MouseEvent, planet: PlanetDisplay) {
     if (tooltipPinned) {
       tooltipPinned = false;
@@ -477,7 +479,6 @@
     positionTooltip(event, buildAspectLines(line.aspect));
   }
 
-  // Mobile: touchstart shows tooltip immediately (before click fires)
   function handlePlanetTouch(event: TouchEvent, planet: PlanetDisplay) {
     if (!isTouchDevice) return;
     event.preventDefault();
@@ -529,33 +530,30 @@
       xmlns="http://www.w3.org/2000/svg"
     >
       <defs>
-        <clipPath id="tw-circle-clip">
+        <clipPath id="{uid}-clip">
           <circle cx={CX} cy={CY} r={R_OUTER + 1} />
         </clipPath>
-
-        <radialGradient id="tw-bg-grad" cx="50%" cy="50%" r="50%">
+        <radialGradient id="{uid}-bg" cx="50%" cy="50%" r="50%">
           <stop offset="0%" stop-color="#0a1228" />
           <stop offset="80%" stop-color="#080510" />
           <stop offset="100%" stop-color="#06040d" />
         </radialGradient>
-
-        <radialGradient id="tw-nebula-1" cx="35%" cy="40%" r="55%">
+        <radialGradient id="{uid}-n1" cx="35%" cy="40%" r="55%">
           <stop offset="0%" stop-color="rgba(70, 110, 180, 0.12)" />
           <stop offset="50%" stop-color="rgba(70, 110, 180, 0.04)" />
           <stop offset="100%" stop-color="rgba(0,0,0,0)" />
         </radialGradient>
-        <radialGradient id="tw-nebula-2" cx="65%" cy="55%" r="50%">
+        <radialGradient id="{uid}-n2" cx="65%" cy="55%" r="50%">
           <stop offset="0%" stop-color="rgba(180, 145, 80, 0.10)" />
           <stop offset="50%" stop-color="rgba(180, 145, 80, 0.03)" />
           <stop offset="100%" stop-color="rgba(0,0,0,0)" />
         </radialGradient>
-        <radialGradient id="tw-nebula-3" cx="45%" cy="65%" r="50%">
+        <radialGradient id="{uid}-n3" cx="45%" cy="65%" r="50%">
           <stop offset="0%" stop-color="rgba(90, 50, 130, 0.10)" />
           <stop offset="50%" stop-color="rgba(90, 50, 130, 0.03)" />
           <stop offset="100%" stop-color="rgba(0,0,0,0)" />
         </radialGradient>
-
-        <radialGradient id="tw-ambient-glow" cx="50%" cy="50%" r="50%">
+        <radialGradient id="{uid}-glow" cx="50%" cy="50%" r="50%">
           <stop offset="0%" stop-color="rgba(100, 130, 200, 0.08)" />
           <stop offset="60%" stop-color="rgba(214, 175, 114, 0.04)" />
           <stop offset="100%" stop-color="rgba(0,0,0,0)" />
@@ -563,18 +561,18 @@
       </defs>
 
       <!-- Ambient glow halo -->
-      <circle cx={CX} cy={CY} r={R_OUTER + 40} fill="url(#tw-ambient-glow)" />
+      <circle cx={CX} cy={CY} r={R_OUTER + 40} fill="url(#{uid}-glow)" />
 
-      <!-- Interior atmosphere, clipped to ring -->
-      <g clip-path="url(#tw-circle-clip)">
-        <rect width="520" height="520" fill="url(#tw-bg-grad)" />
-        <rect width="520" height="520" fill="url(#tw-nebula-1)" />
-        <rect width="520" height="520" fill="url(#tw-nebula-2)" />
-        <rect width="520" height="520" fill="url(#tw-nebula-3)" />
+      <!-- Interior atmosphere -->
+      <g clip-path="url(#{uid}-clip)">
+        <rect width="520" height="520" fill="url(#{uid}-bg)" />
+        <rect width="520" height="520" fill="url(#{uid}-n1)" />
+        <rect width="520" height="520" fill="url(#{uid}-n2)" />
+        <rect width="520" height="520" fill="url(#{uid}-n3)" />
       </g>
 
-      <!-- Sacred geometry (slow rotation adds living feel) -->
-      <g class="sacred-geometry" opacity="0.055" stroke="{BRASS}" fill="none" stroke-width="0.5">
+      <!-- Sacred geometry -->
+      <g class="sacred-geometry" opacity="0.055" stroke={BRASS} fill="none" stroke-width="0.5">
         {#each sacredTriangles as path}
           <path d={path} />
         {/each}
@@ -586,12 +584,12 @@
         {/each}
       </g>
 
-      <!-- Wheel structure rings -->
-      <circle cx={CX} cy={CY} r={R_INNER} fill="none" stroke="{BRASS}" stroke-width="1" opacity="0.4" />
-      <circle cx={CX} cy={CY} r={R_SIGN_INNER} fill="none" stroke="{BRASS}" stroke-width="0.8" opacity="0.35" />
-      <circle cx={CX} cy={CY} r={R_OUTER} fill="none" stroke="{BRASS}" stroke-width="1.2" opacity="0.5" />
+      <!-- Wheel rings -->
+      <circle cx={CX} cy={CY} r={R_INNER} fill="none" stroke={BRASS} stroke-width="1" opacity="0.4" />
+      <circle cx={CX} cy={CY} r={R_SIGN_INNER} fill="none" stroke={BRASS} stroke-width="0.8" opacity="0.35" />
+      <circle cx={CX} cy={CY} r={R_OUTER} fill="none" stroke={BRASS} stroke-width="1.2" opacity="0.5" />
 
-      <!-- Zodiac sign ring segments -->
+      <!-- Zodiac sign segments -->
       {#each signSegments as seg}
         <path d={seg.path} fill="{seg.color}10" stroke="none" />
         <text
@@ -610,29 +608,19 @@
         >{seg.abbr}</text>
       {/each}
 
-      <!-- Sign boundary lines -->
+      <!-- Sign boundaries -->
       {#each boundaries as b}
         <line x1={b.x1} y1={b.y1} x2={b.x2} y2={b.y2}
-          stroke="{BRASS}" stroke-width="0.5" opacity="0.2" />
+          stroke={BRASS} stroke-width="0.5" opacity="0.2" />
       {/each}
 
-      <!-- Inner tick marks -->
-      {#each innerTicks as t}
-        <line x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2}
-          stroke="{BRASS}"
-          stroke-width={t.weight === 'major' ? 0.8 : t.weight === 'minor' ? 0.5 : 0.3}
-          opacity={t.weight === 'major' ? 0.3 : t.weight === 'minor' ? 0.15 : 0.08}
-        />
-      {/each}
-
-      <!-- Outer tick marks -->
-      {#each outerTicks as t}
-        <line x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2}
-          stroke="{BRASS}"
-          stroke-width={t.weight === 'major' ? 0.7 : t.weight === 'minor' ? 0.4 : 0.25}
-          opacity={t.weight === 'major' ? 0.25 : t.weight === 'minor' ? 0.12 : 0.06}
-        />
-      {/each}
+      <!-- Batched tick marks (6 paths instead of 720 elements) -->
+      <path d={innerTickMajor} stroke={BRASS} stroke-width="0.8" opacity="0.3" fill="none" />
+      <path d={innerTickMinor} stroke={BRASS} stroke-width="0.5" opacity="0.15" fill="none" />
+      <path d={innerTickFine} stroke={BRASS} stroke-width="0.3" opacity="0.08" fill="none" />
+      <path d={outerTickMajor} stroke={BRASS} stroke-width="0.7" opacity="0.25" fill="none" />
+      <path d={outerTickMinor} stroke={BRASS} stroke-width="0.4" opacity="0.12" fill="none" />
+      <path d={outerTickFine} stroke={BRASS} stroke-width="0.25" opacity="0.06" fill="none" />
 
       <!-- Aspect web -->
       {#each aspectLines as line}
@@ -647,25 +635,39 @@
           on:touchstart={(e) => handleAspectTouch(e, line)}
           style="cursor: pointer;"
         />
-        <line
-          class="aspect-line {line.applying ? 'applying' : ''}"
-          x1={line.x1} y1={line.y1} x2={line.x2} y2={line.y2}
-          stroke={line.color}
-          stroke-width={hoveredAspectId === line.id ? line.width + 1 : line.width}
-          stroke-dasharray={line.dash}
-          opacity={hoveredAspectId === line.id ? Math.min(1, line.opacity + 0.3) : line.opacity}
-          style="pointer-events: none; transition: opacity 0.2s ease, stroke-width 0.2s ease;"
-        />
+        <!-- Applying aspects: use a <g> wrapper for base opacity so the
+             CSS pulse animation modulates relative to that base, not absolute -->
+        {#if line.applying}
+          <g opacity={hoveredAspectId === line.id ? Math.min(1, line.opacity + 0.3) : line.opacity}
+             style="transition: opacity 0.2s ease;">
+            <line
+              class="applying"
+              x1={line.x1} y1={line.y1} x2={line.x2} y2={line.y2}
+              stroke={line.color}
+              stroke-width={hoveredAspectId === line.id ? line.width + 1 : line.width}
+              stroke-dasharray={line.dash}
+              style="pointer-events: none; transition: stroke-width 0.2s ease;"
+            />
+          </g>
+        {:else}
+          <line
+            x1={line.x1} y1={line.y1} x2={line.x2} y2={line.y2}
+            stroke={line.color}
+            stroke-width={hoveredAspectId === line.id ? line.width + 1 : line.width}
+            stroke-dasharray={line.dash}
+            opacity={hoveredAspectId === line.id ? Math.min(1, line.opacity + 0.3) : line.opacity}
+            style="pointer-events: none; transition: opacity 0.2s ease, stroke-width 0.2s ease;"
+          />
+        {/if}
       {/each}
 
       <!-- Planet markers -->
       {#each planets as planet}
         {@const innerPt = toXY(planet.longitude, R_INNER)}
 
-        <!-- Tick line from inner ring to marker -->
         <line
           x1={innerPt.x} y1={innerPt.y} x2={planet.pos.x} y2={planet.pos.y}
-          stroke="{planet.color}" stroke-width="0.5" opacity="0.3"
+          stroke={planet.color} stroke-width="0.5" opacity="0.3"
           style="pointer-events: none;"
         />
 
@@ -678,41 +680,23 @@
           on:touchstart={(e) => handlePlanetTouch(e, planet)}
           style="cursor: pointer;"
         >
-          <!-- Larger invisible hit area for touch -->
-          <circle
-            cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R + 8}
-            fill="transparent"
-          />
-          <!-- Soft glow halo -->
-          <circle
-            cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R + 6}
-            fill="{planet.color}" opacity="0.1"
-          />
-          <!-- Marker circle background -->
-          <circle
+          <circle cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R + 8} fill="transparent" />
+          <circle cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R + 6}
+            fill={planet.color} opacity="0.1" />
+          <circle cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R} fill="#080c16" />
+          <circle class="marker-ring"
             cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R}
-            fill="#080c16"
-          />
-          <!-- Marker circle border -->
-          <circle
-            class="marker-ring"
-            cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R}
-            fill="none" stroke={planet.color} stroke-width="1.2"
-          />
-          <!-- Planet glyph -->
+            fill="none" stroke={planet.color} stroke-width="1.2" />
           <text
             x={planet.pos.x} y={planet.pos.y}
             text-anchor="middle" dominant-baseline="central"
             fill={planet.color} font-size={GLYPH_PX}
             font-family='"Segoe UI Symbol", "EB Garamond", Georgia, serif'
           >{planet.glyph}</text>
-
-          <!-- Retrograde badge -->
           {#if planet.retrograde}
             <circle
               cx={planet.pos.x + MARKER_R + 3} cy={planet.pos.y - MARKER_R + 1}
-              r="4.5" fill="#c04040"
-            />
+              r="4.5" fill="#c04040" />
             <text
               x={planet.pos.x + MARKER_R + 3} y={planet.pos.y - MARKER_R + 1}
               text-anchor="middle" dominant-baseline="central"
@@ -776,7 +760,6 @@
     -webkit-tap-highlight-color: transparent;
   }
 
-  /* Sacred geometry slow rotation */
   .sacred-geometry {
     transform-origin: 260px 260px;
     animation: tw-sacred-rotate 120s linear infinite;
@@ -787,22 +770,17 @@
     to { transform: rotate(360deg); }
   }
 
-  /* Planet hover */
-  .planet-group {
-    transition: filter 0.2s ease;
-  }
+  .planet-group { transition: filter 0.2s ease; }
+  .planet-group:hover { filter: brightness(1.3); }
 
-  .planet-group:hover {
-    filter: brightness(1.3);
-  }
-
-  /* Aspect pulse */
+  /* Pulse animates between 0.7-1.0 of the PARENT group's opacity,
+     so it respects the orb-based base opacity set on the <g> wrapper */
   .applying {
     animation: pulse 4s infinite ease-in-out;
   }
 
   @keyframes pulse {
-    0%, 100% { opacity: 0.5; }
+    0%, 100% { opacity: 0.7; }
     50% { opacity: 1; }
   }
 
@@ -812,7 +790,6 @@
     .sacred-geometry { animation: none; }
   }
 
-  /* Tooltip */
   .tooltip {
     position: absolute;
     background: var(--tw-tooltip-bg);
