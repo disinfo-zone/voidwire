@@ -527,6 +527,12 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const safeTemplate = reading.template_version ? escapeHtml(reading.template_version) : '';
     const showTemplate = canManageReadings && !!safeTemplate;
 
+    // Detach transit overlay before wiping innerHTML so it isn't destroyed
+    const transitOverlay = document.getElementById('transit-overlay');
+    if (transitOverlay && transitOverlay.parentElement) {
+      transitOverlay.parentElement.removeChild(transitOverlay);
+    }
+
     readingContent.innerHTML = `
       <div class="reading-tier-badge">${escapeHtml(tierLabel)}</div>
       <h2 class="reading-title">${safeTitle}</h2>
@@ -535,14 +541,15 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       ${sectionsHtml}
       ${showTemplate ? `<div class="reading-template">Template: ${safeTemplate}</div>` : ''}
     `;
-    // Move the static transit overlay into position between meta and body
-    const transitOverlay = document.getElementById('transit-overlay');
+    // Re-insert transit overlay between meta and body
     const readingBody = readingContent.querySelector('.reading-body');
     if (transitOverlay && readingBody) {
       readingContent.insertBefore(transitOverlay, readingBody);
     }
     setReadingActionVisibility();
     updateReadingStatus('');
+    // Trigger transit overlay load in case chart data is already available
+    void loadTransitOverlay();
   }
 
   function renderReadingMessage(message: string) {
@@ -1505,7 +1512,11 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       const ephRes = await authFetch('/v1/ephemeris/today');
       if (!ephRes.ok) return;
       const ephData = await ephRes.json();
-      const transitPositions = Array.isArray(ephData?.positions) ? ephData.positions : [];
+      // Ephemeris API returns positions as a dict keyed by body name, convert to array
+      const rawPositions = ephData?.positions;
+      const transitPositions: any[] = rawPositions && typeof rawPositions === 'object' && !Array.isArray(rawPositions)
+        ? Object.entries(rawPositions).map(([body, data]: [string, any]) => ({ body, ...data }))
+        : Array.isArray(rawPositions) ? rawPositions : [];
       const transitAspects = Array.isArray(ephData?.aspects) ? ephData.aspects : [];
       if (transitPositions.length === 0) return;
       overlay.style.display = 'block';
