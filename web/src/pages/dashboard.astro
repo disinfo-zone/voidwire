@@ -898,13 +898,16 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       ctx.textBaseline = 'middle';
       ctx.fillText(glyph, x, y + 1);
 
-      // Retrograde indicator — muted ℞ superscript
+      // Retrograde indicator — warm red dot + R badge
       if (retro) {
-        ctx.fillStyle = '#8898b8';
-        ctx.font = '400 14px "EB Garamond", Georgia, serif';
+        const rx = x + MARKER_R + 6, ry = y - MARKER_R + 2;
+        ctx.fillStyle = '#c04040';
+        ctx.beginPath(); ctx.arc(rx, ry, 9, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#f0e8e0';
+        ctx.font = '700 13px "Inter", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('\u211E', x + MARKER_R + 8, y - MARKER_R + 2);
+        ctx.fillText('R', rx, ry);
       }
     }
 
