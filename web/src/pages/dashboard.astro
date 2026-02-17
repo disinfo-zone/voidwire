@@ -541,10 +541,9 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       ${sectionsHtml}
       ${showTemplate ? `<div class="reading-template">Template: ${safeTemplate}</div>` : ''}
     `;
-    // Re-insert transit overlay between meta and body
-    const readingBody = readingContent.querySelector('.reading-body');
-    if (transitOverlay && readingBody) {
-      readingContent.insertBefore(transitOverlay, readingBody);
+    // Re-insert transit overlay after all reading content
+    if (transitOverlay) {
+      readingContent.appendChild(transitOverlay);
     }
     setReadingActionVisibility();
     updateReadingStatus('');
