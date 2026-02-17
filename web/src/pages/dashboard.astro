@@ -43,12 +43,12 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           <div id="chart-status" class="reading-status">Your chart is loading.</div>
           <div class="chart-wheel-wrap">
             <canvas id="chart-wheel-canvas"></canvas>
+            <div class="chart-actions chart-actions-centered">
+              <button id="export-chart-text-btn" class="action-button" style="display: none;">Copy Chart</button>
+              <button id="export-chart-image-btn" class="action-button" style="display: none;">Export Chart Image</button>
+            </div>
           </div>
           <div id="chart-content" class="chart-content"></div>
-          <div class="chart-actions">
-            <button id="export-chart-text-btn" class="action-button" style="display: none;">Copy Chart</button>
-            <button id="export-chart-image-btn" class="action-button" style="display: none;">Export Chart Image</button>
-          </div>
 
           <div class="section-label section-toggle" data-target="birth-data-body">Birth Data</div>
           <div id="birth-data-body" class="section-body collapsed">
@@ -198,6 +198,66 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     Aries: 'Cardinal', Taurus: 'Fixed', Gemini: 'Mutable', Cancer: 'Cardinal',
     Leo: 'Fixed', Virgo: 'Mutable', Libra: 'Cardinal', Scorpio: 'Fixed',
     Sagittarius: 'Mutable', Capricorn: 'Cardinal', Aquarius: 'Fixed', Pisces: 'Mutable',
+  };
+  const PLANET_TIPS: Record<string, string> = {
+    Sun: 'Core identity, ego, and life purpose',
+    Moon: 'Emotions, instincts, and inner world',
+    Mercury: 'Communication, thought, and learning',
+    Venus: 'Love, beauty, and values',
+    Mars: 'Drive, energy, and assertion',
+    Jupiter: 'Growth, luck, and expansion',
+    Saturn: 'Discipline, structure, and lessons',
+    Uranus: 'Innovation, rebellion, and change',
+    Neptune: 'Dreams, intuition, and spirituality',
+    Pluto: 'Transformation, power, and rebirth',
+    Chiron: 'Healing, wounds, and wisdom',
+    'North Node': 'Life direction and soul growth',
+  };
+  const SIGN_TIPS: Record<string, string> = {
+    Aries: 'Cardinal Fire \u2014 bold, pioneering, assertive',
+    Taurus: 'Fixed Earth \u2014 steady, sensual, resourceful',
+    Gemini: 'Mutable Air \u2014 curious, versatile, communicative',
+    Cancer: 'Cardinal Water \u2014 nurturing, intuitive, protective',
+    Leo: 'Fixed Fire \u2014 creative, generous, expressive',
+    Virgo: 'Mutable Earth \u2014 analytical, helpful, precise',
+    Libra: 'Cardinal Air \u2014 harmonious, diplomatic, aesthetic',
+    Scorpio: 'Fixed Water \u2014 intense, transformative, perceptive',
+    Sagittarius: 'Mutable Fire \u2014 adventurous, philosophical, optimistic',
+    Capricorn: 'Cardinal Earth \u2014 ambitious, disciplined, strategic',
+    Aquarius: 'Fixed Air \u2014 innovative, humanitarian, independent',
+    Pisces: 'Mutable Water \u2014 empathic, imaginative, transcendent',
+  };
+  const ASPECT_TIPS: Record<string, string> = {
+    conjunction: 'Fusion of energies \u2014 intensification and focus',
+    opposition: 'Tension and polarity \u2014 awareness through contrast',
+    trine: 'Harmony and flow \u2014 natural ease and talent',
+    square: 'Friction and challenge \u2014 catalyst for growth',
+    sextile: 'Opportunity and cooperation \u2014 gentle support',
+  };
+  const HOUSE_TIPS: Record<string, string> = {
+    '1': 'Self, appearance, and first impressions',
+    '2': 'Values, resources, and self-worth',
+    '3': 'Communication, siblings, and local environment',
+    '4': 'Home, family, and emotional foundations',
+    '5': 'Creativity, romance, and self-expression',
+    '6': 'Health, daily routines, and service',
+    '7': 'Partnerships, relationships, and contracts',
+    '8': 'Transformation, shared resources, and intimacy',
+    '9': 'Philosophy, travel, and higher learning',
+    '10': 'Career, public image, and ambition',
+    '11': 'Community, hopes, and social networks',
+    '12': 'Unconscious, solitude, and transcendence',
+  };
+  const ELEMENT_TIPS: Record<string, string> = {
+    Fire: 'Passion, action, and inspiration',
+    Earth: 'Stability, practicality, and groundedness',
+    Air: 'Intellect, communication, and ideas',
+    Water: 'Emotion, intuition, and depth',
+  };
+  const MODALITY_TIPS: Record<string, string> = {
+    Cardinal: 'Initiative, leadership, and new beginnings',
+    Fixed: 'Persistence, determination, and stability',
+    Mutable: 'Adaptability, flexibility, and change',
   };
 
   function escapeHtml(value: unknown): string {
@@ -533,7 +593,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       const wheelCanvas = document.getElementById('chart-wheel-canvas') as HTMLCanvasElement | null;
       if (wheelCanvas) {
         const container = wheelCanvas.parentElement;
-        const displaySize = Math.min(container?.clientWidth || 540, 540);
+        const displaySize = Math.min(container?.clientWidth || 500, 500);
         const dpr = window.devicePixelRatio || 1;
         wheelCanvas.width = displaySize * dpr;
         wheelCanvas.height = displaySize * dpr;
@@ -550,7 +610,9 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           bg.addColorStop(1, '#080510');
           wctx.fillStyle = bg;
           wctx.fillRect(0, 0, wheelCanvas.width, wheelCanvas.height);
-          drawChartWheel(wctx, chart, displaySize * dpr, (displaySize * dpr) / 2, (displaySize * dpr) / 2);
+          // Render wheel at 92% size for breathing room around sign labels
+          const wheelSize = displaySize * dpr * 0.92;
+          drawChartWheel(wctx, chart, wheelSize, (displaySize * dpr) / 2, (displaySize * dpr) / 2);
         }
       }
 
@@ -574,10 +636,12 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           const signGlyph = SIGN_GLYPHS[sign] || '';
           const color = SIGN_COLORS[sign] || '#d6af72';
           const deg = Number(item?.degree || 0).toFixed(1);
-          return `<div class="chart-hero-item">
+          const planetTip = isAngle ? 'Rising sign \u2014 how you present to the world' : (PLANET_TIPS[body] || PLANET_TIPS[rawBody] || '');
+          const signTip = SIGN_TIPS[sign] || '';
+          return `<div class="chart-hero-item" title="${escapeHtml(planetTip)}">
             <span class="chart-hero-glyph" style="color: ${color}">${escapeHtml(glyph || (isAngle ? 'ASC' : ''))}</span>
             <span class="chart-hero-label">${escapeHtml(body)}</span>
-            <span class="chart-hero-detail">${escapeHtml(deg)}\u00B0 ${escapeHtml(signGlyph)} ${escapeHtml(sign)}</span>
+            <span class="chart-hero-detail" title="${escapeHtml(signTip)}">${escapeHtml(deg)}\u00B0 ${escapeHtml(signGlyph)} ${escapeHtml(sign)}</span>
           </div>`;
         }).join('');
 
@@ -595,10 +659,14 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           const deg = Number(pos?.degree || 0).toFixed(1);
           const house = pos?.house ? `H${pos.house}` : '';
           const retro = Boolean(pos?.retrograde);
-          return `<div class="chart-placement">
+          const planetTip = PLANET_TIPS[body] || PLANET_TIPS[rawBody] || '';
+          const signTip = SIGN_TIPS[sign] || '';
+          const houseTip = pos?.house ? (HOUSE_TIPS[String(pos.house)] || '') : '';
+          const retroTip = retro ? 'Retrograde \u2014 inward energy, review, and revision' : '';
+          return `<div class="chart-placement" title="${escapeHtml(planetTip)}">
             <span class="chart-placement-glyph" style="color: ${color}">${escapeHtml(glyph)}</span>
-            <span class="chart-placement-name">${escapeHtml(body)}${retro ? ' <span class="chart-retro">\u211E</span>' : ''}</span>
-            <span class="chart-placement-detail">${escapeHtml(deg)}\u00B0 ${escapeHtml(signGlyph)} ${escapeHtml(sign)}${house ? ` \u00B7 ${escapeHtml(house)}` : ''}</span>
+            <span class="chart-placement-name">${escapeHtml(body)}${retro ? ` <span class="chart-retro" title="${escapeHtml(retroTip)}">\u211E</span>` : ''}</span>
+            <span class="chart-placement-detail" title="${escapeHtml(signTip)}${houseTip ? (signTip ? ' | ' : '') + escapeHtml(houseTip) : ''}">${escapeHtml(deg)}\u00B0 ${escapeHtml(signGlyph)} ${escapeHtml(sign)}${house ? ` \u00B7 ${escapeHtml(house)}` : ''}</span>
           </div>`;
         }).join('');
 
@@ -620,10 +688,12 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           const body2 = displayBody(asp?.body2);
           const orb = Number(asp?.orb_degrees || asp?.orb || 0).toFixed(1);
           const applying = asp?.applying !== false ? 'applying' : 'separating';
-          return `<div class="chart-aspect">
+          const aspectTip = ASPECT_TIPS[type] || '';
+          const applyTip = applying === 'applying' ? 'Building toward exact alignment' : 'Moving past exact alignment';
+          return `<div class="chart-aspect" title="${escapeHtml(aspectTip)}">
             <span class="chart-aspect-glyph" style="color: ${color}">${escapeHtml(glyph)}</span>
             <span class="chart-aspect-bodies">${escapeHtml(body1)} ${escapeHtml(glyph)} ${escapeHtml(body2)}</span>
-            <span class="chart-aspect-detail">${escapeHtml(orb)}\u00B0 \u00B7 ${escapeHtml(applying)}</span>
+            <span class="chart-aspect-detail" title="${escapeHtml(applyTip)}">${escapeHtml(orb)}\u00B0 \u00B7 ${escapeHtml(applying)}</span>
           </div>`;
         }).join('');
         const aspectsHtml = filteredAspects.length > 0
@@ -652,9 +722,9 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
         const totalPlanets = positions.length || 1;
 
-        function buildBarRow(label: string, count: number, max: number, color: string): string {
+        function buildBarRow(label: string, count: number, max: number, color: string, tip: string): string {
           const pct = Math.round((count / max) * 100);
-          return `<div class="chart-bar-row">
+          return `<div class="chart-bar-row" title="${escapeHtml(tip)}">
             <span class="chart-bar-label">${escapeHtml(label)}</span>
             <span class="chart-bar-track"><span class="chart-bar-fill" style="width: ${pct}%; background: ${color}"></span></span>
             <span class="chart-bar-count">${count}</span>
@@ -662,20 +732,20 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         }
 
         const elementBars = ['Fire', 'Earth', 'Air', 'Water']
-          .map((el) => buildBarRow(el, elementCounts[el], totalPlanets, ELEMENT_COLORS[el])).join('');
+          .map((el) => buildBarRow(el, elementCounts[el], totalPlanets, ELEMENT_COLORS[el], ELEMENT_TIPS[el] || '')).join('');
 
         const modalityBars = ['Cardinal', 'Fixed', 'Mutable']
-          .map((mod) => buildBarRow(mod, modalityCounts[mod], totalPlanets, MODALITY_COLORS[mod])).join('');
+          .map((mod) => buildBarRow(mod, modalityCounts[mod], totalPlanets, MODALITY_COLORS[mod], MODALITY_TIPS[mod] || '')).join('');
 
         // Polarity
         const masculine = elementCounts['Fire'] + elementCounts['Air'];
         const feminine = elementCounts['Earth'] + elementCounts['Water'];
         const polarityLabel = masculine > feminine ? 'Yang-dominant' : feminine > masculine ? 'Yin-dominant' : 'Balanced';
-        const polarityHtml = `<div class="chart-polarity">
+        const polarityHtml = `<div class="chart-polarity" title="Yang (Fire &amp; Air): outward, active expression. Yin (Earth &amp; Water): inward, receptive reflection.">
           <span class="chart-polarity-label">Polarity</span>
           <span class="chart-polarity-bar">
-            <span class="chart-polarity-fill chart-polarity-yang" style="width: ${Math.round((masculine / totalPlanets) * 100)}%"></span>
-            <span class="chart-polarity-fill chart-polarity-yin" style="width: ${Math.round((feminine / totalPlanets) * 100)}%"></span>
+            <span class="chart-polarity-fill chart-polarity-yang" style="width: ${Math.round((masculine / totalPlanets) * 100)}%" title="Yang (Fire &amp; Air): ${masculine}"></span>
+            <span class="chart-polarity-fill chart-polarity-yin" style="width: ${Math.round((feminine / totalPlanets) * 100)}%" title="Yin (Earth &amp; Water): ${feminine}"></span>
           </span>
           <span class="chart-polarity-value">${escapeHtml(polarityLabel)}</span>
         </div>`;
@@ -685,8 +755,8 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           .filter(([, count]) => count >= 3)
           .sort((a, b) => b[1] - a[1]);
         const stelliumHtml = stelliums.length > 0
-          ? `<div class="chart-stelliums"><span class="chart-detail-sublabel">Stelliums</span>${stelliums.map(
-              ([sign, count]) => `<span class="chart-stellium-tag" style="color: ${SIGN_COLORS[sign] || '#d6af72'}">${escapeHtml(sign)} (${count})</span>`
+          ? `<div class="chart-stelliums" title="A stellium is 3+ planets concentrated in one sign \u2014 intensified focus in that area of life"><span class="chart-detail-sublabel">Stelliums</span>${stelliums.map(
+              ([sign, count]) => `<span class="chart-stellium-tag" style="color: ${SIGN_COLORS[sign] || '#d6af72'}" title="${escapeHtml(SIGN_TIPS[sign] || '')}">${escapeHtml(sign)} (${count})</span>`
             ).join('')}</div>`
           : '';
 
@@ -702,7 +772,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
             const glyph = ASPECT_GLYPHS[t] || '';
             const color = CHART_ASPECT_COLORS[t] || '#d6af72';
             const label = t.charAt(0).toUpperCase() + t.slice(1);
-            return `<span class="chart-aspect-stat" style="color: ${color}">${escapeHtml(glyph)} ${aspectTypeCounts[t]} ${escapeHtml(label)}${aspectTypeCounts[t] > 1 ? 's' : ''}</span>`;
+            return `<span class="chart-aspect-stat" style="color: ${color}" title="${escapeHtml(ASPECT_TIPS[t] || '')}">${escapeHtml(glyph)} ${aspectTypeCounts[t]} ${escapeHtml(label)}${aspectTypeCounts[t] > 1 ? 's' : ''}</span>`;
           }).join('');
         const aspectSummaryHtml = aspectSummaryItems
           ? `<div class="chart-aspect-summary"><span class="chart-detail-sublabel">Aspect Breakdown</span><div class="chart-aspect-stats">${aspectSummaryItems}</div></div>`
@@ -711,24 +781,28 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         // Retrograde count
         const retroCount = positions.filter((p: any) => Boolean(p?.retrograde)).length;
         const retroHtml = retroCount > 0
-          ? `<div class="chart-retro-summary"><span class="chart-detail-sublabel">Retrograde</span><span class="chart-retro-value">${retroCount} planet${retroCount > 1 ? 's' : ''} in retrograde</span></div>`
+          ? `<div class="chart-retro-summary" title="Retrograde planets appear to move backward \u2014 their energy turns inward for review and revision"><span class="chart-detail-sublabel">Retrograde</span><span class="chart-retro-value">${retroCount} planet${retroCount > 1 ? 's' : ''} in retrograde</span></div>`
           : '';
 
         const chartDetailsHtml = `
           <div class="chart-details-label">Chart Details</div>
           <div class="chart-details">
-            <div class="chart-detail-group">
-              <span class="chart-detail-sublabel">Elements</span>
-              ${elementBars}
-            </div>
-            <div class="chart-detail-group">
-              <span class="chart-detail-sublabel">Modalities</span>
-              ${modalityBars}
+            <div class="chart-details-grid">
+              <div class="chart-detail-group">
+                <span class="chart-detail-sublabel">Elements</span>
+                ${elementBars}
+              </div>
+              <div class="chart-detail-group">
+                <span class="chart-detail-sublabel">Modalities</span>
+                ${modalityBars}
+              </div>
             </div>
             ${polarityHtml}
-            ${stelliumHtml}
-            ${aspectSummaryHtml}
-            ${retroHtml}
+            <div class="chart-details-meta">
+              ${stelliumHtml}
+              ${aspectSummaryHtml}
+              ${retroHtml}
+            </div>
           </div>
         `;
 
@@ -1928,8 +2002,14 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
   .chart-wheel-wrap {
     display: flex;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
     margin: 0.8rem 0 1.2rem;
+  }
+
+  .chart-actions-centered {
+    justify-content: center;
+    margin-top: 0.5rem;
   }
 
   .chart-wheel-wrap canvas {
@@ -2136,6 +2216,8 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     color: var(--text-muted);
     text-align: center;
     margin: 1rem 0 0.5rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--text-ghost);
   }
 
   .chart-content :global(.chart-details) {
@@ -2143,44 +2225,51 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     flex-direction: column;
     gap: 1rem;
     margin-bottom: 1rem;
-    padding: 0.8rem 0;
+    padding: 0.4rem 0;
+  }
+
+  .chart-content :global(.chart-details-grid) {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 2rem;
   }
 
   .chart-content :global(.chart-detail-group) {
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
+    gap: 0.25rem;
   }
 
   .chart-content :global(.chart-detail-sublabel) {
     font-family: var(--font-sans);
-    font-size: 0.55rem;
+    font-size: 0.5rem;
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--accent);
-    margin-bottom: 0.15rem;
+    margin-bottom: 0.2rem;
     display: block;
   }
 
   .chart-content :global(.chart-bar-row) {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.4rem;
     font-family: var(--font-sans);
     font-size: 0.72rem;
+    cursor: default;
   }
 
   .chart-content :global(.chart-bar-label) {
-    width: 4.5rem;
+    width: 3.8rem;
     color: var(--text-secondary);
-    font-size: 0.68rem;
+    font-size: 0.65rem;
     text-align: right;
     flex-shrink: 0;
   }
 
   .chart-content :global(.chart-bar-track) {
     flex: 1;
-    height: 6px;
+    height: 5px;
     background: rgba(255, 255, 255, 0.04);
     border-radius: 3px;
     overflow: hidden;
@@ -2195,36 +2284,34 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
   }
 
   .chart-content :global(.chart-bar-count) {
-    width: 1.2rem;
+    width: 1rem;
     text-align: right;
     color: var(--text-muted);
-    font-size: 0.65rem;
+    font-size: 0.6rem;
     font-family: var(--font-mono);
     flex-shrink: 0;
   }
 
   .chart-content :global(.chart-polarity) {
-    display: flex;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
     align-items: center;
     gap: 0.5rem;
     font-family: var(--font-sans);
     font-size: 0.68rem;
+    cursor: default;
   }
 
   .chart-content :global(.chart-polarity-label) {
     font-family: var(--font-sans);
-    font-size: 0.55rem;
+    font-size: 0.5rem;
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--accent);
-    width: 4.5rem;
-    text-align: right;
-    flex-shrink: 0;
   }
 
   .chart-content :global(.chart-polarity-bar) {
-    flex: 1;
-    height: 6px;
+    height: 5px;
     display: flex;
     border-radius: 3px;
     overflow: hidden;
@@ -2241,15 +2328,24 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
   .chart-content :global(.chart-polarity-value) {
     color: var(--text-muted);
-    font-size: 0.62rem;
+    font-size: 0.6rem;
     white-space: nowrap;
+  }
+
+  .chart-content :global(.chart-details-meta) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    padding-top: 0.3rem;
+    border-top: 1px solid var(--text-ghost);
   }
 
   .chart-content :global(.chart-stelliums) {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     gap: 0.5rem;
     flex-wrap: wrap;
+    cursor: default;
   }
 
   .chart-content :global(.chart-stellium-tag) {
@@ -2261,30 +2357,32 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
   .chart-content :global(.chart-aspect-summary) {
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
+    gap: 0.25rem;
   }
 
   .chart-content :global(.chart-aspect-stats) {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.4rem 1rem;
+    gap: 0.3rem 0.9rem;
   }
 
   .chart-content :global(.chart-aspect-stat) {
     font-family: "Segoe UI Symbol", var(--font-sans);
-    font-size: 0.68rem;
+    font-size: 0.65rem;
     white-space: nowrap;
+    cursor: default;
   }
 
   .chart-content :global(.chart-retro-summary) {
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
+    gap: 0.1rem;
+    cursor: default;
   }
 
   .chart-content :global(.chart-retro-value) {
     font-family: var(--font-sans);
-    font-size: 0.72rem;
+    font-size: 0.68rem;
     color: var(--text-muted);
   }
 
@@ -2447,6 +2545,11 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     .chart-content :global(.chart-aspects) {
       grid-template-columns: 1fr;
       gap: 0.1rem;
+    }
+
+    .chart-content :global(.chart-details-grid) {
+      grid-template-columns: 1fr;
+      gap: 0.8rem;
     }
   }
 </style>
