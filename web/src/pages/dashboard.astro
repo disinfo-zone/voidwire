@@ -1204,10 +1204,10 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       ctx.beginPath(); ctx.arc(CX + i * 16, footerLineY + 76, 2.5, 0, Math.PI * 2); ctx.fill();
     }
 
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
     if (!blob) throw new Error('Could not generate chart image.');
     const stamp = new Date().toISOString().slice(0, 10);
-    downloadBlob(`voidwire-natal-chart-${stamp}.png`, blob);
+    downloadBlob(`voidwire-natal-chart-${stamp}.jpg`, blob);
   }
 
   async function exportAccountData() {
