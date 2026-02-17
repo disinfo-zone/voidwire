@@ -368,7 +368,7 @@ STARTER_CELESTIAL_WEATHER_TEMPLATE_VARIABLES = [
 def _build_starter_celestial_weather_template() -> PromptTemplate:
     return PromptTemplate(
         template_name=STARTER_CELESTIAL_WEATHER_TEMPLATE_NAME,
-        version=1,
+        version=2,
         is_active=True,
         content=STARTER_CELESTIAL_WEATHER_TEMPLATE_CONTENT,
         variables_used=STARTER_CELESTIAL_WEATHER_TEMPLATE_VARIABLES,
@@ -377,7 +377,7 @@ def _build_starter_celestial_weather_template() -> PromptTemplate:
             "style_notes": "brief weather-report style; symbolic but concrete",
         },
         author="system",
-        notes="Auto-generated starter template for celestial weather descriptions.",
+        notes="v2: timeline descriptions replace daily_weather.",
     )
 
 
@@ -478,9 +478,18 @@ def _build_starter_personal_pro_template() -> PromptTemplate:
 
 
 async def ensure_starter_prompt_template(db: AsyncSession) -> list[PromptTemplate]:
-    """Ensure baseline synthesis templates exist, backfilling missing starters."""
-    result = await db.execute(select(PromptTemplate.template_name))
-    existing_names = {str(name) for name in result.scalars().all() if str(name).strip()}
+    """Ensure baseline synthesis templates exist, backfilling missing starters and upgrading stale versions."""
+    from sqlalchemy import func as sa_func
+
+    # Load max version per template name
+    result = await db.execute(
+        select(PromptTemplate.template_name, sa_func.max(PromptTemplate.version)).group_by(
+            PromptTemplate.template_name
+        )
+    )
+    existing_versions: dict[str, int] = {
+        str(name): int(ver) for name, ver in result.all() if str(name).strip()
+    }
 
     starters = [
         _build_starter_prose_template(),
@@ -493,8 +502,18 @@ async def ensure_starter_prompt_template(db: AsyncSession) -> list[PromptTemplat
     ]
     created: list[PromptTemplate] = []
     for starter in starters:
-        if starter.template_name in existing_names:
+        db_max_version = existing_versions.get(starter.template_name)
+        if db_max_version is not None and db_max_version >= starter.version:
             continue
+        # Deactivate older versions of this template
+        if db_max_version is not None:
+            from sqlalchemy import update
+
+            await db.execute(
+                update(PromptTemplate)
+                .where(PromptTemplate.template_name == starter.template_name)
+                .values(is_active=False)
+            )
         db.add(starter)
         created.append(starter)
 

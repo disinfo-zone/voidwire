@@ -189,6 +189,11 @@ async def get_or_generate_weather(db: AsyncSession) -> dict | None:
     if not client:
         return None
 
+    # Ensure latest template version is available
+    from api.services.template_defaults import ensure_starter_prompt_template
+
+    await ensure_starter_prompt_template(db)
+
     # Load template
     template = await load_active_prompt_template(
         db,
