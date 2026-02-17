@@ -834,20 +834,27 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     ctx.globalAlpha = 1;
     ctx.setLineDash([]);
 
-    // --- Layer 7: Planet markers (collision avoidance) ---
+    // --- Layer 7: Planet markers (collision avoidance with fan-out) ---
+    const MARKER_R = 20;          // circle radius
+    const GLYPH_PX = 28;         // glyph font size
+    const BASE_ORBIT = 340;
+    const ORBIT_STEP = 44;       // radial offset per stagger level
+    const MIN_DEG_SEP = 12;      // minimum degrees before fan-out triggers
+
     const planetData = positions.map((pos: any) => {
       const lng = Number(pos?.longitude || zodiacDegrees(pos?.sign, pos?.degree));
       return { ...pos, _longitude: lng, _angle: longToAngle(lng) };
     }).sort((a: any, b: any) => a._longitude - b._longitude);
 
-    const MIN_ANGLE_SEP = 14, BASE_ORBIT = 340, ORBIT_STEP = 34;
+    // Assign radial orbits: planets within MIN_DEG_SEP of a prior planet
+    // get pushed outward in alternating directions to fan out clusters.
     const displayData = planetData.map((p: any, idx: number) => {
-      let stagger = 0;
+      let clusterDepth = 0;
       for (let j = 0; j < idx; j++) {
         const diff = Math.abs(p._longitude - planetData[j]._longitude);
-        if (Math.min(diff, 360 - diff) < MIN_ANGLE_SEP) stagger++;
+        if (Math.min(diff, 360 - diff) < MIN_DEG_SEP) clusterDepth++;
       }
-      return { ...p, _orbitR: BASE_ORBIT + (stagger % 4) * ORBIT_STEP };
+      return { ...p, _orbitR: BASE_ORBIT + clusterDepth * ORBIT_STEP };
     });
 
     for (const pos of displayData) {
@@ -857,9 +864,12 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       const y = Math.sin(angle) * orbitR;
       const sign = normalizeSign(pos.sign);
       const color = SIGN_COLORS[sign] || '#d6af72';
-      const glyph = PLANET_GLYPHS[String(pos.body || '')] || '';
+      const rawBody = String(pos.body || '');
+      const body = displayBody(rawBody);
+      const glyph = PLANET_GLYPHS[body] || PLANET_GLYPHS[rawBody] || '';
       const retro = Boolean(pos.retrograde);
 
+      // Tick line from inner ring to marker
       ctx.strokeStyle = `${color}50`;
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -867,30 +877,34 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       ctx.lineTo(x, y);
       ctx.stroke();
 
-      const glowG = ctx.createRadialGradient(x, y, 0, x, y, 26);
+      // Soft glow behind marker
+      const glowG = ctx.createRadialGradient(x, y, 0, x, y, MARKER_R + 10);
       glowG.addColorStop(0, `${color}28`);
       glowG.addColorStop(1, `${color}00`);
       ctx.fillStyle = glowG;
-      ctx.beginPath(); ctx.arc(x, y, 26, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y, MARKER_R + 10, 0, Math.PI * 2); ctx.fill();
 
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2.5;
-      ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.stroke();
+      // Circle background + border
       ctx.fillStyle = '#080c16';
-      ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y, MARKER_R, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, y, MARKER_R, 0, Math.PI * 2); ctx.stroke();
 
-      ctx.fillStyle = '#f0f4ff';
-      ctx.font = '400 22px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
+      // Planetary glyph — fills most of the circle
+      ctx.fillStyle = color;
+      ctx.font = `400 ${GLYPH_PX}px "Segoe UI Symbol", "EB Garamond", Georgia, serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(glyph, x, y);
+      ctx.fillText(glyph, x, y + 1);
 
+      // Retrograde indicator — muted ℞ superscript
       if (retro) {
-        ctx.fillStyle = '#e06050';
-        ctx.font = '600 14px "Inter", sans-serif';
+        ctx.fillStyle = '#8898b8';
+        ctx.font = '400 14px "EB Garamond", Georgia, serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('R', x + 18, y - 16);
+        ctx.fillText('\u211E', x + MARKER_R + 8, y - MARKER_R + 2);
       }
     }
 
