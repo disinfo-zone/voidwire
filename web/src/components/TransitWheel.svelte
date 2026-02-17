@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+
   type PlanetPosition = {
     sign: string;
     degree: number;
@@ -35,6 +37,7 @@
   export let aspects: AspectInput[] = [];
 
   // --- Constants (aligned with dashboard.astro) ---
+  // VS15 forces text presentation (not emoji) for Unicode symbols
   const VS15 = '\uFE0E';
   const BRASS = '#d6af72';
 
@@ -50,9 +53,9 @@
   };
 
   const SIGN_GLYPHS: Record<string, string> = {
-    Aries: '\u2648', Taurus: '\u2649', Gemini: '\u264A', Cancer: '\u264B',
-    Leo: '\u264C', Virgo: '\u264D', Libra: '\u264E', Scorpio: '\u264F',
-    Sagittarius: '\u2650', Capricorn: '\u2651', Aquarius: '\u2652', Pisces: '\u2653',
+    Aries: `\u2648${VS15}`, Taurus: `\u2649${VS15}`, Gemini: `\u264A${VS15}`, Cancer: `\u264B${VS15}`,
+    Leo: `\u264C${VS15}`, Virgo: `\u264D${VS15}`, Libra: `\u264E${VS15}`, Scorpio: `\u264F${VS15}`,
+    Sagittarius: `\u2650${VS15}`, Capricorn: `\u2651${VS15}`, Aquarius: `\u2652${VS15}`, Pisces: `\u2653${VS15}`,
   };
 
   const SIGN_COLORS: Record<string, string> = {
@@ -79,16 +82,27 @@
     sesquiquadrate: '#b5804a',
   };
 
+  const ASPECT_GLYPHS: Record<string, string> = {
+    conjunction: `\u260C${VS15}`,
+    opposition: `\u260D${VS15}`,
+    trine: '\u25B3',
+    square: '\u25A1',
+    sextile: `\u26B9${VS15}`,
+    quincunx: 'Qx',
+    semisquare: '\u2220',
+    sesquiquadrate: '\u2220\u00BD',
+  };
+
   const MAJOR_ASPECTS = new Set(['conjunction', 'opposition', 'square', 'trine']);
   const MODERATE_ASPECTS = new Set(['sextile', 'quincunx']);
 
   // --- SVG geometry ---
   const CX = 260, CY = 260;
-  const R_OUTER = 218;        // outermost zodiac ring
-  const R_SIGN_INNER = 185;   // inner edge of sign band
-  const R_INNER = 122;        // inner aspect circle
+  const R_OUTER = 218;
+  const R_SIGN_INNER = 185;
+  const R_INNER = 122;
   const R_ASPECT = R_INNER - 5;
-  const R_LABEL = 243;        // sign abbreviation labels outside ring
+  const R_LABEL = 243;
 
   // Planet marker sizing
   const MARKER_R = 10;
@@ -96,6 +110,12 @@
   const BASE_ORBIT = 160;
   const ORBIT_STEP = 22;
   const MIN_DEG_SEP = 12;
+
+  // Mobile detection
+  let isTouchDevice = false;
+  onMount(() => {
+    isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  });
 
   // --- Coordinate helpers ---
   function toXY(longitude: number, radius: number) {
@@ -276,8 +296,9 @@
     };
   });
 
-  // Tick marks — every degree inside the sign band
+  // Fine tick marks
   type Tick = { x1: number; y1: number; x2: number; y2: number; weight: 'major' | 'minor' | 'fine' };
+
   let innerTicks: Tick[] = [];
   $: {
     const t: Tick[] = [];
@@ -295,7 +316,6 @@
     innerTicks = t;
   }
 
-  // Tick marks — outside the outer ring (matching dashboard)
   let outerTicks: Tick[] = [];
   $: {
     const t: Tick[] = [];
@@ -332,6 +352,7 @@
     opacity: number;
     applying: boolean;
     aspect: AspectNormalized;
+    id: string;
   };
 
   let aspectLines: AspectLine[] = [];
@@ -358,25 +379,22 @@
         opacity: Math.max(0.15, 0.7 * (1 - asp.orb / 10)),
         applying: asp.applying,
         aspect: asp,
+        id: `${asp.body1}-${asp.aspect_type}-${asp.body2}`,
       });
     }
     aspectLines = lines;
   }
 
-  // --- Tooltip state ---
+  // --- Tooltip + hover state ---
   let wrapperEl: HTMLDivElement | null = null;
   let tooltip = { visible: false, x: 0, y: 0, lines: [] as string[] };
   let tooltipPinned = false;
+  let hoveredAspectId: string | null = null;
 
   function formatDegree(deg: number): string {
     const d = Math.floor(deg);
     const m = Math.round((deg - d) * 60);
     return `${d}\u00B0${String(m).padStart(2, '0')}'`;
-  }
-
-  function showPlanetTooltip(event: MouseEvent, planet: PlanetDisplay) {
-    if (tooltipPinned) return;
-    positionTooltip(event, buildPlanetLines(planet));
   }
 
   function buildPlanetLines(planet: PlanetDisplay): string[] {
@@ -388,14 +406,11 @@
     ];
   }
 
-  function showAspectTooltip(event: MouseEvent, line: AspectLine) {
-    if (tooltipPinned) return;
-    positionTooltip(event, buildAspectLines(line.aspect));
-  }
-
   function buildAspectLines(asp: AspectNormalized): string[] {
+    const glyph = ASPECT_GLYPHS[asp.aspect_type] || '';
+    const label = asp.aspect_type.charAt(0).toUpperCase() + asp.aspect_type.slice(1);
     const lines = [
-      `${asp.body1} ${asp.aspect_type} ${asp.body2}`,
+      `${asp.body1} ${glyph} ${label} ${asp.body2}`,
       `Orb: ${asp.orb.toFixed(2)}\u00B0 (${asp.applying ? 'applying' : 'separating'})`,
     ];
     if (asp.significance) lines.push(asp.significance.toUpperCase());
@@ -403,13 +418,15 @@
     return lines;
   }
 
-  function positionTooltip(event: MouseEvent, lines: string[]) {
+  function positionTooltip(event: MouseEvent | Touch, lines: string[]) {
     if (!wrapperEl) return;
     const rect = wrapperEl.getBoundingClientRect();
+    const clientX = event.clientX;
+    const clientY = event.clientY;
     tooltip = {
       visible: true,
-      x: event.clientX - rect.left + 15,
-      y: event.clientY - rect.top + 15,
+      x: clientX - rect.left + 15,
+      y: clientY - rect.top + 15,
       lines,
     };
   }
@@ -417,8 +434,27 @@
   function hideTooltip() {
     if (tooltipPinned) return;
     tooltip = { ...tooltip, visible: false };
+    hoveredAspectId = null;
   }
 
+  // Desktop: hover
+  function showPlanetTooltip(event: MouseEvent, planet: PlanetDisplay) {
+    if (tooltipPinned) return;
+    positionTooltip(event, buildPlanetLines(planet));
+  }
+
+  function showAspectTooltip(event: MouseEvent, line: AspectLine) {
+    if (tooltipPinned) return;
+    hoveredAspectId = line.id;
+    positionTooltip(event, buildAspectLines(line.aspect));
+  }
+
+  function onAspectLeave() {
+    hoveredAspectId = null;
+    hideTooltip();
+  }
+
+  // Mobile + desktop: tap/click toggles pinned tooltip
   function handlePlanetTap(event: MouseEvent, planet: PlanetDisplay) {
     if (tooltipPinned) {
       tooltipPinned = false;
@@ -433,10 +469,43 @@
     if (tooltipPinned) {
       tooltipPinned = false;
       tooltip = { ...tooltip, visible: false };
+      hoveredAspectId = null;
       return;
     }
     tooltipPinned = true;
+    hoveredAspectId = line.id;
     positionTooltip(event, buildAspectLines(line.aspect));
+  }
+
+  // Mobile: touchstart shows tooltip immediately (before click fires)
+  function handlePlanetTouch(event: TouchEvent, planet: PlanetDisplay) {
+    if (!isTouchDevice) return;
+    event.preventDefault();
+    const touch = event.touches[0];
+    if (!touch) return;
+    if (tooltipPinned) {
+      tooltipPinned = false;
+      tooltip = { ...tooltip, visible: false };
+      return;
+    }
+    tooltipPinned = true;
+    positionTooltip(touch, buildPlanetLines(planet));
+  }
+
+  function handleAspectTouch(event: TouchEvent, line: AspectLine) {
+    if (!isTouchDevice) return;
+    event.preventDefault();
+    const touch = event.touches[0];
+    if (!touch) return;
+    if (tooltipPinned) {
+      tooltipPinned = false;
+      tooltip = { ...tooltip, visible: false };
+      hoveredAspectId = null;
+      return;
+    }
+    tooltipPinned = true;
+    hoveredAspectId = line.id;
+    positionTooltip(touch, buildAspectLines(line.aspect));
   }
 
   function handleWrapperClick(event: MouseEvent) {
@@ -444,6 +513,7 @@
     if (tooltipPinned && !target.closest('.planet-group') && !target.closest('.aspect-hit')) {
       tooltipPinned = false;
       tooltip = { ...tooltip, visible: false };
+      hoveredAspectId = null;
     }
   }
 </script>
@@ -459,19 +529,16 @@
       xmlns="http://www.w3.org/2000/svg"
     >
       <defs>
-        <!-- Clip interior atmosphere to outer ring -->
         <clipPath id="tw-circle-clip">
           <circle cx={CX} cy={CY} r={R_OUTER + 1} />
         </clipPath>
 
-        <!-- Interior radial gradient -->
         <radialGradient id="tw-bg-grad" cx="50%" cy="50%" r="50%">
           <stop offset="0%" stop-color="#0a1228" />
           <stop offset="80%" stop-color="#080510" />
           <stop offset="100%" stop-color="#06040d" />
         </radialGradient>
 
-        <!-- Nebula glows -->
         <radialGradient id="tw-nebula-1" cx="35%" cy="40%" r="55%">
           <stop offset="0%" stop-color="rgba(70, 110, 180, 0.12)" />
           <stop offset="50%" stop-color="rgba(70, 110, 180, 0.04)" />
@@ -488,7 +555,6 @@
           <stop offset="100%" stop-color="rgba(0,0,0,0)" />
         </radialGradient>
 
-        <!-- Ambient glow behind the whole wheel -->
         <radialGradient id="tw-ambient-glow" cx="50%" cy="50%" r="50%">
           <stop offset="0%" stop-color="rgba(100, 130, 200, 0.08)" />
           <stop offset="60%" stop-color="rgba(214, 175, 114, 0.04)" />
@@ -496,10 +562,10 @@
         </radialGradient>
       </defs>
 
-      <!-- Ambient glow halo (behind everything, not clipped) -->
+      <!-- Ambient glow halo -->
       <circle cx={CX} cy={CY} r={R_OUTER + 40} fill="url(#tw-ambient-glow)" />
 
-      <!-- Interior atmosphere, clipped to outer ring -->
+      <!-- Interior atmosphere, clipped to ring -->
       <g clip-path="url(#tw-circle-clip)">
         <rect width="520" height="520" fill="url(#tw-bg-grad)" />
         <rect width="520" height="520" fill="url(#tw-nebula-1)" />
@@ -507,8 +573,8 @@
         <rect width="520" height="520" fill="url(#tw-nebula-3)" />
       </g>
 
-      <!-- Sacred geometry (very faint, mystical depth) -->
-      <g opacity="0.055" stroke="{BRASS}" fill="none" stroke-width="0.5">
+      <!-- Sacred geometry (slow rotation adds living feel) -->
+      <g class="sacred-geometry" opacity="0.055" stroke="{BRASS}" fill="none" stroke-width="0.5">
         {#each sacredTriangles as path}
           <path d={path} />
         {/each}
@@ -527,60 +593,41 @@
 
       <!-- Zodiac sign ring segments -->
       {#each signSegments as seg}
-        <path
-          d={seg.path}
-          fill="{seg.color}10"
-          stroke="none"
-        />
-        <!-- Sign glyph inside ring band -->
+        <path d={seg.path} fill="{seg.color}10" stroke="none" />
         <text
-          x={seg.glyphPos.x}
-          y={seg.glyphPos.y}
-          text-anchor="middle"
-          dominant-baseline="central"
-          fill={seg.color}
-          font-size="16"
+          x={seg.glyphPos.x} y={seg.glyphPos.y}
+          text-anchor="middle" dominant-baseline="central"
+          fill={seg.color} font-size="16"
           font-family='"Segoe UI Symbol", "EB Garamond", Georgia, serif'
           opacity="0.9"
         >{seg.glyph}</text>
-        <!-- 3-letter sign label outside ring -->
         <text
-          x={seg.labelPos.x}
-          y={seg.labelPos.y}
-          text-anchor="middle"
-          dominant-baseline="central"
-          fill={seg.color}
-          font-size="8"
-          font-family='"Inter", sans-serif'
-          font-weight="600"
+          x={seg.labelPos.x} y={seg.labelPos.y}
+          text-anchor="middle" dominant-baseline="central"
+          fill={seg.color} font-size="8"
+          font-family='"Inter", sans-serif' font-weight="600"
           opacity="0.5"
         >{seg.abbr}</text>
       {/each}
 
       <!-- Sign boundary lines -->
       {#each boundaries as b}
-        <line
-          x1={b.x1} y1={b.y1} x2={b.x2} y2={b.y2}
-          stroke="{BRASS}"
-          stroke-width="0.5"
-          opacity="0.2"
-        />
+        <line x1={b.x1} y1={b.y1} x2={b.x2} y2={b.y2}
+          stroke="{BRASS}" stroke-width="0.5" opacity="0.2" />
       {/each}
 
-      <!-- Inner tick marks (inside sign band) -->
+      <!-- Inner tick marks -->
       {#each innerTicks as t}
-        <line
-          x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2}
+        <line x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2}
           stroke="{BRASS}"
           stroke-width={t.weight === 'major' ? 0.8 : t.weight === 'minor' ? 0.5 : 0.3}
           opacity={t.weight === 'major' ? 0.3 : t.weight === 'minor' ? 0.15 : 0.08}
         />
       {/each}
 
-      <!-- Outer tick marks (outside outer ring) -->
+      <!-- Outer tick marks -->
       {#each outerTicks as t}
-        <line
-          x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2}
+        <line x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2}
           stroke="{BRASS}"
           stroke-width={t.weight === 'major' ? 0.7 : t.weight === 'minor' ? 0.4 : 0.25}
           opacity={t.weight === 'major' ? 0.25 : t.weight === 'minor' ? 0.12 : 0.06}
@@ -593,21 +640,21 @@
         <line
           class="aspect-hit"
           x1={line.x1} y1={line.y1} x2={line.x2} y2={line.y2}
-          stroke="transparent"
-          stroke-width="8"
+          stroke="transparent" stroke-width="10"
           on:mouseenter={(e) => showAspectTooltip(e, line)}
-          on:mouseleave={hideTooltip}
+          on:mouseleave={onAspectLeave}
           on:click={(e) => handleAspectTap(e, line)}
+          on:touchstart={(e) => handleAspectTouch(e, line)}
           style="cursor: pointer;"
         />
         <line
           class="aspect-line {line.applying ? 'applying' : ''}"
           x1={line.x1} y1={line.y1} x2={line.x2} y2={line.y2}
           stroke={line.color}
-          stroke-width={line.width}
+          stroke-width={hoveredAspectId === line.id ? line.width + 1 : line.width}
           stroke-dasharray={line.dash}
-          opacity={line.opacity}
-          style="pointer-events: none;"
+          opacity={hoveredAspectId === line.id ? Math.min(1, line.opacity + 0.3) : line.opacity}
+          style="pointer-events: none; transition: opacity 0.2s ease, stroke-width 0.2s ease;"
         />
       {/each}
 
@@ -617,11 +664,8 @@
 
         <!-- Tick line from inner ring to marker -->
         <line
-          x1={innerPt.x} y1={innerPt.y}
-          x2={planet.pos.x} y2={planet.pos.y}
-          stroke="{planet.color}"
-          stroke-width="0.5"
-          opacity="0.3"
+          x1={innerPt.x} y1={innerPt.y} x2={planet.pos.x} y2={planet.pos.y}
+          stroke="{planet.color}" stroke-width="0.5" opacity="0.3"
           style="pointer-events: none;"
         />
 
@@ -631,13 +675,18 @@
           on:mouseenter={(e) => showPlanetTooltip(e, planet)}
           on:mouseleave={hideTooltip}
           on:click={(e) => handlePlanetTap(e, planet)}
+          on:touchstart={(e) => handlePlanetTouch(e, planet)}
           style="cursor: pointer;"
         >
+          <!-- Larger invisible hit area for touch -->
+          <circle
+            cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R + 8}
+            fill="transparent"
+          />
           <!-- Soft glow halo -->
           <circle
             cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R + 6}
-            fill="{planet.color}"
-            opacity="0.1"
+            fill="{planet.color}" opacity="0.1"
           />
           <!-- Marker circle background -->
           <circle
@@ -648,38 +697,27 @@
           <circle
             class="marker-ring"
             cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R}
-            fill="none"
-            stroke={planet.color}
-            stroke-width="1.2"
+            fill="none" stroke={planet.color} stroke-width="1.2"
           />
           <!-- Planet glyph -->
           <text
-            x={planet.pos.x}
-            y={planet.pos.y}
-            text-anchor="middle"
-            dominant-baseline="central"
-            fill={planet.color}
-            font-size={GLYPH_PX}
+            x={planet.pos.x} y={planet.pos.y}
+            text-anchor="middle" dominant-baseline="central"
+            fill={planet.color} font-size={GLYPH_PX}
             font-family='"Segoe UI Symbol", "EB Garamond", Georgia, serif'
           >{planet.glyph}</text>
 
           <!-- Retrograde badge -->
           {#if planet.retrograde}
             <circle
-              cx={planet.pos.x + MARKER_R + 3}
-              cy={planet.pos.y - MARKER_R + 1}
-              r="4.5"
-              fill="#c04040"
+              cx={planet.pos.x + MARKER_R + 3} cy={planet.pos.y - MARKER_R + 1}
+              r="4.5" fill="#c04040"
             />
             <text
-              x={planet.pos.x + MARKER_R + 3}
-              y={planet.pos.y - MARKER_R + 1}
-              text-anchor="middle"
-              dominant-baseline="central"
-              fill="#f0e8e0"
-              font-size="6"
-              font-family='"Inter", sans-serif'
-              font-weight="700"
+              x={planet.pos.x + MARKER_R + 3} y={planet.pos.y - MARKER_R + 1}
+              text-anchor="middle" dominant-baseline="central"
+              fill="#f0e8e0" font-size="6"
+              font-family='"Inter", sans-serif' font-weight="700"
             >R</text>
           {/if}
         </g>
@@ -720,14 +758,8 @@
   }
 
   @keyframes tw-reveal {
-    from {
-      opacity: 0;
-      transform: scale(0.92);
-    }
-    to {
-      opacity: 1;
-      transform: scale(1);
-    }
+    from { opacity: 0; transform: scale(0.92); }
+    to { opacity: 1; transform: scale(1); }
   }
 
   .svg-container {
@@ -741,9 +773,21 @@
     width: 100%;
     height: 100%;
     overflow: visible;
+    -webkit-tap-highlight-color: transparent;
   }
 
-  /* Hover interactions */
+  /* Sacred geometry slow rotation */
+  .sacred-geometry {
+    transform-origin: 260px 260px;
+    animation: tw-sacred-rotate 120s linear infinite;
+  }
+
+  @keyframes tw-sacred-rotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  /* Planet hover */
   .planet-group {
     transition: filter 0.2s ease;
   }
@@ -752,10 +796,7 @@
     filter: brightness(1.3);
   }
 
-  .planet-group:hover .marker-ring {
-    stroke-width: 1.8;
-  }
-
+  /* Aspect pulse */
   .applying {
     animation: pulse 4s infinite ease-in-out;
   }
@@ -766,14 +807,12 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .applying {
-      animation: none;
-    }
-    .transit-wheel-wrapper {
-      animation: none;
-    }
+    .applying { animation: none; }
+    .transit-wheel-wrapper { animation: none; }
+    .sacred-geometry { animation: none; }
   }
 
+  /* Tooltip */
   .tooltip {
     position: absolute;
     background: var(--tw-tooltip-bg);
@@ -799,9 +838,7 @@
     to { opacity: 1; transform: translateY(0); }
   }
 
-  .tooltip-line {
-    line-height: 1.5;
-  }
+  .tooltip-line { line-height: 1.5; }
 
   .tooltip-line.header {
     color: var(--tw-accent);
@@ -836,9 +873,7 @@
   }
 
   @media (max-width: 600px) {
-    .svg-container {
-      max-width: 100%;
-    }
+    .svg-container { max-width: 100%; }
 
     .tooltip {
       position: fixed;
