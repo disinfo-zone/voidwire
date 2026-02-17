@@ -202,6 +202,16 @@ async def get_today_ephemeris(db: AsyncSession = Depends(get_db)):
     return run.ephemeris_json
 
 
+@router.get("/ephemeris/today/weather")
+async def get_today_weather(db: AsyncSession = Depends(get_db)):
+    from api.services.weather_service import get_or_generate_weather
+
+    result = await get_or_generate_weather(db)
+    if not result:
+        raise HTTPException(status_code=404, detail="Weather descriptions unavailable")
+    return result
+
+
 @router.get("/ephemeris/{date_str}")
 async def get_ephemeris_by_date(date_str: str, db: AsyncSession = Depends(get_db)):
     try:

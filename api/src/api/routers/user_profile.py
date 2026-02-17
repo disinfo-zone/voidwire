@@ -172,13 +172,19 @@ async def set_house_system(
 @router.get("/natal-chart")
 async def get_natal_chart(
     user: User = Depends(get_current_public_user),
+    db: AsyncSession = Depends(get_db),
 ):
     if not user.profile:
         raise HTTPException(status_code=400, detail="No profile. Set birth data first.")
 
     chart = user.profile.natal_chart_json
-    if not chart:
+    # Recompute if chart is stale (e.g., missing part_of_fortune)
+    if not chart or not any(
+        p.get("body") == "part_of_fortune"
+        for p in (chart.get("positions") or [])
+    ):
         chart = _compute_and_cache(user.profile)
+        await db.commit()
 
     return chart
 

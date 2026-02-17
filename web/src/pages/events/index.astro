@@ -55,9 +55,17 @@ interface EphemerisData {
   forward_ephemeris: ForwardEvent[];
 }
 
+interface WeatherDescriptions {
+  moon_phase?: string;
+  void_of_course?: string;
+  retrogrades?: string | null;
+  daily_weather?: string;
+}
+
 let events: AstroEvent[] = [];
 let error: string | null = null;
 let ephemeris: EphemerisData | null = null;
+let weather: WeatherDescriptions | null = null;
 let siteTimezone = 'UTC';
 const apiHeaders = forwardedApiHeaders(Astro.clientAddress);
 
@@ -69,10 +77,11 @@ try {
   }
 } catch {}
 
-// Fetch events and ephemeris in parallel
-const [eventsResult, ephemerisResult] = await Promise.allSettled([
+// Fetch events, ephemeris, and weather in parallel
+const [eventsResult, ephemerisResult, weatherResult] = await Promise.allSettled([
   fetch(apiUrl('/v1/events?limit=50'), { headers: apiHeaders }),
   fetch(apiUrl('/v1/ephemeris/today'), { headers: apiHeaders }),
+  fetch(apiUrl('/v1/ephemeris/today/weather'), { headers: apiHeaders }),
 ]);
 
 if (eventsResult.status === 'fulfilled') {
@@ -90,6 +99,12 @@ if (eventsResult.status === 'fulfilled') {
 if (ephemerisResult.status === 'fulfilled' && ephemerisResult.value.ok) {
   try {
     ephemeris = await ephemerisResult.value.json();
+  } catch {}
+}
+
+if (weatherResult.status === 'fulfilled' && weatherResult.value.ok) {
+  try {
+    weather = await weatherResult.value.json();
   } catch {}
 }
 
@@ -130,6 +145,47 @@ function formatShortDate(iso: string): string {
     return iso;
   }
 }
+
+function formatDateOnly(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      timeZone: siteTimezone,
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function formatTimelineDate(iso: string, isMajor: boolean): string {
+  if (isMajor) return formatShortDate(iso);
+  return formatDateOnly(iso);
+}
+
+// Tooltip lookup maps
+const PHASE_TIPS: Record<string, string> = {
+  new_moon: 'Seed moment \u2014 set intentions, begin inner work',
+  waxing_crescent: 'Emerging momentum \u2014 take the first visible steps',
+  first_quarter: 'Decision point \u2014 push through resistance',
+  waxing_gibbous: 'Refine and adjust \u2014 building toward fullness',
+  full_moon: 'Culmination and clarity \u2014 what was hidden is illuminated',
+  waning_gibbous: 'Gratitude and sharing \u2014 distribute what you have gathered',
+  last_quarter: 'Release and let go \u2014 clear what no longer serves',
+  waning_crescent: 'Rest and surrender \u2014 the cycle completes in stillness',
+};
+
+const RETRO_TIPS: Record<string, string> = {
+  Mercury: 'Communication tangles, tech glitches, revisiting old conversations',
+  Venus: 'Reassessing relationships, values, and what you find beautiful',
+  Mars: 'Redirected energy, revisiting old conflicts or projects',
+  Jupiter: 'Internal growth, questioning beliefs and ambitions',
+  Saturn: 'Reviewing commitments, restructuring responsibilities',
+  Uranus: 'Internalizing change, quiet rebellion brewing',
+  Neptune: 'Dissolving illusions, spiritual course-correction',
+  Pluto: 'Deep internal transformation, power dynamics surface',
+  Chiron: 'Old wounds resurface for deeper healing',
+};
 
 // Derived data
 const retroPlanets = ephemeris
@@ -182,35 +238,48 @@ function phaseDataAttr(phaseName: string): string {
     {ephemeris && (
       <div class="celestial-weather">
 
+        <!-- Today's Sky (LLM daily weather) -->
+        {weather?.daily_weather && (
+          <div class="weather-card">
+            <div class="weather-label">Today's Sky</div>
+            <p class="daily-weather-text">{weather.daily_weather}</p>
+          </div>
+        )}
+
         <!-- Moon Phase -->
         <div class="weather-card">
-          <div class="weather-label">Current Moon</div>
+          <div class="weather-label" data-tip="The Moon's current phase and sign \u2014 sets the emotional backdrop for the day">Current Moon</div>
           <div class="moon-phase-row">
             <div class="moon-disc" data-phase={phaseDataAttr(ephemeris.lunar.phase_name)}></div>
             <div class="moon-info">
-              <div class="moon-phase-name">{formatPhaseName(ephemeris.lunar.phase_name)}</div>
+              <div class="moon-phase-name" data-tip={PHASE_TIPS[ephemeris.lunar.phase_name] || ''}>{formatPhaseName(ephemeris.lunar.phase_name)}</div>
               <div class="moon-detail">
                 {Math.round(ephemeris.lunar.phase_pct * 100)}% illuminated
                 {moonSign && <span> &middot; Moon in {moonSign}</span>}
               </div>
+              {weather?.moon_phase && (
+                <div class="weather-description">{weather.moon_phase}</div>
+              )}
             </div>
           </div>
         </div>
 
         <!-- Void of Course -->
         <div class="weather-card">
-          <div class="weather-label">Void of Course Moon</div>
+          <div class="weather-label" data-tip="When the Moon makes no more major aspects before changing signs \u2014 a liminal pause">Void of Course Moon</div>
           {ephemeris.lunar.void_of_course ? (
             <div class="voc-row">
-              <span class="voc-badge voc-active">Active</span>
-              <span class="voc-note">Avoid initiating major actions &mdash; rest, reflect, review</span>
+              <span class="voc-badge voc-active" data-tip="The Moon is void of course \u2014 traditionally a poor time to start new ventures">Active</span>
+              <span class="voc-note">{weather?.void_of_course || 'Avoid initiating major actions \u2014 rest, reflect, review'}</span>
             </div>
           ) : (
             <div class="voc-row">
-              <span class="voc-badge voc-clear">Clear</span>
-              {ephemeris.lunar.next_sign_ingress?.at && (
+              <span class="voc-badge voc-clear" data-tip="The Moon is actively aspecting \u2014 intentions carry forward clearly">Clear</span>
+              {weather?.void_of_course ? (
+                <span class="voc-note">{weather.void_of_course}</span>
+              ) : ephemeris.lunar.next_sign_ingress?.at ? (
                 <span class="voc-next">Moon enters {ephemeris.lunar.next_sign_ingress.sign || 'next sign'} &middot; {formatShortDate(ephemeris.lunar.next_sign_ingress.at)}</span>
-              )}
+              ) : null}
             </div>
           )}
         </div>
@@ -218,34 +287,43 @@ function phaseDataAttr(phaseName: string): string {
         <!-- Retrograde Tracker -->
         {retroPlanets.length > 0 && (
           <div class="weather-card">
-            <div class="weather-label">Retrograde Planets</div>
+            <div class="weather-label" data-tip="Planets appearing to move backward \u2014 their themes turn inward for review">Retrograde Planets</div>
             <div class="retro-chips">
               {retroPlanets.map((p) => (
-                <span class="retro-chip">&#8478; {p.name} in {p.sign}</span>
+                <span class="retro-chip" data-tip={RETRO_TIPS[p.name] || ''}>&#8478; {p.name} in {p.sign}</span>
               ))}
             </div>
+            {weather?.retrogrades && (
+              <div class="weather-description retro-summary">{weather.retrogrades}</div>
+            )}
           </div>
         )}
 
         <!-- Transit Timeline -->
         {(ephemeris.stations_and_ingresses.length > 0 || ephemeris.forward_ephemeris.length > 0) && (
           <div class="weather-card">
-            <div class="weather-label">Transit Timeline</div>
+            <div class="weather-label" data-tip="Key planetary movements over the next 5 days">Transit Timeline</div>
             <div class="timeline">
-              {ephemeris.stations_and_ingresses.map((si) => (
-                <div class={`timeline-item ${si.type.includes('station') ? 'timeline-major' : ''}`}>
-                  <div class="timeline-event">{formatEventType(si.type)}: {si.body}{si.sign ? ` in ${si.sign}` : ''}</div>
-                  <div class="timeline-date">{formatShortDate(si.at)}</div>
-                  {si.core_meaning && <div class="timeline-meaning">{si.core_meaning}</div>}
-                </div>
-              ))}
-              {ephemeris.forward_ephemeris.map((fe) => (
-                <div class={`timeline-item ${fe.significance === 'major' ? 'timeline-major' : ''}`}>
-                  <div class="timeline-event">{fe.event}</div>
-                  <div class="timeline-date">{formatShortDate(fe.at)}</div>
-                  {fe.core_meaning && <div class="timeline-meaning">{fe.core_meaning}</div>}
-                </div>
-              ))}
+              {ephemeris.stations_and_ingresses.map((si) => {
+                const isMajor = si.type.includes('station');
+                return (
+                  <div class={`timeline-item ${isMajor ? 'timeline-major' : ''}`}>
+                    <div class="timeline-event">{formatEventType(si.type)}: {si.body}{si.sign ? ` in ${si.sign}` : ''}</div>
+                    <div class="timeline-date">{formatTimelineDate(si.at, isMajor)}</div>
+                    {si.core_meaning && <div class="timeline-meaning">{si.core_meaning}</div>}
+                  </div>
+                );
+              })}
+              {ephemeris.forward_ephemeris.map((fe) => {
+                const isMajor = fe.significance === 'major';
+                return (
+                  <div class={`timeline-item ${isMajor ? 'timeline-major' : ''}`}>
+                    <div class="timeline-event">{fe.event}</div>
+                    <div class="timeline-date">{formatTimelineDate(fe.at, isMajor)}</div>
+                    {fe.core_meaning && <div class="timeline-meaning">{fe.core_meaning}</div>}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -253,7 +331,7 @@ function phaseDataAttr(phaseName: string): string {
         <!-- Eclipses -->
         {eclipseEvents.length > 0 && (
           <div class="weather-card">
-            <div class="weather-label">Upcoming Eclipses</div>
+            <div class="weather-label" data-tip="Eclipse season \u2014 potent windows of change and revelation">Upcoming Eclipses</div>
             {eclipseEvents.map((event) => (
               <div class="eclipse-item">
                 <div class="eclipse-type">{formatEventType(event.event_type)}</div>
@@ -291,7 +369,7 @@ function phaseDataAttr(phaseName: string): string {
 
     {nonEclipseEvents.length > 0 && (
       <div class="events-section">
-        <div class="weather-label">Event Articles</div>
+        <div class="weather-label" data-tip="Scheduled astronomical events with available readings">Event Articles</div>
         <div>
           {nonEclipseEvents.map((event) => (
             <div class="event-item">
@@ -342,6 +420,33 @@ function phaseDataAttr(phaseName: string): string {
     text-transform: uppercase;
     color: var(--text-muted);
     margin-bottom: 0.6rem;
+  }
+
+  .weather-label[data-tip] {
+    cursor: help;
+  }
+
+  /* Daily Weather (LLM text) */
+  .daily-weather-text {
+    font-family: var(--font-body);
+    font-size: 1rem;
+    color: var(--text-primary);
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  /* Weather description (LLM text under sections) */
+  .weather-description {
+    font-family: var(--font-sans);
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin-top: 0.35rem;
+    font-style: italic;
+  }
+
+  .retro-summary {
+    margin-top: 0.6rem;
   }
 
   /* Moon Phase */
@@ -421,6 +526,10 @@ function phaseDataAttr(phaseName: string): string {
     color: var(--text-primary);
   }
 
+  .moon-phase-name[data-tip] {
+    cursor: help;
+  }
+
   .moon-detail {
     font-family: var(--font-sans);
     font-size: 0.72rem;
@@ -443,6 +552,10 @@ function phaseDataAttr(phaseName: string): string {
     text-transform: uppercase;
     padding: 0.2em 0.6em;
     border-radius: 3px;
+  }
+
+  .voc-badge[data-tip] {
+    cursor: help;
   }
 
   .voc-active {
@@ -486,6 +599,10 @@ function phaseDataAttr(phaseName: string): string {
     border: 1px solid var(--text-ghost);
     border-radius: 3px;
     white-space: nowrap;
+  }
+
+  .retro-chip[data-tip] {
+    cursor: help;
   }
 
   /* Transit Timeline */
@@ -677,4 +794,89 @@ function phaseDataAttr(phaseName: string): string {
       font-size: 0.62rem;
     }
   }
+
+  /* Tooltip popup */
+  :global(.tip-popup) {
+    position: fixed;
+    z-index: 2000;
+    max-width: 280px;
+    padding: 0.5rem 0.75rem;
+    background: #181c2a;
+    border: 1px solid rgba(214, 175, 114, 0.2);
+    border-radius: 6px;
+    font-family: var(--font-sans);
+    font-size: 0.68rem;
+    line-height: 1.45;
+    color: var(--text-secondary);
+    pointer-events: none;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  }
 </style>
+
+<script>
+  // --- Custom tooltip system (works on hover + tap) ---
+  (() => {
+    const tip = document.createElement('div');
+    tip.className = 'tip-popup';
+    tip.style.display = 'none';
+    document.body.appendChild(tip);
+
+    let activeTarget: Element | null = null;
+    let hideTimer: number | null = null;
+
+    function showTip(target: Element) {
+      const text = target.getAttribute('data-tip');
+      if (!text) return;
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+      activeTarget = target;
+      tip.textContent = text;
+      tip.style.display = 'block';
+
+      const rect = target.getBoundingClientRect();
+      const tipRect = tip.getBoundingClientRect();
+      let left = rect.left + rect.width / 2 - tipRect.width / 2;
+      let top = rect.top - tipRect.height - 8;
+
+      // Flip below if no room above
+      if (top < 4) top = rect.bottom + 8;
+      // Clamp horizontal
+      left = Math.max(8, Math.min(left, window.innerWidth - tipRect.width - 8));
+
+      tip.style.left = `${left}px`;
+      tip.style.top = `${top}px`;
+    }
+
+    function hideTip() {
+      tip.style.display = 'none';
+      activeTarget = null;
+    }
+
+    function scheduledHide() {
+      hideTimer = window.setTimeout(hideTip, 120);
+    }
+
+    // Desktop: hover
+    document.addEventListener('mouseenter', (e) => {
+      const target = (e.target as Element)?.closest?.('[data-tip]');
+      if (target && target.getAttribute('data-tip')) showTip(target);
+    }, true);
+    document.addEventListener('mouseleave', (e) => {
+      const target = (e.target as Element)?.closest?.('[data-tip]');
+      if (target && target === activeTarget) scheduledHide();
+    }, true);
+
+    // Mobile: tap to show, tap elsewhere to dismiss
+    document.addEventListener('click', (e) => {
+      const target = (e.target as Element)?.closest?.('[data-tip]');
+      if (target && target.getAttribute('data-tip')) {
+        if (activeTarget === target) {
+          hideTip();
+        } else {
+          showTip(target);
+        }
+      } else {
+        if (activeTarget) hideTip();
+      }
+    });
+  })();
+</script>

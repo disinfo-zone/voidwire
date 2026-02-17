@@ -338,6 +338,50 @@ STARTER_PERSONAL_PRO_TEMPLATE_VARIABLES = [
 ]
 
 
+STARTER_CELESTIAL_WEATHER_TEMPLATE_NAME = "starter_celestial_weather"
+STARTER_CELESTIAL_WEATHER_TEMPLATE_CONTENT = """You are a skilled astrologer writing brief celestial weather descriptions for today.
+
+TODAY: {{date_context}}
+
+=== EPHEMERIS DATA ===
+{{ephemeris_data}}
+
+Write concise, evocative descriptions for today's celestial weather. Match the site's tone: precise, literary, unsentimental. No clichés. No emojis. Each description should be 1-2 sentences.
+
+HARD CONSTRAINTS:
+- Return strict JSON only (no markdown fencing).
+- Write in English only. No non-Latin characters.
+- Keep total output under 200 words.
+
+Return JSON with:
+- moon_phase: string (current moon phase and its emotional/energetic meaning)
+- void_of_course: string (VOC status and what it means for the day)
+- retrogrades: string or null (summary of active retrogrades, null if none)
+- daily_weather: string (2-3 sentence overview of today's sky)
+"""
+
+STARTER_CELESTIAL_WEATHER_TEMPLATE_VARIABLES = [
+    "date_context",
+    "ephemeris_data",
+]
+
+
+def _build_starter_celestial_weather_template() -> PromptTemplate:
+    return PromptTemplate(
+        template_name=STARTER_CELESTIAL_WEATHER_TEMPLATE_NAME,
+        version=1,
+        is_active=True,
+        content=STARTER_CELESTIAL_WEATHER_TEMPLATE_CONTENT,
+        variables_used=STARTER_CELESTIAL_WEATHER_TEMPLATE_VARIABLES,
+        tone_parameters={
+            "register": "precise, literary, evocative",
+            "style_notes": "brief weather-report style; symbolic but concrete",
+        },
+        author="system",
+        notes="Auto-generated starter template for celestial weather descriptions.",
+    )
+
+
 def _build_starter_prose_template() -> PromptTemplate:
     return PromptTemplate(
         template_name=STARTER_PROSE_TEMPLATE_NAME,
@@ -446,6 +490,7 @@ async def ensure_starter_prompt_template(db: AsyncSession) -> list[PromptTemplat
         _build_starter_event_plan_template(),
         _build_starter_personal_free_template(),
         _build_starter_personal_pro_template(),
+        _build_starter_celestial_weather_template(),
     ]
     created: list[PromptTemplate] = []
     for starter in starters:
