@@ -36,13 +36,6 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
             <div class="loading">Tuning into the wire&hellip;</div>
           </div>
           <div id="reading-actions" class="reading-actions"></div>
-          <div id="transit-overlay" class="transit-overlay" style="display: none;">
-            <div class="section-label">Current Transits</div>
-            <div class="chart-wheel-wrap">
-              <canvas id="transit-wheel-canvas"></canvas>
-            </div>
-            <div id="transit-content" class="chart-content"></div>
-          </div>
         </section>
 
         <section id="settings-section" class="settings-section" style="display: none;">
@@ -60,7 +53,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
             <canvas id="chart-wheel-canvas"></canvas>
             <div class="chart-actions chart-actions-centered">
               <button id="export-chart-text-btn" class="action-button" style="display: none;">Copy Chart</button>
-              <button id="export-chart-image-btn" class="action-button" style="display: none;">Export Chart Image</button>
+              <button id="export-chart-image-btn" class="action-button" style="display: none;">Share Chart Image</button>
             </div>
           </div>
           <div id="chart-content" class="chart-content"></div>
@@ -531,6 +524,13 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       <div class="reading-tier-badge">${escapeHtml(tierLabel)}</div>
       <h2 class="reading-title">${safeTitle}</h2>
       <div class="reading-meta">${safeDateContext}${safeCoverage ? ` · ${safeCoverage}` : ''} · ${safeWordCount} words</div>
+      <div id="transit-overlay" class="transit-overlay" style="display: none;">
+        <div class="section-label" data-tip="Where the planets are right now, overlaid on your natal chart \u2014 showing how today\u2019s sky activates your birth chart">Current Transits</div>
+        <div class="chart-wheel-wrap">
+          <canvas id="transit-wheel-canvas"></canvas>
+        </div>
+        <div id="transit-content" class="chart-content"></div>
+      </div>
       <div class="reading-body">${bodyHtml}</div>
       ${sectionsHtml}
       ${showTemplate ? `<div class="reading-template">Template: ${safeTemplate}</div>` : ''}
@@ -818,7 +818,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           </div>`;
         }).join('');
         const aspectsHtml = filteredAspects.length > 0
-          ? `<div class="chart-aspects-label">Aspects</div><div class="chart-aspects">${aspectItems}</div>`
+          ? `<div class="chart-aspects-label" data-tip="Angular relationships between planets \u2014 the conversations happening in your chart">Aspects</div><div class="chart-aspects">${aspectItems}</div>`
           : '';
 
         // --- Chart Details: element/modality/polarity breakdown ---
@@ -896,7 +896,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
             return `<span class="chart-aspect-stat" style="color: ${color}" data-tip="${escapeHtml(ASPECT_TIPS[t] || '')}">${escapeHtml(glyph)} ${aspectTypeCounts[t]} ${escapeHtml(label)}${aspectTypeCounts[t] > 1 ? 's' : ''}</span>`;
           }).join('');
         const aspectSummaryHtml = aspectSummaryItems
-          ? `<div class="chart-aspect-summary"><span class="chart-detail-sublabel">Aspect Breakdown</span><div class="chart-aspect-stats">${aspectSummaryItems}</div></div>`
+          ? `<div class="chart-aspect-summary"><span class="chart-detail-sublabel" data-tip="Count of each aspect type in your chart \u2014 reveals the dominant themes and tensions">Aspect Breakdown</span><div class="chart-aspect-stats">${aspectSummaryItems}</div></div>`
           : '';
 
         // Retrograde count
@@ -916,9 +916,10 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           const rGlyph = PLANET_GLYPHS[chartRulerName] || '';
           const rColor = SIGN_COLORS[rSign] || '#d6af72';
           const rSignGlyph = SIGN_GLYPHS[rSign] || '';
-          return `<div class="chart-ruler" data-tip="The chart ruler is the planet that rules the Ascendant sign \u2014 it colors your entire life approach">
+          return `<div class="chart-highlight-card" data-tip="The chart ruler is the planet that rules the Ascendant sign \u2014 it colors your entire life approach">
             <span class="chart-detail-sublabel">Chart Ruler</span>
-            <span class="chart-ruler-value"><span style="color: ${rColor}">${escapeHtml(rGlyph)}</span> ${escapeHtml(chartRulerName)} in ${escapeHtml(rDeg)}\u00B0 ${escapeHtml(rSignGlyph)} ${escapeHtml(rSign)}${rHouse ? ` \u00B7 ${escapeHtml(rHouse)}` : ''}</span>
+            <span class="chart-highlight-value"><span style="color: ${rColor}">${escapeHtml(rGlyph)}</span> ${escapeHtml(chartRulerName)}</span>
+            <span class="chart-highlight-detail">${escapeHtml(rDeg)}\u00B0 ${escapeHtml(rSignGlyph)} ${escapeHtml(rSign)}${rHouse ? ` \u00B7 ${escapeHtml(rHouse)}` : ''}</span>
           </div>`;
         })() : '';
 
@@ -940,7 +941,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
             </div>`;
           }).join('');
           return `<div class="chart-cusps-section">
-            <span class="chart-detail-sublabel">House Cusps</span>
+            <span class="chart-detail-sublabel" data-tip="The zodiac degree where each house begins \u2014 defines the areas of life each sign governs for you">House Cusps</span>
             <div class="chart-cusps-grid">${rows}</div>
           </div>`;
         })() : '';
@@ -981,9 +982,10 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           if (dominantPlanet === moonRuler) reasons.push('Moon ruler');
           const aspCount = aspectCountPerPlanet[dominantPlanet] || 0;
           if (aspCount > 0) reasons.push(`${aspCount} aspects`);
-          return `<div class="chart-dominant" data-tip="Most influential planet based on aspects, rulerships, and dignities">
+          return `<div class="chart-highlight-card" data-tip="Most influential planet based on aspects, rulerships, and dignities">
             <span class="chart-detail-sublabel">Dominant Planet</span>
-            <span class="chart-dominant-value"><span style="color: ${dColor}">${escapeHtml(dGlyph)}</span> ${escapeHtml(dominantPlanet)}${reasons.length ? ` <span class="chart-dominant-reason">(${escapeHtml(reasons.join(', '))})</span>` : ''}</span>
+            <span class="chart-highlight-value"><span style="color: ${dColor}">${escapeHtml(dGlyph)}</span> ${escapeHtml(dominantPlanet)}</span>
+            ${reasons.length ? `<span class="chart-highlight-detail">${escapeHtml(reasons.join(', '))}</span>` : ''}
           </div>`;
         })() : '';
 
@@ -991,9 +993,9 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         const planetLongitudes = positions.map((p: any) => Number(p?.longitude || zodiacDegrees(p?.sign, p?.degree)));
         const chartPattern = detectChartPattern(planetLongitudes);
         const patternHtml = chartPattern.name !== 'Unknown'
-          ? `<div class="chart-pattern" data-tip="${escapeHtml(chartPattern.description)}">
+          ? `<div class="chart-highlight-card" data-tip="${escapeHtml(chartPattern.description)}">
               <span class="chart-detail-sublabel">Chart Shape</span>
-              <span class="chart-pattern-value">${escapeHtml(chartPattern.name)}</span>
+              <span class="chart-highlight-value">${escapeHtml(chartPattern.name)}</span>
             </div>`
           : '';
 
@@ -1025,7 +1027,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         }).join('');
         const aspectMatrixHtml = `
           <div class="chart-matrix-section">
-            <span class="chart-detail-sublabel">Aspect Matrix</span>
+            <span class="chart-detail-sublabel" data-tip="A grid showing every aspect between planets at a glance \u2014 rows and columns are planets, cells show the aspect type">Aspect Matrix</span>
             <div class="chart-matrix">
               <div class="matrix-row matrix-header-row"><span class="matrix-hdr"></span>${matrixHeaderCells}</div>
               ${matrixRows}
@@ -1033,27 +1035,24 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           </div>`;
 
         const chartDetailsHtml = `
-          <div class="chart-details-label">Chart Details</div>
+          <div class="chart-details-label" data-tip="A breakdown of your chart\u2019s elemental, modal, and planetary signatures">Chart Details</div>
           <div class="chart-details">
             <div class="chart-details-grid">
               <div class="chart-detail-group">
-                <span class="chart-detail-sublabel">Elements</span>
+                <span class="chart-detail-sublabel" data-tip="The four classical elements show your temperament and energy style">Elements</span>
                 ${elementBars}
               </div>
               <div class="chart-detail-group">
-                <span class="chart-detail-sublabel">Modalities</span>
+                <span class="chart-detail-sublabel" data-tip="Cardinal initiates, Fixed sustains, Mutable adapts \u2014 your action style">Modalities</span>
                 ${modalityBars}
               </div>
             </div>
             ${polarityHtml}
-            <div class="chart-details-meta">
-              ${chartRulerHtml}
-              ${dominantHtml}
-              ${patternHtml}
-              ${stelliumHtml}
-              ${aspectSummaryHtml}
-              ${retroHtml}
+            <div class="chart-details-highlights">
+              ${chartRulerHtml}${dominantHtml}${patternHtml}
             </div>
+            ${stelliumHtml ? `<div class="chart-details-secondary">${stelliumHtml}</div>` : ''}
+            <div class="chart-details-secondary">${aspectSummaryHtml}${retroHtml}</div>
             ${houseCuspsHtml}
             ${aspectMatrixHtml}
           </div>
@@ -1091,28 +1090,108 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const data = chart as any;
     const positions = Array.isArray(data.positions) ? (data.positions as any[]) : [];
     const angles = Array.isArray(data.angles) ? (data.angles as any[]) : [];
+    const aspects = Array.isArray(data.aspects) ? (data.aspects as any[]) : [];
+    const houseCuspsArr = Array.isArray(data.house_cusps) ? (data.house_cusps as number[]) : [];
+    const houseSystem = String(data.house_system || 'Placidus');
     const lines: string[] = [];
-    lines.push('VOIDWIRE Natal Chart Export');
+    lines.push('VOIDWIRE \u2014 Natal Chart');
     lines.push(`Generated: ${new Date().toISOString()}`);
     lines.push('');
-    lines.push('Placements:');
-    for (const pos of positions) {
-      const body = String(pos?.body || '');
-      const degree = Number(pos?.degree || 0).toFixed(2);
-      const sign = String(pos?.sign || '');
-      const house = pos?.house ? `House ${pos.house}` : 'No house';
-      lines.push(`- ${body}: ${degree}° ${sign} (${house})`);
+
+    // Core Signature
+    const sun = positions.find((p: any) => String(p?.body || '').toLowerCase() === 'sun');
+    const moon = positions.find((p: any) => String(p?.body || '').toLowerCase() === 'moon');
+    const asc = angles.find((a: any) => String(a?.name || '').toLowerCase() === 'ascendant');
+    if (sun || moon || asc) {
+      lines.push('Core Signature:');
+      if (sun) lines.push(`  Sun: ${Number(sun.degree || 0).toFixed(1)}\u00B0 ${normalizeSign(sun.sign)}${sun.house ? ` (House ${sun.house})` : ''}`);
+      if (moon) lines.push(`  Moon: ${Number(moon.degree || 0).toFixed(1)}\u00B0 ${normalizeSign(moon.sign)}${moon.house ? ` (House ${moon.house})` : ''}`);
+      if (asc) lines.push(`  Ascendant: ${Number(asc.degree || 0).toFixed(1)}\u00B0 ${normalizeSign(asc.sign)}`);
+      lines.push('');
     }
+
+    // Placements with dignities
+    lines.push('Placements:');
+    const sortedTextPos = [...positions].sort((a: any, b: any) => zodiacDegrees(a?.sign, a?.degree) - zodiacDegrees(b?.sign, b?.degree));
+    for (const pos of sortedTextPos) {
+      const body = displayBody(pos?.body);
+      const degree = Number(pos?.degree || 0).toFixed(1);
+      const sign = normalizeSign(pos?.sign);
+      const house = pos?.house ? `House ${pos.house}` : '';
+      const retro = Boolean(pos?.retrograde) ? ' (R)' : '';
+      const dignity = getDignity(body, sign);
+      const digLabel = dignity ? ` [${DIGNITY_LABELS[dignity]?.label || ''}]` : '';
+      lines.push(`  ${body}: ${degree}\u00B0 ${sign}${house ? ` \u00B7 ${house}` : ''}${retro}${digLabel}`);
+    }
+
+    // Angles
     if (angles.length > 0) {
       lines.push('');
       lines.push('Angles:');
       for (const angle of angles) {
-        const name = String(angle?.name || '');
-        const degree = Number(angle?.degree || 0).toFixed(2);
-        const sign = String(angle?.sign || '');
-        lines.push(`- ${name}: ${degree}° ${sign}`);
+        lines.push(`  ${String(angle?.name || '')}: ${Number(angle?.degree || 0).toFixed(1)}\u00B0 ${normalizeSign(angle?.sign)}`);
       }
     }
+
+    // Elements & Modalities
+    const elCounts: Record<string, number> = { Fire: 0, Earth: 0, Air: 0, Water: 0 };
+    const modCounts: Record<string, number> = { Cardinal: 0, Fixed: 0, Mutable: 0 };
+    for (const pos of positions) {
+      const s = normalizeSign(pos?.sign);
+      const el = ELEMENT_MAP[s]; if (el) elCounts[el]++;
+      const mod = MODALITY_MAP[s]; if (mod) modCounts[mod]++;
+    }
+    lines.push('');
+    lines.push(`Elements: Fire ${elCounts.Fire}, Earth ${elCounts.Earth}, Air ${elCounts.Air}, Water ${elCounts.Water}`);
+    lines.push(`Modalities: Cardinal ${modCounts.Cardinal}, Fixed ${modCounts.Fixed}, Mutable ${modCounts.Mutable}`);
+
+    // Chart Ruler
+    const ascSign = asc ? normalizeSign(asc.sign) : '';
+    const rulerName = ascSign ? (SIGN_RULERS[ascSign] || '') : '';
+    if (rulerName) {
+      const rulerPos = positions.find((p: any) => displayBody(p?.body) === rulerName);
+      if (rulerPos) {
+        lines.push(`Chart Ruler: ${rulerName} in ${Number(rulerPos.degree || 0).toFixed(1)}\u00B0 ${normalizeSign(rulerPos.sign)}${rulerPos.house ? ` (House ${rulerPos.house})` : ''}`);
+      }
+    }
+
+    // Chart Pattern
+    const longs = positions.map((p: any) => Number(p?.longitude || zodiacDegrees(p?.sign, p?.degree)));
+    const pattern = detectChartPattern(longs);
+    if (pattern.name !== 'Unknown') {
+      lines.push(`Chart Shape: ${pattern.name}`);
+    }
+
+    // Aspects
+    const filtAsp = aspects.filter((a: any) => String(a?.significance || '').toLowerCase() !== 'minor');
+    if (filtAsp.length > 0) {
+      lines.push('');
+      lines.push('Aspects:');
+      for (const asp of filtAsp) {
+        const type = String(asp?.type || asp?.aspect_type || '');
+        const b1 = displayBody(asp?.body1);
+        const b2 = displayBody(asp?.body2);
+        const orb = Number(asp?.orb_degrees || asp?.orb || 0).toFixed(1);
+        const applying = asp?.applying !== false ? 'applying' : 'separating';
+        lines.push(`  ${b1} ${type} ${b2} (${orb}\u00B0, ${applying})`);
+      }
+    }
+
+    // House Cusps
+    if (houseCuspsArr.length === 12) {
+      lines.push('');
+      lines.push(`House Cusps (${houseSystem}):`);
+      for (let i = 0; i < 12; i++) {
+        const totalDeg = ((houseCuspsArr[i] % 360) + 360) % 360;
+        const signIdx = Math.floor(totalDeg / 30);
+        const sign = SIGN_ORDER[signIdx] || '';
+        const deg = (totalDeg % 30).toFixed(1);
+        lines.push(`  House ${i + 1}: ${deg}\u00B0 ${sign}`);
+      }
+    }
+
+    lines.push('');
+    lines.push(`\u2014 ${chartBrandDomain}`);
     return lines.join('\n');
   }
 
@@ -2055,7 +2134,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
   document.getElementById('export-chart-image-btn')?.addEventListener('click', async () => {
     if (!cachedChart) return;
     const btn = document.getElementById('export-chart-image-btn') as HTMLButtonElement | null;
-    const original = btn?.textContent || 'Export Chart Image';
+    const original = btn?.textContent || 'Share Chart Image';
     try {
       if (btn) btn.textContent = 'Preparing\u2026';
       const blob = await exportNatalChartImage(cachedChart);
@@ -2883,11 +2962,46 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     white-space: nowrap;
   }
 
-  .chart-content :global(.chart-details-meta) {
+  .chart-content :global(.chart-details-highlights) {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.6rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--text-ghost);
+  }
+
+  .chart-content :global(.chart-highlight-card) {
     display: flex;
     flex-direction: column;
-    gap: 0.7rem;
-    padding-top: 0.3rem;
+    align-items: center;
+    gap: 0.15rem;
+    padding: 0.6rem 0.4rem;
+    background: rgba(255, 255, 255, 0.015);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    border-radius: 6px;
+    text-align: center;
+    cursor: default;
+  }
+
+  .chart-content :global(.chart-highlight-value) {
+    font-family: "Segoe UI Symbol", var(--font-sans);
+    font-size: 0.82rem;
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  .chart-content :global(.chart-highlight-detail) {
+    font-family: "Segoe UI Symbol", var(--font-sans);
+    font-size: 0.58rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  .chart-content :global(.chart-details-secondary) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding-top: 0.4rem;
     border-top: 1px solid var(--text-ghost);
   }
 
@@ -3071,54 +3185,6 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     color: #a05050;
   }
 
-  /* --- Chart Ruler --- */
-  .chart-content :global(.chart-ruler) {
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-    cursor: default;
-  }
-
-  .chart-content :global(.chart-ruler-value) {
-    font-family: "Segoe UI Symbol", var(--font-sans);
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-  }
-
-  /* --- Dominant planet --- */
-  .chart-content :global(.chart-dominant) {
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-    cursor: default;
-  }
-
-  .chart-content :global(.chart-dominant-value) {
-    font-family: "Segoe UI Symbol", var(--font-sans);
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-  }
-
-  .chart-content :global(.chart-dominant-reason) {
-    font-size: 0.6rem;
-    color: var(--text-muted);
-  }
-
-  /* --- Chart pattern --- */
-  .chart-content :global(.chart-pattern) {
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-    cursor: default;
-  }
-
-  .chart-content :global(.chart-pattern-value) {
-    font-family: var(--font-sans);
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    font-weight: 500;
-  }
-
   /* --- House Cusps --- */
   .chart-content :global(.chart-cusps-section) {
     display: flex;
@@ -3161,6 +3227,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
   .chart-content :global(.chart-matrix-section) {
     display: flex;
     flex-direction: column;
+    align-items: center;
     gap: 0.3rem;
     padding-top: 0.5rem;
     border-top: 1px solid var(--text-ghost);
@@ -3168,7 +3235,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
   }
 
   .chart-content :global(.chart-matrix) {
-    display: flex;
+    display: inline-flex;
     flex-direction: column;
     gap: 1px;
     font-family: "Segoe UI Symbol", var(--font-sans);
@@ -3342,6 +3409,17 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     .chart-content :global(.chart-details-grid) {
       grid-template-columns: 1fr;
       gap: 0.8rem;
+    }
+
+    .chart-content :global(.chart-details-highlights) {
+      grid-template-columns: 1fr;
+      gap: 0.4rem;
+    }
+
+    .chart-content :global(.chart-highlight-card) {
+      flex-direction: row;
+      justify-content: space-between;
+      padding: 0.5rem 0.6rem;
     }
 
     .chart-content :global(.chart-cusps-grid) {
