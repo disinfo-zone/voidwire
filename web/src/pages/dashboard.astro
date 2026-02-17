@@ -594,7 +594,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const _panelEst = 60
       + (50 + _placementRows * 62 + 24)   // placements
       + 30                                  // divider
-      + (30 + 48 + 40)                     // core signature (label + row + breathing room)
+      + (42 + 48 + 28)                     // core signature (label + gap + row + pad)
       + 30                                  // divider
       + 50;                                 // footer line
     const H = 1380 + _panelEst + 160;
@@ -1006,7 +1006,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const panelHeight = 60
       + 50 + placementRows * placeRowH + 24   // placements
       + 30                                      // divider
-      + 30 + coreRowH + 40                     // core signature (label + row + breathing room)
+      + 42 + coreRowH + 28                     // core signature (label + gap + row + pad)
       + 30                                      // divider
       + 50;                                     // footer line
 
@@ -1053,13 +1053,15 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     ctx.textBaseline = 'alphabetic';
     let panelY = panelTop + 60;
 
-    // ── PLACEMENTS (2 columns, single-line per planet — large for phone) ──
+    // ── PLACEMENTS (2 columns, inset to align with core signature) ──
     panelY = drawPanelHeader('PLACEMENTS', panelY);
-    const placeColW = contentW / 2;
+    const placeInset = 160;
+    const placeLeft = contentLeft + placeInset;
+    const placeColW = (contentW - 2 * placeInset) / 2;
 
     for (let i = 0; i < sortedPos.length; i++) {
       const pos = sortedPos[i];
-      const colX = contentLeft + (i % 2) * placeColW;
+      const colX = placeLeft + (i % 2) * placeColW;
       const row = Math.floor(i / 2);
       const y = panelY + row * placeRowH;
 
@@ -1099,14 +1101,14 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     }
     panelY += placementRows * placeRowH + 24;
 
-    // ── CORE SIGNATURE (single row, three columns) ──
+    // ── CORE SIGNATURE (single row, three equal center-aligned columns) ──
     panelY = drawPanelDivider(panelY);
     ctx.fillStyle = `${BRASS}80`;
     ctx.font = '600 22px "EB Garamond", Georgia, serif';
     ctx.textAlign = 'center';
     ctx.fillText('CORE SIGNATURE', CX, panelY + 6);
     ctx.textAlign = 'left';
-    panelY += 30;
+    panelY += 42;
 
     const sun = positions.find((p: any) => String(p?.body || '').toLowerCase() === 'sun');
     const moon = positions.find((p: any) => String(p?.body || '').toLowerCase() === 'moon');
@@ -1116,25 +1118,16 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       ascAngle ? `ASC  ${normalizeSign(ascAngle.sign)} ${Number(ascAngle.degree || 0).toFixed(1)}\u00B0` : null,
     ].filter(Boolean) as string[];
 
-    ctx.fillStyle = '#d0c8b8';
-    ctx.font = '400 28px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
-    if (coreItems.length >= 3) {
-      // Left-align first, center middle, right-align last — edges match placements
-      ctx.textAlign = 'left';
-      ctx.fillText(coreItems[0], contentLeft, panelY);
+    const coreColW = contentW / coreItems.length;
+    for (let i = 0; i < coreItems.length; i++) {
+      const cx = contentLeft + coreColW * i + coreColW / 2;
+      ctx.fillStyle = '#d0c8b8';
+      ctx.font = '400 28px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
       ctx.textAlign = 'center';
-      ctx.fillText(coreItems[1], contentLeft + contentW / 2, panelY);
-      ctx.textAlign = 'right';
-      ctx.fillText(coreItems[2], contentRight, panelY);
-    } else {
-      const coreColW = contentW / coreItems.length;
-      for (let i = 0; i < coreItems.length; i++) {
-        ctx.textAlign = 'center';
-        ctx.fillText(coreItems[i], contentLeft + coreColW * i + coreColW / 2, panelY);
-      }
+      ctx.fillText(coreItems[i], cx, panelY);
     }
     ctx.textAlign = 'left';
-    panelY += coreRowH + 40;
+    panelY += coreRowH + 28;
 
     // ── Footer: Ascendant · Midheaven · House System ──
     panelY = drawPanelDivider(panelY);
