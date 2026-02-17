@@ -594,7 +594,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const _panelEst = 60
       + (50 + _placementRows * 62 + 24)   // placements
       + 30                                  // divider
-      + (30 + 48 + 20)                     // core signature (label + single row)
+      + (30 + 48 + 40)                     // core signature (label + row + breathing room)
       + 30                                  // divider
       + 50;                                 // footer line
     const H = 1380 + _panelEst + 160;
@@ -1006,7 +1006,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const panelHeight = 60
       + 50 + placementRows * placeRowH + 24   // placements
       + 30                                      // divider
-      + 30 + coreRowH + 20                     // core signature (label + single row)
+      + 30 + coreRowH + 40                     // core signature (label + row + breathing room)
       + 30                                      // divider
       + 50;                                     // footer line
 
@@ -1116,16 +1116,25 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       ascAngle ? `ASC  ${normalizeSign(ascAngle.sign)} ${Number(ascAngle.degree || 0).toFixed(1)}\u00B0` : null,
     ].filter(Boolean) as string[];
 
-    const coreColW = contentW / coreItems.length;
-    for (let i = 0; i < coreItems.length; i++) {
-      const cx = contentLeft + coreColW * i + coreColW / 2;
-      ctx.fillStyle = '#d0c8b8';
-      ctx.font = '400 28px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
+    ctx.fillStyle = '#d0c8b8';
+    ctx.font = '400 28px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
+    if (coreItems.length >= 3) {
+      // Left-align first, center middle, right-align last — edges match placements
+      ctx.textAlign = 'left';
+      ctx.fillText(coreItems[0], contentLeft, panelY);
       ctx.textAlign = 'center';
-      ctx.fillText(coreItems[i], cx, panelY);
+      ctx.fillText(coreItems[1], contentLeft + contentW / 2, panelY);
+      ctx.textAlign = 'right';
+      ctx.fillText(coreItems[2], contentRight, panelY);
+    } else {
+      const coreColW = contentW / coreItems.length;
+      for (let i = 0; i < coreItems.length; i++) {
+        ctx.textAlign = 'center';
+        ctx.fillText(coreItems[i], contentLeft + coreColW * i + coreColW / 2, panelY);
+      }
     }
     ctx.textAlign = 'left';
-    panelY += coreRowH + 20;
+    panelY += coreRowH + 40;
 
     // ── Footer: Ascendant · Midheaven · House System ──
     panelY = drawPanelDivider(panelY);
