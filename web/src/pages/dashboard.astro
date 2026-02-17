@@ -594,7 +594,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const _panelEst = 60
       + (50 + _placementRows * 62 + 24)   // placements
       + 30                                  // divider
-      + (42 + 48 + 28)                     // core signature (label + gap + row + pad)
+      + (42 + 48 + 18)                     // core signature (label + gap + row + pad)
       + 30                                  // divider
       + 50;                                 // footer line
     const H = 1380 + _panelEst + 160;
@@ -1006,7 +1006,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const panelHeight = 60
       + 50 + placementRows * placeRowH + 24   // placements
       + 30                                      // divider
-      + 42 + coreRowH + 28                     // core signature (label + gap + row + pad)
+      + 42 + coreRowH + 18                     // core signature (label + gap + row + pad)
       + 30                                      // divider
       + 50;                                     // footer line
 
@@ -1054,7 +1054,19 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     let panelY = panelTop + 60;
 
     // ── PLACEMENTS (2 columns, inset to align with core signature) ──
-    panelY = drawPanelHeader('PLACEMENTS', panelY);
+    // Centered header
+    ctx.fillStyle = BRASS;
+    ctx.font = '600 34px "EB Garamond", Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    const _plLabel = 'PLACEMENTS';
+    let _plX = CX - ctx.measureText(_plLabel).width / 2;
+    for (const ch of _plLabel) { ctx.fillText(ch, _plX, panelY); _plX += ctx.measureText(ch).width + 2.5; }
+    ctx.strokeStyle = `${BRASS}20`;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(contentLeft, panelY + 12); ctx.lineTo(contentRight, panelY + 12); ctx.stroke();
+    ctx.textAlign = 'left';
+    panelY += 50;
     const placeInset = 160;
     const placeLeft = contentLeft + placeInset;
     const placeColW = (contentW - 2 * placeInset) / 2;
@@ -1127,7 +1139,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       ctx.fillText(coreItems[i], cx, panelY);
     }
     ctx.textAlign = 'left';
-    panelY += coreRowH + 28;
+    panelY += coreRowH + 18;
 
     // ── Footer: Ascendant · Midheaven · House System ──
     panelY = drawPanelDivider(panelY);
