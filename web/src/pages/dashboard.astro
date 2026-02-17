@@ -594,7 +594,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const _panelEst = 60
       + (50 + _placementRows * 62 + 24)   // placements
       + 30                                  // divider
-      + (50 + 3 * 48 + 24)                // core signature
+      + (30 + 48 + 20)                     // core signature (label + single row)
       + 30                                  // divider
       + 50;                                 // footer line
     const H = 1380 + _panelEst + 160;
@@ -1006,7 +1006,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const panelHeight = 60
       + 50 + placementRows * placeRowH + 24   // placements
       + 30                                      // divider
-      + 50 + 3 * coreRowH + 24                // core signature
+      + 30 + coreRowH + 20                     // core signature (label + single row)
       + 30                                      // divider
       + 50;                                     // footer line
 
@@ -1099,29 +1099,33 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     }
     panelY += placementRows * placeRowH + 24;
 
-    // ── CORE SIGNATURE ──
+    // ── CORE SIGNATURE (single row, three columns) ──
     panelY = drawPanelDivider(panelY);
-    panelY = drawPanelHeader('CORE SIGNATURE', panelY);
+    ctx.fillStyle = `${BRASS}80`;
+    ctx.font = '600 22px "EB Garamond", Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('CORE SIGNATURE', CX, panelY + 6);
+    ctx.textAlign = 'left';
+    panelY += 30;
 
     const sun = positions.find((p: any) => String(p?.body || '').toLowerCase() === 'sun');
     const moon = positions.find((p: any) => String(p?.body || '').toLowerCase() === 'moon');
     const coreItems = [
-      sun ? { label: `${PLANET_GLYPHS['Sun'] || ''} Sun`, value: `${normalizeSign(sun.sign)} ${Number(sun.degree || 0).toFixed(1)}\u00B0` } : null,
-      moon ? { label: `${PLANET_GLYPHS['Moon'] || ''} Moon`, value: `${normalizeSign(moon.sign)} ${Number(moon.degree || 0).toFixed(1)}\u00B0` } : null,
-      ascAngle ? { label: 'ASC', value: `${normalizeSign(ascAngle.sign)} ${Number(ascAngle.degree || 0).toFixed(1)}\u00B0` } : null,
-    ].filter(Boolean);
+      sun ? `${PLANET_GLYPHS['Sun'] || ''} Sun  ${normalizeSign(sun.sign)} ${Number(sun.degree || 0).toFixed(1)}\u00B0` : null,
+      moon ? `${PLANET_GLYPHS['Moon'] || ''} Moon  ${normalizeSign(moon.sign)} ${Number(moon.degree || 0).toFixed(1)}\u00B0` : null,
+      ascAngle ? `ASC  ${normalizeSign(ascAngle.sign)} ${Number(ascAngle.degree || 0).toFixed(1)}\u00B0` : null,
+    ].filter(Boolean) as string[];
 
-    for (const item of coreItems) {
-      if (!item) continue;
+    const coreColW = contentW / coreItems.length;
+    for (let i = 0; i < coreItems.length; i++) {
+      const cx = contentLeft + coreColW * i + coreColW / 2;
       ctx.fillStyle = '#d0c8b8';
-      ctx.font = '600 32px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
-      ctx.fillText(item.label, contentLeft, panelY);
-      ctx.fillStyle = '#8898b8';
-      ctx.font = '400 30px "EB Garamond", Georgia, serif';
-      ctx.fillText(item.value, contentLeft + 160, panelY);
-      panelY += coreRowH;
+      ctx.font = '400 28px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(coreItems[i], cx, panelY);
     }
-    panelY += 24;
+    ctx.textAlign = 'left';
+    panelY += coreRowH + 20;
 
     // ── Footer: Ascendant · Midheaven · House System ──
     panelY = drawPanelDivider(panelY);
