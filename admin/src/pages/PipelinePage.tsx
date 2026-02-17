@@ -19,6 +19,7 @@ export default function PipelinePage() {
   const [showTrigger, setShowTrigger] = useState(false);
   const [triggerForm, setTriggerForm] = useState({ regeneration_mode: '', date_context: '', parent_run_id: '' });
   const [triggering, setTriggering] = useState(false);
+  const [regeneratingWeather, setRegeneratingWeather] = useState(false);
   const [pendingTrigger, setPendingTrigger] = useState<{
     dateContext: string;
     knownRunIds: string[];
@@ -173,6 +174,18 @@ export default function PipelinePage() {
     setSavingSchedule(false);
   }
 
+  async function regenerateWeather() {
+    setRegeneratingWeather(true);
+    try {
+      const result = await apiPost('/admin/pipeline/weather/regenerate');
+      toast.success(result?.detail || 'Weather descriptions regenerated');
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setRegeneratingWeather(false);
+    }
+  }
+
   async function selectRun(run: any) {
     setHandledRunQuery(run.id);
     const next = new URLSearchParams(searchParams);
@@ -185,9 +198,14 @@ export default function PipelinePage() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-xl text-accent">Pipeline</h1>
-        <button onClick={() => setShowTrigger(!showTrigger)} className="text-xs px-3 py-1 bg-surface-raised border border-text-ghost rounded text-accent hover:border-accent">
-          Trigger Run
-        </button>
+        <div className="flex gap-2">
+          <button onClick={regenerateWeather} disabled={regeneratingWeather} className="text-xs px-3 py-1 bg-surface-raised border border-text-ghost rounded text-accent hover:border-accent disabled:opacity-50">
+            {regeneratingWeather ? 'Regenerating...' : 'Regenerate Weather'}
+          </button>
+          <button onClick={() => setShowTrigger(!showTrigger)} className="text-xs px-3 py-1 bg-surface-raised border border-text-ghost rounded text-accent hover:border-accent">
+            Trigger Run
+          </button>
+        </div>
       </div>
 
       {schedule && (
