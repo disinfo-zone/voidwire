@@ -43,6 +43,12 @@
     'Libra', 'Scorpio', 'Sagittarius', 'Capricorn', 'Aquarius', 'Pisces',
   ];
 
+  const SIGN_ABBR: Record<string, string> = {
+    Aries: 'ARI', Taurus: 'TAU', Gemini: 'GEM', Cancer: 'CAN',
+    Leo: 'LEO', Virgo: 'VIR', Libra: 'LIB', Scorpio: 'SCO',
+    Sagittarius: 'SAG', Capricorn: 'CAP', Aquarius: 'AQU', Pisces: 'PIS',
+  };
+
   const SIGN_GLYPHS: Record<string, string> = {
     Aries: '\u2648', Taurus: '\u2649', Gemini: '\u264A', Cancer: '\u264B',
     Leo: '\u264C', Virgo: '\u264D', Libra: '\u264E', Scorpio: '\u264F',
@@ -76,19 +82,20 @@
   const MAJOR_ASPECTS = new Set(['conjunction', 'opposition', 'square', 'trine']);
   const MODERATE_ASPECTS = new Set(['sextile', 'quincunx']);
 
-  // --- SVG geometry (proportional to dashboard's 1100-unit coordinate space) ---
+  // --- SVG geometry ---
   const CX = 260, CY = 260;
-  const R_OUTER = 230;        // outermost zodiac ring
-  const R_SIGN_INNER = 195;   // inner edge of sign band
-  const R_INNER = 128;        // inner aspect circle
-  const R_ASPECT = R_INNER - 5; // aspect line anchors
+  const R_OUTER = 218;        // outermost zodiac ring
+  const R_SIGN_INNER = 185;   // inner edge of sign band
+  const R_INNER = 122;        // inner aspect circle
+  const R_ASPECT = R_INNER - 5;
+  const R_LABEL = 243;        // sign abbreviation labels outside ring
 
   // Planet marker sizing
   const MARKER_R = 10;
   const GLYPH_PX = 14;
-  const BASE_ORBIT = 168;     // base planet orbit
-  const ORBIT_STEP = 22;      // radial step for clustered planets
-  const MIN_DEG_SEP = 12;     // minimum degrees before fan-out
+  const BASE_ORBIT = 160;
+  const ORBIT_STEP = 22;
+  const MIN_DEG_SEP = 12;
 
   // --- Coordinate helpers ---
   function toXY(longitude: number, radius: number) {
@@ -96,7 +103,6 @@
     return { x: CX + radius * Math.cos(rad), y: CY - radius * Math.sin(rad) };
   }
 
-  // Arc path for zodiac segments
   function arcPath(r1: number, r2: number, startDeg: number, endDeg: number): string {
     const s1 = toXY(startDeg, r1);
     const e1 = toXY(endDeg, r1);
@@ -134,7 +140,6 @@
 
   // --- Reactive data ---
 
-  // Normalize aspects
   let normalizedAspects: AspectNormalized[] = [];
   $: normalizedAspects = (aspects || [])
     .map((a): AspectNormalized => ({
@@ -149,7 +154,7 @@
     }))
     .filter((a) => a.body1 && a.body2 && a.aspect_type);
 
-  // Build planet display data with radial fan-out collision avoidance (matching dashboard)
+  // Planet display data with radial fan-out collision avoidance
   type PlanetDisplay = {
     name: string;
     glyph: string;
@@ -182,8 +187,6 @@
     }
     raw.sort((a, b) => a.longitude - b.longitude);
 
-    // Radial fan-out: planets within MIN_DEG_SEP of a prior planet
-    // get pushed outward onto higher orbits (matching dashboard's approach)
     const displayed: PlanetDisplay[] = raw.map((p, idx) => {
       let clusterDepth = 0;
       for (let j = 0; j < idx; j++) {
@@ -200,7 +203,6 @@
   // --- Sacred geometry ---
   type GeoLine = { x1: number; y1: number; x2: number; y2: number };
 
-  // Inscribed triangles (Star of David)
   let sacredTriangles: string[] = [];
   $: {
     const tris: string[] = [];
@@ -219,7 +221,6 @@
     sacredTriangles = tris;
   }
 
-  // Golden ratio circles
   let goldenCircles: number[] = [];
   $: {
     const phi = 1.618033988749;
@@ -231,7 +232,6 @@
     goldenCircles = circles;
   }
 
-  // Radial lines (15° intervals through inner area)
   let sacredRadials: GeoLine[] = [];
   $: {
     const lines: GeoLine[] = [];
@@ -251,10 +251,12 @@
   type SignSegment = {
     sign: string;
     glyph: string;
+    abbr: string;
     color: string;
     startDeg: number;
     path: string;
     glyphPos: { x: number; y: number };
+    labelPos: { x: number; y: number };
   };
 
   let signSegments: SignSegment[] = [];
@@ -265,16 +267,18 @@
     return {
       sign,
       glyph: SIGN_GLYPHS[sign] || '',
+      abbr: SIGN_ABBR[sign] || sign.slice(0, 3).toUpperCase(),
       color: SIGN_COLORS[sign] || '#9aa6c0',
       startDeg,
       path: arcPath(R_OUTER, R_SIGN_INNER, startDeg, startDeg + 30),
       glyphPos: toXY(midDeg, glyphR),
+      labelPos: toXY(midDeg, R_LABEL),
     };
   });
 
-  // Fine tick marks — every degree (matching dashboard's 1° resolution)
+  // Tick marks — every degree inside the sign band
   type Tick = { x1: number; y1: number; x2: number; y2: number; weight: 'major' | 'minor' | 'fine' };
-  let ticks: Tick[] = [];
+  let innerTicks: Tick[] = [];
   $: {
     const t: Tick[] = [];
     for (let deg = 0; deg < 360; deg++) {
@@ -288,7 +292,25 @@
         weight: isMaj ? 'major' : isMin ? 'minor' : 'fine',
       });
     }
-    ticks = t;
+    innerTicks = t;
+  }
+
+  // Tick marks — outside the outer ring (matching dashboard)
+  let outerTicks: Tick[] = [];
+  $: {
+    const t: Tick[] = [];
+    for (let deg = 0; deg < 360; deg++) {
+      const isMaj = deg % 10 === 0;
+      const isMin = deg % 5 === 0;
+      const tickLen = isMaj ? 3.5 : isMin ? 2 : 1;
+      const p1 = toXY(deg, R_OUTER);
+      const p2 = toXY(deg, R_OUTER + tickLen);
+      t.push({
+        x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y,
+        weight: isMaj ? 'major' : isMin ? 'minor' : 'fine',
+      });
+    }
+    outerTicks = t;
   }
 
   // Sign boundary lines
@@ -358,10 +380,11 @@
   }
 
   function buildPlanetLines(planet: PlanetDisplay): string[] {
+    const signGlyph = SIGN_GLYPHS[planet.sign] || '';
     return [
       planet.name,
-      `${planet.sign} ${formatDegree(planet.degree)}`,
-      `Speed: ${planet.speed.toFixed(3)}\u00B0/day${planet.retrograde ? ' (retrograde)' : ''}`,
+      `${signGlyph} ${planet.sign} ${formatDegree(planet.degree)}`,
+      `Speed: ${planet.speed.toFixed(3)}\u00B0/day${planet.retrograde ? ' \u00B7 Retrograde' : ''}`,
     ];
   }
 
@@ -436,7 +459,7 @@
       xmlns="http://www.w3.org/2000/svg"
     >
       <defs>
-        <!-- Clip everything to the outer circle -->
+        <!-- Clip interior atmosphere to outer ring -->
         <clipPath id="tw-circle-clip">
           <circle cx={CX} cy={CY} r={R_OUTER + 1} />
         </clipPath>
@@ -448,7 +471,7 @@
           <stop offset="100%" stop-color="#06040d" />
         </radialGradient>
 
-        <!-- Nebula glow overlays -->
+        <!-- Nebula glows -->
         <radialGradient id="tw-nebula-1" cx="35%" cy="40%" r="55%">
           <stop offset="0%" stop-color="rgba(70, 110, 180, 0.12)" />
           <stop offset="50%" stop-color="rgba(70, 110, 180, 0.04)" />
@@ -464,9 +487,19 @@
           <stop offset="50%" stop-color="rgba(90, 50, 130, 0.03)" />
           <stop offset="100%" stop-color="rgba(0,0,0,0)" />
         </radialGradient>
+
+        <!-- Ambient glow behind the whole wheel -->
+        <radialGradient id="tw-ambient-glow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="rgba(100, 130, 200, 0.08)" />
+          <stop offset="60%" stop-color="rgba(214, 175, 114, 0.04)" />
+          <stop offset="100%" stop-color="rgba(0,0,0,0)" />
+        </radialGradient>
       </defs>
 
-      <!-- Interior atmosphere, clipped to circle -->
+      <!-- Ambient glow halo (behind everything, not clipped) -->
+      <circle cx={CX} cy={CY} r={R_OUTER + 40} fill="url(#tw-ambient-glow)" />
+
+      <!-- Interior atmosphere, clipped to outer ring -->
       <g clip-path="url(#tw-circle-clip)">
         <rect width="520" height="520" fill="url(#tw-bg-grad)" />
         <rect width="520" height="520" fill="url(#tw-nebula-1)" />
@@ -474,8 +507,8 @@
         <rect width="520" height="520" fill="url(#tw-nebula-3)" />
       </g>
 
-      <!-- Layer 2: Sacred geometry (very faint, mystical depth) -->
-      <g class="sacred-geometry" opacity="0.055" stroke="{BRASS}" fill="none" stroke-width="0.5">
+      <!-- Sacred geometry (very faint, mystical depth) -->
+      <g opacity="0.055" stroke="{BRASS}" fill="none" stroke-width="0.5">
         {#each sacredTriangles as path}
           <path d={path} />
         {/each}
@@ -487,21 +520,19 @@
         {/each}
       </g>
 
-      <!-- Layer 3: Wheel structure -->
-      <!-- Inner aspect circle -->
+      <!-- Wheel structure rings -->
       <circle cx={CX} cy={CY} r={R_INNER} fill="none" stroke="{BRASS}" stroke-width="1" opacity="0.4" />
-      <!-- Inner edge of sign ring -->
       <circle cx={CX} cy={CY} r={R_SIGN_INNER} fill="none" stroke="{BRASS}" stroke-width="0.8" opacity="0.35" />
-      <!-- Outer ring -->
       <circle cx={CX} cy={CY} r={R_OUTER} fill="none" stroke="{BRASS}" stroke-width="1.2" opacity="0.5" />
 
-      <!-- Layer 4: Zodiac sign ring segments -->
+      <!-- Zodiac sign ring segments -->
       {#each signSegments as seg}
         <path
           d={seg.path}
           fill="{seg.color}10"
           stroke="none"
         />
+        <!-- Sign glyph inside ring band -->
         <text
           x={seg.glyphPos.x}
           y={seg.glyphPos.y}
@@ -512,6 +543,18 @@
           font-family='"Segoe UI Symbol", "EB Garamond", Georgia, serif'
           opacity="0.9"
         >{seg.glyph}</text>
+        <!-- 3-letter sign label outside ring -->
+        <text
+          x={seg.labelPos.x}
+          y={seg.labelPos.y}
+          text-anchor="middle"
+          dominant-baseline="central"
+          fill={seg.color}
+          font-size="8"
+          font-family='"Inter", sans-serif'
+          font-weight="600"
+          opacity="0.5"
+        >{seg.abbr}</text>
       {/each}
 
       <!-- Sign boundary lines -->
@@ -524,8 +567,8 @@
         />
       {/each}
 
-      <!-- Layer 5: Fine tick marks (every degree) -->
-      {#each ticks as t}
+      <!-- Inner tick marks (inside sign band) -->
+      {#each innerTicks as t}
         <line
           x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2}
           stroke="{BRASS}"
@@ -534,9 +577,18 @@
         />
       {/each}
 
-      <!-- Layer 6: Aspect web -->
+      <!-- Outer tick marks (outside outer ring) -->
+      {#each outerTicks as t}
+        <line
+          x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2}
+          stroke="{BRASS}"
+          stroke-width={t.weight === 'major' ? 0.7 : t.weight === 'minor' ? 0.4 : 0.25}
+          opacity={t.weight === 'major' ? 0.25 : t.weight === 'minor' ? 0.12 : 0.06}
+        />
+      {/each}
+
+      <!-- Aspect web -->
       {#each aspectLines as line}
-        <!-- Invisible fat hit area -->
         <!-- svelte-ignore a11y-no-static-element-interactions -->
         <line
           class="aspect-hit"
@@ -548,19 +600,18 @@
           on:click={(e) => handleAspectTap(e, line)}
           style="cursor: pointer;"
         />
-        <!-- Visible aspect line -->
         <line
+          class="aspect-line {line.applying ? 'applying' : ''}"
           x1={line.x1} y1={line.y1} x2={line.x2} y2={line.y2}
           stroke={line.color}
           stroke-width={line.width}
           stroke-dasharray={line.dash}
           opacity={line.opacity}
-          class={line.applying ? 'applying' : ''}
           style="pointer-events: none;"
         />
       {/each}
 
-      <!-- Layer 7: Planet markers (radial fan-out, matching dashboard style) -->
+      <!-- Planet markers -->
       {#each planets as planet}
         {@const innerPt = toXY(planet.longitude, R_INNER)}
 
@@ -584,9 +635,9 @@
         >
           <!-- Soft glow halo -->
           <circle
-            cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R + 5}
+            cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R + 6}
             fill="{planet.color}"
-            opacity="0.08"
+            opacity="0.1"
           />
           <!-- Marker circle background -->
           <circle
@@ -595,10 +646,11 @@
           />
           <!-- Marker circle border -->
           <circle
+            class="marker-ring"
             cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R}
             fill="none"
             stroke={planet.color}
-            stroke-width="1"
+            stroke-width="1.2"
           />
           <!-- Planet glyph -->
           <text
@@ -632,7 +684,6 @@
           {/if}
         </g>
       {/each}
-
     </svg>
   </div>
 
@@ -665,6 +716,18 @@
     justify-content: center;
     padding: 3rem 0;
     width: 100%;
+    animation: tw-reveal 1.2s ease-out both;
+  }
+
+  @keyframes tw-reveal {
+    from {
+      opacity: 0;
+      transform: scale(0.92);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
   }
 
   .svg-container {
@@ -677,6 +740,20 @@
     display: block;
     width: 100%;
     height: 100%;
+    overflow: visible;
+  }
+
+  /* Hover interactions */
+  .planet-group {
+    transition: filter 0.2s ease;
+  }
+
+  .planet-group:hover {
+    filter: brightness(1.3);
+  }
+
+  .planet-group:hover .marker-ring {
+    stroke-width: 1.8;
   }
 
   .applying {
@@ -692,13 +769,18 @@
     .applying {
       animation: none;
     }
+    .transit-wheel-wrapper {
+      animation: none;
+    }
   }
 
   .tooltip {
     position: absolute;
     background: var(--tw-tooltip-bg);
-    backdrop-filter: blur(8px);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--tw-tooltip-border);
+    border-radius: 4px;
     color: var(--tw-primary);
     font-family: var(--font-body);
     font-size: 0.9rem;
@@ -706,7 +788,15 @@
     pointer-events: none;
     max-width: 22rem;
     z-index: 100;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+    box-shadow:
+      0 4px 20px rgba(0, 0, 0, 0.6),
+      0 0 40px rgba(100, 130, 200, 0.06);
+    animation: tw-tooltip-in 0.15s ease-out;
+  }
+
+  @keyframes tw-tooltip-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 
   .tooltip-line {
