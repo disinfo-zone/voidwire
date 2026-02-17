@@ -36,6 +36,7 @@
 
   // --- Constants (aligned with dashboard.astro) ---
   const VS15 = '\uFE0E';
+  const BRASS = '#d6af72';
 
   const SIGN_ORDER = [
     'Aries', 'Taurus', 'Gemini', 'Cancer', 'Leo', 'Virgo',
@@ -75,21 +76,24 @@
   const MAJOR_ASPECTS = new Set(['conjunction', 'opposition', 'square', 'trine']);
   const MODERATE_ASPECTS = new Set(['sextile', 'quincunx']);
 
-  // --- SVG geometry ---
+  // --- SVG geometry (proportional to dashboard's 1100-unit coordinate space) ---
   const CX = 260, CY = 260;
-  const R_OUTER = 250, R_SIGN_INNER = 218;
-  const R_TICK = 213;
-  const R_PLANET = 185;
-  const R_ASPECT = 170;
+  const R_OUTER = 230;        // outermost zodiac ring
+  const R_SIGN_INNER = 195;   // inner edge of sign band
+  const R_INNER = 128;        // inner aspect circle
+  const R_ASPECT = R_INNER - 5; // aspect line anchors
+
+  // Planet marker sizing
+  const MARKER_R = 10;
+  const GLYPH_PX = 14;
+  const BASE_ORBIT = 168;     // base planet orbit
+  const ORBIT_STEP = 22;      // radial step for clustered planets
+  const MIN_DEG_SEP = 12;     // minimum degrees before fan-out
 
   // --- Coordinate helpers ---
   function toXY(longitude: number, radius: number) {
     const rad = (180 - longitude) * Math.PI / 180;
     return { x: CX + radius * Math.cos(rad), y: CY - radius * Math.sin(rad) };
-  }
-
-  function toAngleRad(longitude: number) {
-    return (180 - longitude) * Math.PI / 180;
   }
 
   // Arc path for zodiac segments
@@ -98,8 +102,6 @@
     const e1 = toXY(endDeg, r1);
     const s2 = toXY(endDeg, r2);
     const e2 = toXY(startDeg, r2);
-    // SVG arcs go clockwise; our longitude mapping is counter-clockwise visually
-    // so sweep flags need care. We draw 30° arcs.
     return `M ${s1.x} ${s1.y} A ${r1} ${r1} 0 0 1 ${e1.x} ${e1.y} L ${s2.x} ${s2.y} A ${r2} ${r2} 0 0 0 ${e2.x} ${e2.y} Z`;
   }
 
@@ -147,22 +149,23 @@
     }))
     .filter((a) => a.body1 && a.body2 && a.aspect_type);
 
-  // Build planet display data from positions dict
+  // Build planet display data with radial fan-out collision avoidance (matching dashboard)
   type PlanetDisplay = {
     name: string;
     glyph: string;
     longitude: number;
-    displayLongitude: number;
     sign: string;
     degree: number;
     speed: number;
     retrograde: boolean;
     color: string;
+    orbitR: number;
+    pos: { x: number; y: number };
   };
 
   let planets: PlanetDisplay[] = [];
   $: {
-    const raw: PlanetDisplay[] = [];
+    const raw: { name: string; glyph: string; longitude: number; sign: string; degree: number; speed: number; retrograde: boolean; color: string }[] = [];
     for (const [name, pos] of Object.entries(positions || {})) {
       const normalized = normalizePlanet(name);
       const sign = normalizeSign(pos.sign);
@@ -170,46 +173,78 @@
         name: normalized,
         glyph: PLANET_GLYPHS[normalized] || normalized.charAt(0),
         longitude: pos.longitude,
-        displayLongitude: pos.longitude,
         sign,
         degree: pos.degree,
         speed: pos.speed_deg_day,
         retrograde: pos.retrograde,
-        color: SIGN_COLORS[sign] || '#d6af72',
+        color: SIGN_COLORS[sign] || BRASS,
       });
     }
-    // Sort by longitude for collision avoidance
     raw.sort((a, b) => a.longitude - b.longitude);
 
-    // Multi-pass relaxation: nudge overlapping glyphs apart
-    const MIN_SEP = 8; // minimum angular gap in degrees
-    const items = raw.map((p) => ({ ...p }));
-    for (let pass = 0; pass < 4; pass++) {
-      for (let i = 0; i < items.length; i++) {
-        for (let j = i + 1; j < items.length; j++) {
-          let diff = items[j].displayLongitude - items[i].displayLongitude;
-          // Wrap around 360
-          if (diff < 0) diff += 360;
-          if (diff > 180) continue; // too far apart
-          if (diff < MIN_SEP) {
-            const push = (MIN_SEP - diff) / 2;
-            items[i].displayLongitude -= push;
-            items[j].displayLongitude += push;
-            // Normalize
-            if (items[i].displayLongitude < 0) items[i].displayLongitude += 360;
-            if (items[j].displayLongitude >= 360) items[j].displayLongitude -= 360;
-          }
-        }
+    // Radial fan-out: planets within MIN_DEG_SEP of a prior planet
+    // get pushed outward onto higher orbits (matching dashboard's approach)
+    const displayed: PlanetDisplay[] = raw.map((p, idx) => {
+      let clusterDepth = 0;
+      for (let j = 0; j < idx; j++) {
+        const diff = Math.abs(p.longitude - raw[j].longitude);
+        if (Math.min(diff, 360 - diff) < MIN_DEG_SEP) clusterDepth++;
       }
-    }
-    planets = items;
+      const orbitR = BASE_ORBIT + clusterDepth * ORBIT_STEP;
+      const pos = toXY(p.longitude, orbitR);
+      return { ...p, orbitR, pos };
+    });
+    planets = displayed;
   }
 
-  // Compute whether a planet was displaced enough to show a connecting line
-  function isDisplaced(p: PlanetDisplay): boolean {
-    let diff = Math.abs(p.displayLongitude - p.longitude);
-    if (diff > 180) diff = 360 - diff;
-    return diff > 0.5;
+  // --- Sacred geometry ---
+  type GeoLine = { x1: number; y1: number; x2: number; y2: number };
+
+  // Inscribed triangles (Star of David)
+  let sacredTriangles: string[] = [];
+  $: {
+    const tris: string[] = [];
+    const sacredR = R_INNER * 0.88;
+    for (let k = 0; k < 2; k++) {
+      let path = '';
+      for (let i = 0; i < 3; i++) {
+        const a = ((i * 120 + k * 60) * Math.PI) / 180;
+        const x = CX + Math.cos(a) * sacredR;
+        const y = CY + Math.sin(a) * sacredR;
+        path += i === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`;
+      }
+      path += ' Z';
+      tris.push(path);
+    }
+    sacredTriangles = tris;
+  }
+
+  // Golden ratio circles
+  let goldenCircles: number[] = [];
+  $: {
+    const phi = 1.618033988749;
+    const circles: number[] = [];
+    for (let i = 1; i <= 4; i++) {
+      const r = R_INNER * 0.15 * Math.pow(phi, i);
+      if (r < R_OUTER) circles.push(r);
+    }
+    goldenCircles = circles;
+  }
+
+  // Radial lines (15° intervals through inner area)
+  let sacredRadials: GeoLine[] = [];
+  $: {
+    const lines: GeoLine[] = [];
+    for (let deg = 0; deg < 360; deg += 15) {
+      const a = (deg * Math.PI) / 180;
+      lines.push({
+        x1: CX + Math.cos(a) * R_INNER * 0.3,
+        y1: CY + Math.sin(a) * R_INNER * 0.3,
+        x2: CX + Math.cos(a) * R_INNER * 0.85,
+        y2: CY + Math.sin(a) * R_INNER * 0.85,
+      });
+    }
+    sacredRadials = lines;
   }
 
   // --- Zodiac ring data ---
@@ -237,18 +272,21 @@
     };
   });
 
-  // Tick marks
-  type Tick = { x1: number; y1: number; x2: number; y2: number; major: boolean };
+  // Fine tick marks — every degree (matching dashboard's 1° resolution)
+  type Tick = { x1: number; y1: number; x2: number; y2: number; weight: 'major' | 'minor' | 'fine' };
   let ticks: Tick[] = [];
   $: {
     const t: Tick[] = [];
-    for (let deg = 0; deg < 360; deg += 5) {
-      const isMajor = deg % 10 === 0;
-      const outerR = R_SIGN_INNER;
-      const innerR = isMajor ? R_TICK - 3 : R_TICK;
-      const p1 = toXY(deg, outerR);
-      const p2 = toXY(deg, innerR);
-      t.push({ ...p1, x2: p2.x, y2: p2.y, x1: p1.x, y1: p1.y, major: isMajor });
+    for (let deg = 0; deg < 360; deg++) {
+      const isMaj = deg % 10 === 0;
+      const isMin = deg % 5 === 0;
+      const tickLen = isMaj ? 4 : isMin ? 2.5 : 1;
+      const p1 = toXY(deg, R_SIGN_INNER);
+      const p2 = toXY(deg, R_SIGN_INNER - tickLen);
+      t.push({
+        x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y,
+        weight: isMaj ? 'major' : isMin ? 'minor' : 'fine',
+      });
     }
     ticks = t;
   }
@@ -279,7 +317,7 @@
     const lines: AspectLine[] = [];
     const posMap: Record<string, number> = {};
     for (const p of planets) {
-      posMap[p.name.toLowerCase()] = p.longitude; // true longitude for aspect anchoring
+      posMap[p.name.toLowerCase()] = p.longitude;
     }
     for (const asp of normalizedAspects) {
       const lng1 = posMap[asp.body1.toLowerCase()];
@@ -294,8 +332,8 @@
         x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y,
         color: ASPECT_COLORS[asp.aspect_type] || '#555',
         width: isMajor ? 1.5 : isModerate ? 1 : 0.7,
-        dash: isMinor ? '4 3' : '',
-        opacity: Math.max(0.25, 1 - asp.orb / 10),
+        dash: isMinor ? '4 3' : (asp.applying ? '' : '6 4'),
+        opacity: Math.max(0.15, 0.7 * (1 - asp.orb / 10)),
         applying: asp.applying,
         aspect: asp,
       });
@@ -320,24 +358,26 @@
   }
 
   function buildPlanetLines(planet: PlanetDisplay): string[] {
-    const lines = [
+    return [
       planet.name,
       `${planet.sign} ${formatDegree(planet.degree)}`,
       `Speed: ${planet.speed.toFixed(3)}\u00B0/day${planet.retrograde ? ' (retrograde)' : ''}`,
     ];
-    return lines;
   }
 
   function showAspectTooltip(event: MouseEvent, line: AspectLine) {
     if (tooltipPinned) return;
-    const asp = line.aspect;
+    positionTooltip(event, buildAspectLines(line.aspect));
+  }
+
+  function buildAspectLines(asp: AspectNormalized): string[] {
     const lines = [
       `${asp.body1} ${asp.aspect_type} ${asp.body2}`,
       `Orb: ${asp.orb.toFixed(2)}\u00B0 (${asp.applying ? 'applying' : 'separating'})`,
     ];
     if (asp.significance) lines.push(asp.significance.toUpperCase());
     if (asp.core_meaning) lines.push(asp.core_meaning);
-    positionTooltip(event, lines);
+    return lines;
   }
 
   function positionTooltip(event: MouseEvent, lines: string[]) {
@@ -356,7 +396,6 @@
     tooltip = { ...tooltip, visible: false };
   }
 
-  // Mobile: tap toggles
   function handlePlanetTap(event: MouseEvent, planet: PlanetDisplay) {
     if (tooltipPinned) {
       tooltipPinned = false;
@@ -374,18 +413,10 @@
       return;
     }
     tooltipPinned = true;
-    const asp = line.aspect;
-    const lines = [
-      `${asp.body1} ${asp.aspect_type} ${asp.body2}`,
-      `Orb: ${asp.orb.toFixed(2)}\u00B0 (${asp.applying ? 'applying' : 'separating'})`,
-    ];
-    if (asp.significance) lines.push(asp.significance.toUpperCase());
-    if (asp.core_meaning) lines.push(asp.core_meaning);
-    positionTooltip(event, lines);
+    positionTooltip(event, buildAspectLines(line.aspect));
   }
 
   function handleWrapperClick(event: MouseEvent) {
-    // Dismiss pinned tooltip when tapping empty area
     const target = event.target as HTMLElement | SVGElement;
     if (tooltipPinned && !target.closest('.planet-group') && !target.closest('.aspect-hit')) {
       tooltipPinned = false;
@@ -404,13 +435,77 @@
       viewBox="0 0 520 520"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <!-- Zodiac sign ring segments -->
+      <defs>
+        <!-- Background radial gradient -->
+        <radialGradient id="tw-bg-grad" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#0a1228" />
+          <stop offset="100%" stop-color="#080510" />
+        </radialGradient>
+
+        <!-- Nebula glow overlays -->
+        <radialGradient id="tw-nebula-1" cx="35%" cy="40%" r="55%">
+          <stop offset="0%" stop-color="rgba(70, 110, 180, 0.12)" />
+          <stop offset="50%" stop-color="rgba(70, 110, 180, 0.04)" />
+          <stop offset="100%" stop-color="rgba(0,0,0,0)" />
+        </radialGradient>
+        <radialGradient id="tw-nebula-2" cx="65%" cy="55%" r="50%">
+          <stop offset="0%" stop-color="rgba(180, 145, 80, 0.10)" />
+          <stop offset="50%" stop-color="rgba(180, 145, 80, 0.03)" />
+          <stop offset="100%" stop-color="rgba(0,0,0,0)" />
+        </radialGradient>
+        <radialGradient id="tw-nebula-3" cx="45%" cy="65%" r="50%">
+          <stop offset="0%" stop-color="rgba(90, 50, 130, 0.10)" />
+          <stop offset="50%" stop-color="rgba(90, 50, 130, 0.03)" />
+          <stop offset="100%" stop-color="rgba(0,0,0,0)" />
+        </radialGradient>
+
+        <!-- Planet marker glow filter -->
+        <filter id="tw-planet-glow" x="-100%" y="-100%" width="300%" height="300%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur" />
+          <feComposite in="blur" in2="SourceGraphic" operator="over" />
+        </filter>
+
+        <!-- Vignette overlay -->
+        <radialGradient id="tw-vignette" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="rgba(0,0,0,0)" />
+          <stop offset="70%" stop-color="rgba(0,0,0,0)" />
+          <stop offset="100%" stop-color="rgba(0,0,0,0.3)" />
+        </radialGradient>
+      </defs>
+
+      <!-- Layer 1: Background atmosphere -->
+      <rect width="520" height="520" fill="url(#tw-bg-grad)" />
+      <rect width="520" height="520" fill="url(#tw-nebula-1)" />
+      <rect width="520" height="520" fill="url(#tw-nebula-2)" />
+      <rect width="520" height="520" fill="url(#tw-nebula-3)" />
+
+      <!-- Layer 2: Sacred geometry (very faint, mystical depth) -->
+      <g class="sacred-geometry" opacity="0.055" stroke="{BRASS}" fill="none" stroke-width="0.5">
+        {#each sacredTriangles as path}
+          <path d={path} />
+        {/each}
+        {#each goldenCircles as r}
+          <circle cx={CX} cy={CY} {r} />
+        {/each}
+        {#each sacredRadials as line}
+          <line x1={line.x1} y1={line.y1} x2={line.x2} y2={line.y2} />
+        {/each}
+      </g>
+
+      <!-- Layer 3: Wheel structure -->
+      <!-- Inner aspect circle -->
+      <circle cx={CX} cy={CY} r={R_INNER} fill="none" stroke="{BRASS}" stroke-width="1" opacity="0.4" />
+      <!-- Inner edge of sign ring -->
+      <circle cx={CX} cy={CY} r={R_SIGN_INNER} fill="none" stroke="{BRASS}" stroke-width="0.8" opacity="0.35" />
+      <!-- Outer ring -->
+      <circle cx={CX} cy={CY} r={R_OUTER} fill="none" stroke="{BRASS}" stroke-width="1.2" opacity="0.5" />
+
+      <!-- Layer 4: Zodiac sign ring segments -->
       {#each signSegments as seg}
         <path
           d={seg.path}
-          fill="{seg.color}12"
-          stroke="{seg.color}30"
-          stroke-width="0.5"
+          fill="{seg.color}10"
+          stroke="none"
         />
         <text
           x={seg.glyphPos.x}
@@ -418,8 +513,9 @@
           text-anchor="middle"
           dominant-baseline="central"
           fill={seg.color}
-          font-size="14"
+          font-size="16"
           font-family='"Segoe UI Symbol", "EB Garamond", Georgia, serif'
+          opacity="0.9"
         >{seg.glyph}</text>
       {/each}
 
@@ -427,26 +523,23 @@
       {#each boundaries as b}
         <line
           x1={b.x1} y1={b.y1} x2={b.x2} y2={b.y2}
-          stroke="var(--tw-boundary)"
-          stroke-width="0.8"
+          stroke="{BRASS}"
+          stroke-width="0.5"
+          opacity="0.2"
         />
       {/each}
 
-      <!-- Outer and inner ring circles -->
-      <circle cx={CX} cy={CY} r={R_OUTER} fill="none" stroke="var(--tw-ring)" stroke-width="1.5" />
-      <circle cx={CX} cy={CY} r={R_SIGN_INNER} fill="none" stroke="var(--tw-ring)" stroke-width="1" />
-
-      <!-- Tick marks -->
+      <!-- Layer 5: Fine tick marks (every degree) -->
       {#each ticks as t}
         <line
           x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2}
-          stroke="var(--tw-tick)"
-          stroke-width={t.major ? 1 : 0.5}
-          opacity={t.major ? 0.5 : 0.25}
+          stroke="{BRASS}"
+          stroke-width={t.weight === 'major' ? 0.8 : t.weight === 'minor' ? 0.5 : 0.3}
+          opacity={t.weight === 'major' ? 0.3 : t.weight === 'minor' ? 0.15 : 0.08}
         />
       {/each}
 
-      <!-- Aspect lines -->
+      <!-- Layer 6: Aspect web -->
       {#each aspectLines as line}
         <!-- Invisible fat hit area -->
         <!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -472,26 +565,19 @@
         />
       {/each}
 
-      <!-- Planet orbit circle (faint reference) -->
-      <circle cx={CX} cy={CY} r={R_PLANET} fill="none" stroke="var(--tw-orbit)" stroke-width="0.5" opacity="0.2" />
-
-      <!-- Planet glyphs -->
+      <!-- Layer 7: Planet markers (radial fan-out, matching dashboard style) -->
       {#each planets as planet}
-        {@const displayPos = toXY(planet.displayLongitude, R_PLANET)}
-        {@const truePos = toXY(planet.longitude, R_PLANET)}
-        {@const displaced = isDisplaced(planet)}
+        {@const innerPt = toXY(planet.longitude, R_INNER)}
 
-        <!-- Connecting line to true position if displaced -->
-        {#if displaced}
-          <line
-            x1={displayPos.x} y1={displayPos.y}
-            x2={truePos.x} y2={truePos.y}
-            stroke="{planet.color}40"
-            stroke-width="0.7"
-            stroke-dasharray="2 2"
-            style="pointer-events: none;"
-          />
-        {/if}
+        <!-- Tick line from inner ring to marker -->
+        <line
+          x1={innerPt.x} y1={innerPt.y}
+          x2={planet.pos.x} y2={planet.pos.y}
+          stroke="{planet.color}"
+          stroke-width="0.5"
+          opacity="0.3"
+          style="pointer-events: none;"
+        />
 
         <!-- svelte-ignore a11y-no-static-element-interactions -->
         <g
@@ -501,37 +587,59 @@
           on:click={(e) => handlePlanetTap(e, planet)}
           style="cursor: pointer;"
         >
-          <!-- Glow behind glyph -->
+          <!-- Soft glow halo -->
           <circle
-            cx={displayPos.x} cy={displayPos.y} r="12"
-            fill="{planet.color}18"
-            stroke="none"
+            cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R + 5}
+            fill="{planet.color}"
+            opacity="0.08"
+          />
+          <!-- Marker circle background -->
+          <circle
+            cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R}
+            fill="#080c16"
+          />
+          <!-- Marker circle border -->
+          <circle
+            cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R}
+            fill="none"
+            stroke={planet.color}
+            stroke-width="1"
           />
           <!-- Planet glyph -->
           <text
-            x={displayPos.x}
-            y={displayPos.y}
+            x={planet.pos.x}
+            y={planet.pos.y}
             text-anchor="middle"
             dominant-baseline="central"
-            fill={planet.retrograde ? '#e06050' : planet.color}
-            font-size="16"
+            fill={planet.color}
+            font-size={GLYPH_PX}
             font-family='"Segoe UI Symbol", "EB Garamond", Georgia, serif'
           >{planet.glyph}</text>
-          <!-- Retrograde "R" label -->
+
+          <!-- Retrograde badge -->
           {#if planet.retrograde}
+            <circle
+              cx={planet.pos.x + MARKER_R + 3}
+              cy={planet.pos.y - MARKER_R + 1}
+              r="4.5"
+              fill="#c04040"
+            />
             <text
-              x={displayPos.x}
-              y={displayPos.y + 12}
+              x={planet.pos.x + MARKER_R + 3}
+              y={planet.pos.y - MARKER_R + 1}
               text-anchor="middle"
               dominant-baseline="central"
-              fill="#c04040"
-              font-size="7"
+              fill="#f0e8e0"
+              font-size="6"
               font-family='"Inter", sans-serif'
               font-weight="700"
             >R</text>
           {/if}
         </g>
       {/each}
+
+      <!-- Layer 8: Vignette -->
+      <rect width="520" height="520" fill="url(#tw-vignette)" style="pointer-events: none;" />
     </svg>
   </div>
 
@@ -551,12 +659,6 @@
 
 <style>
   .transit-wheel-wrapper {
-    --tw-bg: #04070f;
-    --tw-surface: #0b1118;
-    --tw-ring: rgba(214, 175, 114, 0.35);
-    --tw-boundary: rgba(214, 175, 114, 0.2);
-    --tw-tick: rgba(214, 175, 114, 0.3);
-    --tw-orbit: rgba(214, 175, 114, 0.15);
     --tw-tooltip-bg: rgba(6, 8, 14, 0.95);
     --tw-tooltip-border: #2a323f;
     --tw-primary: #d9d4c9;
@@ -576,10 +678,11 @@
     width: 100%;
     max-width: 520px;
     aspect-ratio: 1/1;
-    border: 1px solid var(--tw-tooltip-border);
-    padding: 1rem;
-    background: var(--tw-surface);
-    box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+    border: 1px solid rgba(214, 175, 114, 0.12);
+    background: #080510;
+    box-shadow:
+      0 0 80px rgba(70, 110, 180, 0.06),
+      0 20px 60px rgba(0,0,0,0.6);
   }
 
   svg {
@@ -593,7 +696,7 @@
   }
 
   @keyframes pulse {
-    0%, 100% { opacity: 0.6; }
+    0%, 100% { opacity: 0.5; }
     50% { opacity: 1; }
   }
 
