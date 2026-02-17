@@ -436,10 +436,16 @@
       xmlns="http://www.w3.org/2000/svg"
     >
       <defs>
-        <!-- Background radial gradient -->
+        <!-- Clip everything to the outer circle -->
+        <clipPath id="tw-circle-clip">
+          <circle cx={CX} cy={CY} r={R_OUTER + 1} />
+        </clipPath>
+
+        <!-- Interior radial gradient -->
         <radialGradient id="tw-bg-grad" cx="50%" cy="50%" r="50%">
           <stop offset="0%" stop-color="#0a1228" />
-          <stop offset="100%" stop-color="#080510" />
+          <stop offset="80%" stop-color="#080510" />
+          <stop offset="100%" stop-color="#06040d" />
         </radialGradient>
 
         <!-- Nebula glow overlays -->
@@ -458,26 +464,15 @@
           <stop offset="50%" stop-color="rgba(90, 50, 130, 0.03)" />
           <stop offset="100%" stop-color="rgba(0,0,0,0)" />
         </radialGradient>
-
-        <!-- Planet marker glow filter -->
-        <filter id="tw-planet-glow" x="-100%" y="-100%" width="300%" height="300%">
-          <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur" />
-          <feComposite in="blur" in2="SourceGraphic" operator="over" />
-        </filter>
-
-        <!-- Vignette overlay -->
-        <radialGradient id="tw-vignette" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stop-color="rgba(0,0,0,0)" />
-          <stop offset="70%" stop-color="rgba(0,0,0,0)" />
-          <stop offset="100%" stop-color="rgba(0,0,0,0.3)" />
-        </radialGradient>
       </defs>
 
-      <!-- Layer 1: Background atmosphere -->
-      <rect width="520" height="520" fill="url(#tw-bg-grad)" />
-      <rect width="520" height="520" fill="url(#tw-nebula-1)" />
-      <rect width="520" height="520" fill="url(#tw-nebula-2)" />
-      <rect width="520" height="520" fill="url(#tw-nebula-3)" />
+      <!-- Interior atmosphere, clipped to circle -->
+      <g clip-path="url(#tw-circle-clip)">
+        <rect width="520" height="520" fill="url(#tw-bg-grad)" />
+        <rect width="520" height="520" fill="url(#tw-nebula-1)" />
+        <rect width="520" height="520" fill="url(#tw-nebula-2)" />
+        <rect width="520" height="520" fill="url(#tw-nebula-3)" />
+      </g>
 
       <!-- Layer 2: Sacred geometry (very faint, mystical depth) -->
       <g class="sacred-geometry" opacity="0.055" stroke="{BRASS}" fill="none" stroke-width="0.5">
@@ -638,8 +633,6 @@
         </g>
       {/each}
 
-      <!-- Layer 8: Vignette -->
-      <rect width="520" height="520" fill="url(#tw-vignette)" style="pointer-events: none;" />
     </svg>
   </div>
 
@@ -678,11 +671,6 @@
     width: 100%;
     max-width: 520px;
     aspect-ratio: 1/1;
-    border: 1px solid rgba(214, 175, 114, 0.12);
-    background: #080510;
-    box-shadow:
-      0 0 80px rgba(70, 110, 180, 0.06),
-      0 20px 60px rgba(0,0,0,0.6);
   }
 
   svg {
