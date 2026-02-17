@@ -378,6 +378,20 @@ async def run_pipeline(
                         run.ephemeris_hash = _content_hash(ephemeris_data)
                     await session.commit()
 
+                    # Weather descriptions (non-fatal, full_rerun only)
+                    if regeneration_mode not in (
+                        RegenerationMode.PROSE_ONLY,
+                        RegenerationMode.RESELECT,
+                    ):
+                        try:
+                            from api.services.weather_service import get_or_generate_weather
+
+                            weather = await get_or_generate_weather(session)
+                            if weather:
+                                logger.info("Weather descriptions generated")
+                        except Exception as weather_err:
+                            logger.warning("Weather generation failed (non-fatal): %s", weather_err)
+
                     # Stage 2/3: Ingestion + Distillation
                     sky_only = False
                     if regeneration_mode in (

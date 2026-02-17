@@ -59,7 +59,7 @@ interface WeatherDescriptions {
   moon_phase?: string;
   void_of_course?: string;
   retrogrades?: string | null;
-  daily_weather?: string;
+  timeline?: string[];
 }
 
 let events: AstroEvent[] = [];
@@ -238,14 +238,6 @@ function phaseDataAttr(phaseName: string): string {
     {ephemeris && (
       <div class="celestial-weather">
 
-        <!-- Today's Sky (LLM daily weather) -->
-        {weather?.daily_weather && (
-          <div class="weather-card">
-            <div class="weather-label">Today's Sky</div>
-            <p class="daily-weather-text">{weather.daily_weather}</p>
-          </div>
-        )}
-
         <!-- Moon Phase -->
         <div class="weather-card">
           <div class="weather-label" data-tip="The Moon's current phase and sign \u2014 sets the emotional backdrop for the day">Current Moon</div>
@@ -254,7 +246,7 @@ function phaseDataAttr(phaseName: string): string {
             <div class="moon-info">
               <div class="moon-phase-name" data-tip={PHASE_TIPS[ephemeris.lunar.phase_name] || ''}>{formatPhaseName(ephemeris.lunar.phase_name)}</div>
               <div class="moon-detail">
-                {Math.round(ephemeris.lunar.phase_pct * 100)}% illuminated
+                {Math.round((1 - Math.cos(ephemeris.lunar.phase_pct * 2 * Math.PI)) / 2 * 100)}% illuminated
                 {moonSign && <span> &middot; Moon in {moonSign}</span>}
               </div>
               {weather?.moon_phase && (
@@ -304,23 +296,25 @@ function phaseDataAttr(phaseName: string): string {
           <div class="weather-card">
             <div class="weather-label" data-tip="Key planetary movements over the next 5 days">Transit Timeline</div>
             <div class="timeline">
-              {ephemeris.stations_and_ingresses.map((si) => {
+              {ephemeris.stations_and_ingresses.map((si, i) => {
                 const isMajor = si.type.includes('station');
+                const meaning = weather?.timeline?.[i] ?? si.core_meaning;
                 return (
                   <div class={`timeline-item ${isMajor ? 'timeline-major' : ''}`}>
                     <div class="timeline-event">{formatEventType(si.type)}: {si.body}{si.sign ? ` in ${si.sign}` : ''}</div>
                     <div class="timeline-date">{formatTimelineDate(si.at, isMajor)}</div>
-                    {si.core_meaning && <div class="timeline-meaning">{si.core_meaning}</div>}
+                    {meaning && <div class="timeline-meaning">{meaning}</div>}
                   </div>
                 );
               })}
-              {ephemeris.forward_ephemeris.map((fe) => {
+              {ephemeris.forward_ephemeris.map((fe, j) => {
                 const isMajor = fe.significance === 'major';
+                const meaning = weather?.timeline?.[ephemeris.stations_and_ingresses.length + j] ?? fe.core_meaning;
                 return (
                   <div class={`timeline-item ${isMajor ? 'timeline-major' : ''}`}>
                     <div class="timeline-event">{fe.event}</div>
                     <div class="timeline-date">{formatTimelineDate(fe.at, isMajor)}</div>
-                    {fe.core_meaning && <div class="timeline-meaning">{fe.core_meaning}</div>}
+                    {meaning && <div class="timeline-meaning">{meaning}</div>}
                   </div>
                 );
               })}
@@ -426,15 +420,6 @@ function phaseDataAttr(phaseName: string): string {
     cursor: help;
   }
 
-  /* Daily Weather (LLM text) */
-  .daily-weather-text {
-    font-family: var(--font-body);
-    font-size: 1rem;
-    color: var(--text-primary);
-    line-height: 1.6;
-    margin: 0;
-  }
-
   /* Weather description (LLM text under sections) */
   .weather-description {
     font-family: var(--font-sans);
@@ -478,6 +463,10 @@ function phaseDataAttr(phaseName: string): string {
     position: absolute;
     inset: 0;
     border-radius: 50%;
+  }
+
+  .moon-disc[data-phase="new"]::before {
+    background: var(--void);
   }
 
   .moon-disc[data-phase="new"]::after {

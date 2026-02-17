@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
@@ -31,7 +32,7 @@ def _validate_weather_json(data: dict) -> dict:
     """Validate weather description JSON has expected keys."""
     if not isinstance(data, dict):
         raise ValueError("Expected a JSON object")
-    for key in ("moon_phase", "void_of_course", "daily_weather"):
+    for key in ("moon_phase", "void_of_course"):
         if key not in data:
             raise ValueError(f"Missing required key: {key}")
         if not isinstance(data[key], str) or not data[key].strip():
@@ -40,6 +41,14 @@ def _validate_weather_json(data: dict) -> dict:
     retro = data.get("retrogrades")
     if retro is not None and not isinstance(retro, str):
         raise ValueError("'retrogrades' must be a string or null")
+    # timeline must be a list of strings if present
+    timeline = data.get("timeline")
+    if timeline is not None:
+        if not isinstance(timeline, list):
+            raise ValueError("'timeline' must be a list of strings")
+        for i, item in enumerate(timeline):
+            if not isinstance(item, str):
+                raise ValueError(f"'timeline[{i}]' must be a string")
     return data
 
 
@@ -69,8 +78,9 @@ def _format_ephemeris_summary(ephemeris: dict) -> str:
     if lunar:
         phase = lunar.get("phase_name", "?")
         pct = lunar.get("phase_pct", 0)
+        illumination = round((1 - math.cos(pct * 2 * math.pi)) / 2 * 100)
         voc = "VOC active" if lunar.get("void_of_course") else "VOC clear"
-        parts.append(f"Moon phase: {phase} ({round(pct * 100)}% illuminated), {voc}")
+        parts.append(f"Moon phase: {phase} ({illumination}% illuminated), {voc}")
 
     aspects = ephemeris.get("aspects", [])
     if aspects:
@@ -81,6 +91,36 @@ def _format_ephemeris_summary(ephemeris: dict) -> str:
                 aspect_lines.append(str(desc))
         if aspect_lines:
             parts.append("Key aspects: " + "; ".join(aspect_lines))
+
+    # Timeline events for LLM descriptions
+    timeline_entries: list[str] = []
+    idx = 1
+    for si in ephemeris.get("stations_and_ingresses", []):
+        if isinstance(si, dict):
+            label = si.get("type", "event")
+            body = si.get("body", "")
+            sign = si.get("sign", "")
+            at = si.get("at", "")
+            date_part = at[:10] if at else ""
+            desc = f"{label}: {body}"
+            if sign:
+                desc += f" in {sign}"
+            if date_part:
+                desc += f" ({date_part})"
+            timeline_entries.append(f"{idx}. {desc}")
+            idx += 1
+    for fe in ephemeris.get("forward_ephemeris", []):
+        if isinstance(fe, dict):
+            event_desc = fe.get("event", "")
+            at = fe.get("at", "")
+            date_part = at[:10] if at else ""
+            desc = event_desc
+            if date_part:
+                desc += f" ({date_part})"
+            timeline_entries.append(f"{idx}. {desc}")
+            idx += 1
+    if timeline_entries:
+        parts.append("Timeline events (write one description per event):\n" + "\n".join(timeline_entries))
 
     return "\n".join(parts)
 
@@ -141,7 +181,7 @@ async def get_or_generate_weather(db: AsyncSession) -> dict | None:
 
     # Check cache
     cached = ephemeris.get("weather_descriptions")
-    if isinstance(cached, dict) and cached.get("daily_weather"):
+    if isinstance(cached, dict) and cached.get("moon_phase"):
         return cached
 
     # Build LLM client
@@ -205,3 +245,24 @@ async def get_or_generate_weather(db: AsyncSession) -> dict | None:
     await db.commit()
 
     return content
+
+
+async def regenerate_weather(db: AsyncSession) -> dict | None:
+    """Clear cached weather descriptions and regenerate them."""
+    run = await _get_today_run(db)
+    if not run or not run.ephemeris_json:
+        return None
+
+    ephemeris = run.ephemeris_json
+    if not isinstance(ephemeris, dict):
+        return None
+
+    # Clear existing cache
+    ephemeris.pop("weather_descriptions", None)
+    run.ephemeris_json = ephemeris
+    from sqlalchemy.orm.attributes import flag_modified
+
+    flag_modified(run, "ephemeris_json")
+    await db.commit()
+
+    return await get_or_generate_weather(db)

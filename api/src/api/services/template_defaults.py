@@ -351,13 +351,12 @@ Write concise, evocative descriptions for today's celestial weather. Match the s
 HARD CONSTRAINTS:
 - Return strict JSON only (no markdown fencing).
 - Write in English only. No non-Latin characters.
-- Keep total output under 200 words.
 
 Return JSON with:
 - moon_phase: string (current moon phase and its emotional/energetic meaning)
 - void_of_course: string (VOC status and what it means for the day)
 - retrogrades: string or null (summary of active retrogrades, null if none)
-- daily_weather: string (2-3 sentence overview of today's sky)
+- timeline: array of strings, one 1-sentence description per timeline event listed above, in the same order
 """
 
 STARTER_CELESTIAL_WEATHER_TEMPLATE_VARIABLES = [

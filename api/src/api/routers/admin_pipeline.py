@@ -439,6 +439,19 @@ async def get_run_artifacts(
     }
 
 
+@router.post("/weather/regenerate")
+async def regenerate_weather_descriptions(
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(require_admin),
+):
+    from api.services.weather_service import regenerate_weather
+
+    result = await regenerate_weather(db)
+    if not result:
+        raise HTTPException(status_code=404, detail="No pipeline run or LLM unavailable")
+    return {"detail": "Weather descriptions regenerated", "weather": result}
+
+
 @router.post("/trigger")
 async def trigger_pipeline(
     request: Request,
