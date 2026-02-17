@@ -230,11 +230,10 @@
     planets = displayed;
   }
 
-  // --- Sacred geometry ---
+  // --- Sacred geometry (static — only depends on constants) ---
   type GeoLine = { x1: number; y1: number; x2: number; y2: number };
 
-  let sacredTriangles: string[] = [];
-  $: {
+  const sacredTriangles: string[] = (() => {
     const tris: string[] = [];
     const sacredR = R_INNER * 0.88;
     for (let k = 0; k < 2; k++) {
@@ -248,22 +247,20 @@
       path += ' Z';
       tris.push(path);
     }
-    sacredTriangles = tris;
-  }
+    return tris;
+  })();
 
-  let goldenCircles: number[] = [];
-  $: {
+  const goldenCircles: number[] = (() => {
     const phi = 1.618033988749;
     const circles: number[] = [];
     for (let i = 1; i <= 4; i++) {
       const r = R_INNER * 0.15 * Math.pow(phi, i);
       if (r < R_OUTER) circles.push(r);
     }
-    goldenCircles = circles;
-  }
+    return circles;
+  })();
 
-  let sacredRadials: GeoLine[] = [];
-  $: {
+  const sacredRadials: GeoLine[] = (() => {
     const lines: GeoLine[] = [];
     for (let deg = 0; deg < 360; deg += 15) {
       const a = (deg * Math.PI) / 180;
@@ -274,8 +271,8 @@
         y2: CY + Math.sin(a) * R_INNER * 0.85,
       });
     }
-    sacredRadials = lines;
-  }
+    return lines;
+  })();
 
   // --- Zodiac ring ---
   type SignSegment = {
@@ -288,8 +285,7 @@
     labelPos: { x: number; y: number };
   };
 
-  let signSegments: SignSegment[] = [];
-  $: signSegments = SIGN_ORDER.map((sign, i) => {
+  const signSegments: SignSegment[] = SIGN_ORDER.map((sign, i) => {
     const startDeg = i * 30;
     const midDeg = startDeg + 15;
     const glyphR = (R_OUTER + R_SIGN_INNER) / 2;
@@ -304,10 +300,8 @@
     };
   });
 
-  // Batched tick mark paths (6 paths instead of 720 elements)
-  let innerTickMajor = '', innerTickMinor = '', innerTickFine = '';
-  let outerTickMajor = '', outerTickMinor = '', outerTickFine = '';
-  $: {
+  // Batched tick mark paths (static — 6 paths instead of 720 elements)
+  const [innerTickMajor, innerTickMinor, innerTickFine, outerTickMajor, outerTickMinor, outerTickFine] = (() => {
     const majI: { deg: number; len: number }[] = [];
     const minI: { deg: number; len: number }[] = [];
     const fineI: { deg: number; len: number }[] = [];
@@ -328,18 +322,19 @@
         fineO.push({ deg, len: 1 });
       }
     }
-    innerTickMajor = buildTickPath(R_SIGN_INNER, majI, true);
-    innerTickMinor = buildTickPath(R_SIGN_INNER, minI, true);
-    innerTickFine = buildTickPath(R_SIGN_INNER, fineI, true);
-    outerTickMajor = buildTickPath(R_OUTER, majO, false);
-    outerTickMinor = buildTickPath(R_OUTER, minO, false);
-    outerTickFine = buildTickPath(R_OUTER, fineO, false);
-  }
+    return [
+      buildTickPath(R_SIGN_INNER, majI, true),
+      buildTickPath(R_SIGN_INNER, minI, true),
+      buildTickPath(R_SIGN_INNER, fineI, true),
+      buildTickPath(R_OUTER, majO, false),
+      buildTickPath(R_OUTER, minO, false),
+      buildTickPath(R_OUTER, fineO, false),
+    ];
+  })();
 
-  // Sign boundary lines
+  // Sign boundary lines (static)
   type BoundaryLine = { x1: number; y1: number; x2: number; y2: number };
-  let boundaries: BoundaryLine[] = [];
-  $: boundaries = SIGN_ORDER.map((_, i) => {
+  const boundaries: BoundaryLine[] = SIGN_ORDER.map((_, i) => {
     const deg = i * 30;
     const p1 = toXY(deg, R_OUTER);
     const p2 = toXY(deg, R_SIGN_INNER);
@@ -558,6 +553,9 @@
           <stop offset="60%" stop-color="rgba(214, 175, 114, 0.04)" />
           <stop offset="100%" stop-color="rgba(0,0,0,0)" />
         </radialGradient>
+        <filter id="{uid}-planet-glow" x="-60%" y="-60%" width="220%" height="220%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="3" />
+        </filter>
       </defs>
 
       <!-- Ambient glow halo -->
@@ -659,15 +657,32 @@
             style="pointer-events: none; transition: opacity 0.2s ease, stroke-width 0.2s ease;"
           />
         {/if}
+        <!-- Endpoint dots -->
+        <circle cx={line.x1} cy={line.y1} r="1.5" fill={line.color}
+          opacity={hoveredAspectId === line.id ? 0.8 : line.opacity * 0.6}
+          style="pointer-events: none; transition: opacity 0.2s ease;" />
+        <circle cx={line.x2} cy={line.y2} r="1.5" fill={line.color}
+          opacity={hoveredAspectId === line.id ? 0.8 : line.opacity * 0.6}
+          style="pointer-events: none; transition: opacity 0.2s ease;" />
       {/each}
 
       <!-- Planet markers -->
       {#each planets as planet}
         {@const innerPt = toXY(planet.longitude, R_INNER)}
 
+        <!-- Connector line: gradient fade from inner ring to planet -->
         <line
           x1={innerPt.x} y1={innerPt.y} x2={planet.pos.x} y2={planet.pos.y}
-          stroke={planet.color} stroke-width="0.5" opacity="0.3"
+          stroke={planet.color} stroke-width="0.6" opacity="0.25"
+          stroke-dasharray="2 2"
+          style="pointer-events: none;"
+        />
+
+        <!-- Soft radial glow behind marker (matches dashboard aesthetic) -->
+        <circle
+          cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R + 8}
+          fill={planet.color} opacity="0.15"
+          filter="url(#{uid}-planet-glow)"
           style="pointer-events: none;"
         />
 
@@ -681,8 +696,6 @@
           style="cursor: pointer;"
         >
           <circle cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R + 8} fill="transparent" />
-          <circle cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R + 6}
-            fill={planet.color} opacity="0.1" />
           <circle cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R} fill="#080c16" />
           <circle class="marker-ring"
             cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R}
@@ -853,13 +866,12 @@
     .svg-container { max-width: 100%; }
 
     .tooltip {
-      position: fixed;
-      bottom: 1rem;
-      left: 1rem;
-      right: 1rem;
-      max-width: none;
+      position: fixed !important;
+      bottom: 1rem !important;
+      left: 1rem !important;
+      right: 1rem !important;
       top: auto !important;
-      left: auto !important;
+      max-width: none;
     }
   }
 </style>
