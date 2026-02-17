@@ -36,6 +36,13 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
             <div class="loading">Tuning into the wire&hellip;</div>
           </div>
           <div id="reading-actions" class="reading-actions"></div>
+          <div id="transit-overlay" class="transit-overlay" style="display: none;">
+            <div class="section-label" data-tip="Where the planets are right now, overlaid on your natal chart &mdash; showing how today&rsquo;s sky activates your birth chart">Current Transits</div>
+            <div class="chart-wheel-wrap">
+              <canvas id="transit-wheel-canvas"></canvas>
+            </div>
+            <div id="transit-content" class="chart-content"></div>
+          </div>
         </section>
 
         <section id="settings-section" class="settings-section" style="display: none;">
@@ -524,17 +531,16 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       <div class="reading-tier-badge">${escapeHtml(tierLabel)}</div>
       <h2 class="reading-title">${safeTitle}</h2>
       <div class="reading-meta">${safeDateContext}${safeCoverage ? ` · ${safeCoverage}` : ''} · ${safeWordCount} words</div>
-      <div id="transit-overlay" class="transit-overlay" style="display: none;">
-        <div class="section-label" data-tip="Where the planets are right now, overlaid on your natal chart \u2014 showing how today\u2019s sky activates your birth chart">Current Transits</div>
-        <div class="chart-wheel-wrap">
-          <canvas id="transit-wheel-canvas"></canvas>
-        </div>
-        <div id="transit-content" class="chart-content"></div>
-      </div>
       <div class="reading-body">${bodyHtml}</div>
       ${sectionsHtml}
       ${showTemplate ? `<div class="reading-template">Template: ${safeTemplate}</div>` : ''}
     `;
+    // Move the static transit overlay into position between meta and body
+    const transitOverlay = document.getElementById('transit-overlay');
+    const readingBody = readingContent.querySelector('.reading-body');
+    if (transitOverlay && readingBody) {
+      readingContent.insertBefore(transitOverlay, readingBody);
+    }
     setReadingActionVisibility();
     updateReadingStatus('');
   }
@@ -1075,6 +1081,8 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       if (chartStatus) chartStatus.style.display = 'none';
       if (exportTextButton) exportTextButton.style.display = 'inline-flex';
       if (exportImageButton) exportImageButton.style.display = 'inline-flex';
+      // Load transit overlay now that cachedChart is available
+      void loadTransitOverlay();
     } catch (err) {
       if (exportTextButton) exportTextButton.style.display = 'none';
       if (exportImageButton) exportImageButton.style.display = 'none';
@@ -2091,7 +2099,6 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       void loadNatalChart();
       setView('reading');
       await startReadingFlow();
-      void loadTransitOverlay();
     } catch (err) {
       console.error('Dashboard load error:', err);
       renderReadingMessage('Could not load dashboard.');
