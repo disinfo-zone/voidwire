@@ -261,13 +261,13 @@ export const GET: APIRoute = async ({ params }) => {
     const wheelSvg = buildWheelSvg(ephemeris);
 
     // Pre-render wheel to PNG with symbol font (so Unicode glyphs render correctly)
-    const symbolFontPath = join(fonts.dir, 'NotoSansSymbols2-400.woff');
+    const symbolFontPath = join(fonts.dir, 'NotoSansSymbols2.ttf');
     const wheelResvg = new Resvg(wheelSvg, {
       fitTo: { mode: 'width', value: 490 },
       font: {
         fontFiles: [symbolFontPath],
         defaultFontFamily: GLYPH_FONT,
-        loadSystemFonts: false,
+        loadSystemFonts: true,
       },
     });
     const wheelPng = wheelResvg.render().asPng();
