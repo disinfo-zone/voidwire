@@ -35,6 +35,7 @@
 
   export let positions: Record<string, PlanetPosition> = {};
   export let aspects: AspectInput[] = [];
+  export let ascendant: number | null = null;
 
   // --- Constants ---
   const VS15 = '\uFE0E';
@@ -111,6 +112,11 @@
   const BASE_ORBIT = 160;
   const ORBIT_STEP = 22;
   const MIN_DEG_SEP = 12;
+
+  // Natal chart rotation: when ascendant is provided, rotate the wheel
+  // so that the ascendant degree sits at 9 o'clock (standard natal orientation).
+  $: wheelRotation = ascendant != null ? -ascendant : 0;
+  $: counterRotation = -wheelRotation;
 
   let isTouchDevice = false;
   onMount(() => {
@@ -558,6 +564,9 @@
       <!-- Ambient glow halo -->
       <circle cx={CX} cy={CY} r={R_OUTER + 40} fill="url(#{uid}-glow)" />
 
+      <!-- Wheel rotation group: rotates for natal charts (ASC at 9 o'clock) -->
+      <g transform="rotate({wheelRotation}, {CX}, {CY})">
+
       <!-- Interior atmosphere (clipped to wheel circle, no outer background) -->
       <g clip-path="url(#{uid}-clip)">
         <circle cx={CX} cy={CY} r={R_OUTER} fill="url(#{uid}-bg)" />
@@ -593,6 +602,7 @@
           fill={seg.color} font-size="16"
           font-family='"Segoe UI Symbol", "EB Garamond", Georgia, serif'
           opacity="0.9"
+          transform="rotate({counterRotation}, {seg.glyphPos.x}, {seg.glyphPos.y})"
         >{seg.glyph}</text>
         <text
           x={seg.labelPos.x} y={seg.labelPos.y}
@@ -600,6 +610,7 @@
           fill={seg.color} font-size="8"
           font-family='"Inter", sans-serif' font-weight="600"
           opacity="0.5"
+          transform="rotate({counterRotation}, {seg.labelPos.x}, {seg.labelPos.y})"
         >{seg.abbr}</text>
       {/each}
 
@@ -663,6 +674,32 @@
           style="pointer-events: none; transition: opacity 0.2s ease;" />
       {/each}
 
+      <!-- ASC/DSC axis for natal charts -->
+      {#if ascendant != null}
+        {@const ascPt1 = toXY(ascendant, R_OUTER + 12)}
+        {@const ascPt2 = toXY(ascendant, R_INNER)}
+        {@const dscPt1 = toXY(ascendant + 180, R_OUTER + 12)}
+        {@const dscPt2 = toXY(ascendant + 180, R_INNER)}
+        {@const ascLabel = toXY(ascendant, R_OUTER + 22)}
+        {@const dscLabel = toXY(ascendant + 180, R_OUTER + 22)}
+        <line x1={ascPt1.x} y1={ascPt1.y} x2={ascPt2.x} y2={ascPt2.y}
+          stroke={BRASS} stroke-width="1.5" opacity="0.6" />
+        <line x1={dscPt1.x} y1={dscPt1.y} x2={dscPt2.x} y2={dscPt2.y}
+          stroke={BRASS} stroke-width="1" opacity="0.3" />
+        <text x={ascLabel.x} y={ascLabel.y}
+          text-anchor="middle" dominant-baseline="central"
+          fill={BRASS} font-size="7" font-family='"Inter", sans-serif'
+          font-weight="700" letter-spacing="0.1em" opacity="0.7"
+          transform="rotate({counterRotation}, {ascLabel.x}, {ascLabel.y})"
+        >ASC</text>
+        <text x={dscLabel.x} y={dscLabel.y}
+          text-anchor="middle" dominant-baseline="central"
+          fill={BRASS} font-size="7" font-family='"Inter", sans-serif'
+          font-weight="600" letter-spacing="0.1em" opacity="0.35"
+          transform="rotate({counterRotation}, {dscLabel.x}, {dscLabel.y})"
+        >DSC</text>
+      {/if}
+
       <!-- Planet markers -->
       {#each planets as planet}
         {@const innerPt = toXY(planet.longitude, R_INNER)}
@@ -694,20 +731,24 @@
             text-anchor="middle" dominant-baseline="central"
             fill={planet.color} font-size={GLYPH_PX}
             font-family='"Segoe UI Symbol", "EB Garamond", Georgia, serif'
+            transform="rotate({counterRotation}, {planet.pos.x}, {planet.pos.y})"
           >{planet.glyph}</text>
           {#if planet.retrograde}
-            <circle
-              cx={planet.pos.x + MARKER_R + 3} cy={planet.pos.y - MARKER_R + 1}
-              r="4.5" fill="#c04040" />
-            <text
-              x={planet.pos.x + MARKER_R + 3} y={planet.pos.y - MARKER_R + 1}
-              text-anchor="middle" dominant-baseline="central"
-              fill="#f0e8e0" font-size="6"
-              font-family='"Inter", sans-serif' font-weight="700"
-            >R</text>
+            <g transform="rotate({counterRotation}, {planet.pos.x}, {planet.pos.y})">
+              <circle
+                cx={planet.pos.x + MARKER_R + 3} cy={planet.pos.y - MARKER_R + 1}
+                r="4.5" fill="#c04040" />
+              <text
+                x={planet.pos.x + MARKER_R + 3} y={planet.pos.y - MARKER_R + 1}
+                text-anchor="middle" dominant-baseline="central"
+                fill="#f0e8e0" font-size="6"
+                font-family='"Inter", sans-serif' font-weight="700"
+              >R</text>
+            </g>
           {/if}
         </g>
       {/each}
+      </g><!-- end wheel rotation group -->
     </svg>
   </div>
 
@@ -738,7 +779,7 @@
     position: relative;
     display: flex;
     justify-content: center;
-    padding: 3rem 0;
+    padding: 1rem 0;
     width: 100%;
     animation: tw-reveal 1.2s ease-out both;
   }

@@ -39,7 +39,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           <div id="transit-overlay" class="transit-overlay" style="display: none;">
             <div class="section-label" data-tip="Where the planets are right now, overlaid on your natal chart &mdash; showing how today&rsquo;s sky activates your birth chart">Current Transits</div>
             <div class="chart-wheel-wrap">
-              <div id="transit-wheel-mount"></div>
+              <div id="transit-wheel-mount" style="width: 100%;"></div>
             </div>
             <div id="transit-content" class="chart-content"></div>
           </div>
@@ -57,7 +57,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
             </div>
           </div>
           <div class="chart-wheel-wrap">
-            <div id="natal-wheel-mount"></div>
+            <div id="natal-wheel-mount" style="width: 100%;"></div>
             <div class="chart-actions chart-actions-centered">
               <button id="export-chart-text-btn" class="action-button" style="display: none;">Copy Chart</button>
               <button id="export-chart-image-btn" class="action-button" style="display: none;">Share Chart Image</button>
@@ -852,10 +852,12 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           };
         }
         const chartAspects = Array.isArray(chart?.aspects) ? chart.aspects : [];
+        const ascAngle = angles.find((a: any) => String(a?.name || '').toLowerCase() === 'ascendant');
+        const ascLongitude = ascAngle ? Number(ascAngle.longitude || 0) : null;
         natalMount.innerHTML = '';
         new TransitWheel({
           target: natalMount,
-          props: { positions: posObj, aspects: chartAspects },
+          props: { positions: posObj, aspects: chartAspects, ascendant: ascLongitude },
         });
       }
 
@@ -2652,8 +2654,11 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
   }
 
   .chart-wheel-wrap :global(.transit-wheel-wrapper) {
-    max-width: 500px;
-    margin: 0 auto;
+    padding: 0.5rem 0;
+  }
+
+  .chart-wheel-wrap :global(.svg-container) {
+    max-width: 100%;
   }
 
   .chart-content {
