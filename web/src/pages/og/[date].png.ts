@@ -1,8 +1,9 @@
 import type { APIRoute } from 'astro';
 import satori from 'satori';
 import { Resvg } from '@resvg/resvg-js';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readFile, access } from 'node:fs/promises';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const API_URL = process.env.API_URL || import.meta.env.API_URL || 'http://voidwire-api:8000';
 
@@ -113,14 +114,30 @@ function buildWheelSvg(ephemeris: EphemerisData): string {
 let interFont: Buffer | null = null;
 let garamondFont: Buffer | null = null;
 
+async function findFontDir(): Promise<string> {
+  // Try multiple paths to handle different deployment layouts
+  const candidates = [
+    join(process.cwd(), 'dist', 'client', 'fonts'),
+    join(process.cwd(), 'client', 'fonts'),
+    join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'client', 'fonts'),
+    join(process.cwd(), 'public', 'fonts'),
+  ];
+  for (const dir of candidates) {
+    try {
+      await access(join(dir, 'Inter-400-latin.woff2'));
+      return dir;
+    } catch {}
+  }
+  throw new Error(`Fonts not found in any candidate path. cwd=${process.cwd()}, candidates=${candidates.join(', ')}`);
+}
+
 async function loadFonts(): Promise<{ inter: Buffer; garamond: Buffer }> {
   if (interFont && garamondFont) return { inter: interFont, garamond: garamondFont };
 
-  // Fonts are bundled in public/fonts/ → built to dist/client/fonts/
-  const clientDir = join(process.cwd(), 'dist', 'client', 'fonts');
+  const fontDir = await findFontDir();
   const [interBuf, garamondBuf] = await Promise.all([
-    readFile(join(clientDir, 'Inter-400-latin.woff2')),
-    readFile(join(clientDir, 'EBGaramond-400-latin.woff2')),
+    readFile(join(fontDir, 'Inter-400-latin.woff2')),
+    readFile(join(fontDir, 'EBGaramond-400-latin.woff2')),
   ]);
 
   interFont = interBuf;
@@ -307,8 +324,12 @@ export const GET: APIRoute = async ({ params }) => {
       },
     });
   } catch (err) {
-    console.error('OG image generation failed:', err);
-    // Return a 1x1 transparent PNG as fallback
-    return new Response(null, { status: 500 });
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error('OG image generation failed:', message, stack);
+    return new Response(JSON.stringify({ error: message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 };

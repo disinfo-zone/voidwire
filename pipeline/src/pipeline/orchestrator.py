@@ -21,7 +21,7 @@ from voidwire.models import AstronomicalEvent, PipelineRun, Reading
 from voidwire.schemas.pipeline import RegenerationMode
 from voidwire.services.pipeline_settings import load_pipeline_settings
 
-from pipeline.stages.distillation_stage import run_distillation_stage
+from pipeline.stages.distillation_stage import _get_llm_client, run_distillation_stage
 from pipeline.stages.embedding_stage import run_embedding_stage
 from pipeline.stages.ephemeris_stage import run_ephemeris_stage
 from pipeline.stages.ingestion_stage import run_ingestion_stage
@@ -250,6 +250,79 @@ async def _load_event_context(
         "date_context": date_context.isoformat(),
         "days_out": days_out,
     }
+
+
+async def _get_recent_titles(session: AsyncSession, date_context: date, limit: int = 30) -> list[str]:
+    """Fetch titles of recently published readings to prevent duplicates."""
+    result = await session.execute(
+        sa_text(
+            "SELECT r.published_standard->>'title' AS title "
+            "FROM readings r "
+            "WHERE r.status = 'published' "
+            "  AND r.date_context < :dc "
+            "  AND r.published_standard->>'title' IS NOT NULL "
+            "  AND r.published_standard->>'title' != '' "
+            "ORDER BY r.date_context DESC "
+            "LIMIT :lim"
+        ),
+        {"dc": date_context, "lim": limit},
+    )
+    return [str(row[0]).strip() for row in result.fetchall() if row[0]]
+
+
+def _is_duplicate_title(title: str, recent_titles: list[str]) -> bool:
+    """Check if a title is too similar to any recent title."""
+    if not title or not recent_titles:
+        return False
+    normalized = title.strip().lower()
+    for recent in recent_titles:
+        if normalized == recent.strip().lower():
+            return True
+    return False
+
+
+async def _regenerate_title(
+    session: AsyncSession,
+    current_title: str,
+    reading_body: str,
+    recent_titles: list[str],
+    date_context: date,
+) -> str:
+    """Use the distillation model to generate a new unique title."""
+    titles_str = ", ".join(f'"{t}"' for t in recent_titles[:20])
+    prompt = (
+        f"The following reading was generated for {date_context.isoformat()}:\n\n"
+        f"Current title: \"{current_title}\"\n"
+        f"Body excerpt: \"{reading_body[:500]}...\"\n\n"
+        f"This title duplicates a recent one. Recent titles to avoid: {titles_str}\n\n"
+        "Generate a single NEW title for this reading that:\n"
+        "- Captures the same mood and themes as the body\n"
+        "- Does NOT resemble any of the recent titles listed above\n"
+        "- Uses proper em-dashes (\u2014) not hyphens\n"
+        "- Is evocative and literary, not generic\n"
+        "- Does not address the reader as \"you\"\n\n"
+        "Return ONLY a JSON object: {\"title\": \"Your New Title Here\"}"
+    )
+    client = await _get_llm_client(session, "distillation", timeout=30.0)
+    try:
+        raw = await client.generate(
+            "distillation",
+            [{"role": "user", "content": prompt}],
+            temperature=0.8,
+        )
+        from voidwire.services.llm_client import strip_json_fencing
+        cleaned = strip_json_fencing(raw)
+        data = json.loads(cleaned)
+        new_title = str(data.get("title", "")).strip()
+        if new_title and not _is_duplicate_title(new_title, recent_titles):
+            return new_title
+        logger.warning("Regenerated title still duplicates or is empty, keeping original")
+        return current_title
+    except Exception as e:
+        logger.warning("Title regeneration failed: %s", e)
+        return current_title
+    finally:
+        await client.close()
 
 
 async def run_pipeline(
@@ -519,6 +592,16 @@ async def run_pipeline(
                     run.reused_artifacts = reused_artifacts
                     await session.commit()
 
+                    # Fetch recent titles to prevent duplicates in synthesis
+                    recent_titles: list[str] = []
+                    try:
+                        recent_titles = await _get_recent_titles(session, date_context)
+                        if recent_titles:
+                            ephemeris_data["recent_titles"] = recent_titles
+                            logger.info("Loaded %d recent titles for dedup", len(recent_titles))
+                    except Exception as titles_err:
+                        logger.warning("Could not load recent titles (non-fatal): %s", titles_err)
+
                     # Stage 7: Synthesis (with fallback ladder)
                     synthesis_timeout_seconds = max(60, int(ps.synthesis.max_stage_seconds))
                     if trigger_source == "manual_event":
@@ -585,11 +668,39 @@ async def run_pipeline(
                         if run.generated_output is None and not run.error_detail:
                             run.error_detail = "Synthesis fell back to silence output after retries."
 
+                        # Check for duplicate title and regenerate if needed
+                        standard_reading = synthesis_result.get("standard_reading", SILENCE_READING)
+                        if recent_titles and isinstance(standard_reading, dict):
+                            std_title = str(standard_reading.get("title", "")).strip()
+                            if std_title and _is_duplicate_title(std_title, recent_titles):
+                                logger.warning(
+                                    "Duplicate title detected: '%s', regenerating via distillation model",
+                                    std_title,
+                                )
+                                try:
+                                    new_title = await _regenerate_title(
+                                        session,
+                                        std_title,
+                                        str(standard_reading.get("body", "")),
+                                        recent_titles,
+                                        date_context,
+                                    )
+                                    standard_reading = dict(standard_reading)
+                                    standard_reading["title"] = new_title
+                                    synthesis_result["standard_reading"] = standard_reading
+                                    telemetry["title_regenerated"] = {
+                                        "original": std_title,
+                                        "replacement": new_title,
+                                    }
+                                    logger.info("Title regenerated: '%s' -> '%s'", std_title, new_title)
+                                except Exception as title_err:
+                                    logger.warning("Title regeneration failed (non-fatal): %s", title_err)
+
                         reading = Reading(
                             run_id=run_id,
                             date_context=date_context,
                             status="pending",
-                            generated_standard=synthesis_result.get("standard_reading", SILENCE_READING),
+                            generated_standard=standard_reading,
                             generated_extended=synthesis_result.get(
                                 "extended_reading",
                                 {"title": "", "subtitle": "", "sections": [], "word_count": 0},
