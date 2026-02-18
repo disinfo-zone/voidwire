@@ -58,9 +58,25 @@ function formatBody(text: string): string {
     .map((p: string) => `<p>${refineTypography(p.trim())}</p>`)
     .join('\n');
 }
+
+// Structured data (JSON-LD)
+const jsonLd = reading ? JSON.stringify({
+  '@context': 'https://schema.org',
+  '@type': 'Article',
+  headline: reading.title,
+  datePublished: reading.date_context,
+  dateModified: reading.date_context,
+  description: reading.body ? reading.body.substring(0, 200).replace(/\n/g, ' ').trim() : undefined,
+  wordCount: reading.word_count || undefined,
+  image: `/og/${dateParam}.png`,
+  author: { '@type': 'Organization', name: 'VOIDWIRE' },
+  publisher: { '@type': 'Organization', name: 'VOIDWIRE' },
+  mainEntityOfPage: { '@type': 'WebPage', '@id': `/reading/${dateParam}` },
+}) : null;
 ---
 
 <Base title={pageTitle} ogImage={`/og/${dateParam}.png`}>
+  {jsonLd && <script type="application/ld+json" set:html={jsonLd} />}
   <Background />
   <div class="reading-progress"></div>
 
@@ -196,29 +212,50 @@ function formatBody(text: string): string {
   .annotations-list {
     display: flex;
     flex-direction: column;
-    gap: 2rem;
+    gap: 2.5rem;
+  }
+
+  .annotation-item {
+    padding-left: 1.25rem;
+    border-left: 2px solid var(--accent);
+    position: relative;
+  }
+
+  .annotation-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -2px;
+    width: 2px;
+    height: 100%;
+    background: linear-gradient(180deg, var(--accent), transparent);
+    opacity: 0.4;
   }
 
   .annotation-aspect {
     font-family: var(--font-sans);
-    font-size: 0.7rem;
+    font-size: 0.65rem;
     letter-spacing: 0.2em;
     text-transform: uppercase;
     color: var(--accent);
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem;
+    opacity: 0.85;
   }
 
   .annotation-gloss {
-    font-size: 1.2rem;
-    line-height: 1.7;
+    font-size: 1.15rem;
+    line-height: 1.75;
     margin-bottom: 0.75rem;
+    color: var(--text-primary);
   }
 
   .annotation-resonance {
-    font-size: 1rem;
+    font-size: 0.95rem;
     color: var(--text-muted);
     font-style: italic;
-    padding-left: 1.5rem;
+    line-height: 1.7;
+    margin-top: 0.5rem;
+    padding-left: 1rem;
     border-left: 1px solid var(--text-ghost);
   }
 </style>
