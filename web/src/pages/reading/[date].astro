@@ -35,24 +35,6 @@ if (reading) {
   } catch {}
 }
 
-// Fetch archive for prev/next navigation
-let prevReading: { date_context: string; title: string } | null = null;
-let nextReading: { date_context: string; title: string } | null = null;
-if (reading) {
-  try {
-    const archiveRes = await fetch(apiUrl('/v1/archive?per_page=100'), { headers: apiHeaders });
-    if (archiveRes.ok) {
-      const archive: { date_context: string; title: string }[] = await archiveRes.json();
-      const idx = archive.findIndex((r) => r.date_context === dateParam);
-      if (idx >= 0) {
-        // Archive is newest-first: prev = older (idx+1), next = newer (idx-1)
-        if (idx + 1 < archive.length) prevReading = archive[idx + 1];
-        if (idx - 1 >= 0) nextReading = archive[idx - 1];
-      }
-    }
-  } catch {}
-}
-
 const aspects = ephemeris?.aspects || [];
 const positions = ephemeris?.positions || {};
 const pageTitle = reading ? reading.title : `Reading for ${dateParam}`;
@@ -137,23 +119,6 @@ function formatBody(text: string): string {
           ))}
         </div>
       </section>
-    )}
-
-    {reading && (prevReading || nextReading) && (
-      <nav class="reading-nav" data-reveal>
-        {prevReading ? (
-          <a href={`/reading/${prevReading.date_context}`}>
-            <span class="nav-label">Previous</span>
-            <span class="nav-title">{prevReading.title}</span>
-          </a>
-        ) : <span />}
-        {nextReading ? (
-          <a href={`/reading/${nextReading.date_context}`} class="nav-next">
-            <span class="nav-label">Next</span>
-            <span class="nav-title">{nextReading.title}</span>
-          </a>
-        ) : <span />}
-      </nav>
     )}
 
     {notFound && (
