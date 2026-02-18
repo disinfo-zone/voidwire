@@ -63,11 +63,23 @@ try {
   // Keep fallback content when API is unavailable.
 }
 
-function toParagraphs(body: string): string[] {
+function refineTypography(text: string) {
+  return text
+    .replace(/\.\.\./g, '&hellip;')
+    .replace(/--/g, '&mdash;')
+    .replace(/(^|[-\s(\[<{])"/g, '$1&ldquo;')
+    .replace(/"/g, '&rdquo;')
+    .replace(/(^|[-\s(\[<{])'/g, '$1&lsquo;')
+    .replace(/'/g, '&rsquo;');
+}
+
+function toParagraphsHtml(body: string): string {
   return body
     .split(/\n\n+/)
     .map((line) => line.trim())
-    .filter((line) => line.length > 0);
+    .filter((line) => line.length > 0)
+    .map((p) => `<p>${refineTypography(p)}</p>`)
+    .join('\n');
 }
 ---
 
@@ -84,12 +96,10 @@ function toParagraphs(body: string): string[] {
   </header>
 
   <main class="colophon">
-    {contentSections.map((section) => (
-      <section class="about-section">
+    {contentSections.map((section, i) => (
+      <section class:list={['about-section', { 'first-section': i === 0 }]}>
         {section.heading && <h2>{section.heading}</h2>}
-        {toParagraphs(section.body).map((paragraph) => (
-          <p>{paragraph}</p>
-        ))}
+        <div class="about-body" set:html={toParagraphsHtml(section.body)} />
       </section>
     ))}
   </main>
@@ -98,5 +108,14 @@ function toParagraphs(body: string): string[] {
 <style>
   .about-section + .about-section {
     margin-top: 2rem;
+  }
+
+  .first-section .about-body :global(p:first-child::first-letter) {
+    font-size: 3.5rem;
+    float: left;
+    line-height: 0.8;
+    padding-right: 0.15rem;
+    margin-top: 0.15rem;
+    color: var(--accent);
   }
 </style>
