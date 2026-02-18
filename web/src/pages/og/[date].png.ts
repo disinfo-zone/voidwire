@@ -124,7 +124,7 @@ async function findFontDir(): Promise<string> {
   ];
   for (const dir of candidates) {
     try {
-      await access(join(dir, 'Inter-400-latin.woff2'));
+      await access(join(dir, 'Inter-400.woff'));
       return dir;
     } catch {}
   }
@@ -136,8 +136,8 @@ async function loadFonts(): Promise<{ inter: Buffer; garamond: Buffer }> {
 
   const fontDir = await findFontDir();
   const [interBuf, garamondBuf] = await Promise.all([
-    readFile(join(fontDir, 'Inter-400-latin.woff2')),
-    readFile(join(fontDir, 'EBGaramond-400-latin.woff2')),
+    readFile(join(fontDir, 'Inter-400.woff')),
+    readFile(join(fontDir, 'EBGaramond-400.woff')),
   ]);
 
   interFont = interBuf;
