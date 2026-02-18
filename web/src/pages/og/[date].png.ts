@@ -7,7 +7,7 @@ const API_URL = process.env.API_URL || import.meta.env.API_URL || 'http://voidwi
 const WIDTH = 1200;
 const HEIGHT = 630;
 
-// --- Mini wheel geometry (renders a small transit chart as pure JSX) ---
+// --- Mini wheel SVG builder ---
 const WCX = 200, WCY = 200, WR = 170, WR_INNER = 115;
 
 const SIGN_COLORS: Record<string, string> = {
@@ -48,20 +48,18 @@ function buildWheelSvg(ephemeris: EphemerisData): string {
 
   let svg = '';
 
-  // Background circles
+  // Outer and inner rings
   svg += `<circle cx="${WCX}" cy="${WCY}" r="${WR}" fill="none" stroke="${BRASS}" stroke-width="1" opacity="0.35"/>`;
   svg += `<circle cx="${WCX}" cy="${WCY}" r="${WR_INNER}" fill="none" stroke="${BRASS}" stroke-width="0.6" opacity="0.2"/>`;
 
-  // Sign segment tints
+  // Sign boundaries and midpoint markers
   for (let i = 0; i < 12; i++) {
     const startDeg = i * 30;
     const sign = SIGN_ORDER[i];
     const color = SIGN_COLORS[sign] || '#9aa6c0';
-    // Draw as thin arcs using lines at boundaries
     const p1 = toXY(startDeg, WR);
     const p2 = toXY(startDeg, WR_INNER);
     svg += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${BRASS}" stroke-width="0.4" opacity="0.15"/>`;
-    // Midpoint glyph marker
     const mid = toXY(startDeg + 15, (WR + WR_INNER) / 2);
     svg += `<circle cx="${mid.x}" cy="${mid.y}" r="2" fill="${color}" opacity="0.3"/>`;
   }
@@ -106,25 +104,48 @@ function buildWheelSvg(ephemeris: EphemerisData): string {
     svg += `<circle cx="${pt.x}" cy="${pt.y}" r="2" fill="${color}" opacity="0.7"/>`;
   }
 
-  return svg;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">${svg}</svg>`;
 }
 
-// Fetch the font at startup so it's cached
-let fontDataCache: ArrayBuffer | null = null;
-async function getFont(): Promise<ArrayBuffer> {
-  if (fontDataCache) return fontDataCache;
-  // Use Inter for OG images (cleaner at small sizes than Garamond)
-  const res = await fetch('https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfAZ9hiA.woff2');
-  fontDataCache = await res.arrayBuffer();
-  return fontDataCache;
-}
+// Cached font buffers
+let interFont: ArrayBuffer | null = null;
+let garamondFont: ArrayBuffer | null = null;
 
-let fontDataCacheItalic: ArrayBuffer | null = null;
-async function getFontItalic(): Promise<ArrayBuffer> {
-  if (fontDataCacheItalic) return fontDataCacheItalic;
-  const res = await fetch('https://fonts.gstatic.com/s/ebgaramond/v27/SlGFmQSNjdsmc35JDF1K5GRwUjcdlttVFm-rI7e8QI96WamXgXY.woff2');
-  fontDataCacheItalic = await res.arrayBuffer();
-  return fontDataCacheItalic;
+async function loadFonts(): Promise<{ inter: ArrayBuffer; garamond: ArrayBuffer }> {
+  if (interFont && garamondFont) return { inter: interFont, garamond: garamondFont };
+
+  // Fetch Google Fonts CSS to get actual woff2 URLs (version-stable)
+  const [interCss, garamondCss] = await Promise.all([
+    fetch('https://fonts.googleapis.com/css2?family=Inter:wght@400&display=swap', {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+    }).then(r => r.text()),
+    fetch('https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400&display=swap', {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+    }).then(r => r.text()),
+  ]);
+
+  // Extract the latin woff2 URL from the CSS
+  function extractWoff2(css: string): string {
+    // Match the last url() in the CSS (usually the latin subset)
+    const matches = [...css.matchAll(/url\((https:\/\/fonts\.gstatic\.com\/[^)]+\.woff2)\)/g)];
+    return matches.length > 0 ? matches[matches.length - 1][1] : '';
+  }
+
+  const interUrl = extractWoff2(interCss);
+  const garamondUrl = extractWoff2(garamondCss);
+
+  if (!interUrl || !garamondUrl) {
+    throw new Error('Could not resolve font URLs from Google Fonts CSS');
+  }
+
+  const [interBuf, garamondBuf] = await Promise.all([
+    fetch(interUrl).then(r => r.arrayBuffer()),
+    fetch(garamondUrl).then(r => r.arrayBuffer()),
+  ]);
+
+  interFont = interBuf;
+  garamondFont = garamondBuf;
+  return { inter: interBuf, garamond: garamondBuf };
 }
 
 export const GET: APIRoute = async ({ params }) => {
@@ -133,181 +154,181 @@ export const GET: APIRoute = async ({ params }) => {
     return new Response('Not found', { status: 404 });
   }
 
-  // Fetch reading + ephemeris in parallel
-  const [readingRes, ephemRes] = await Promise.all([
-    fetch(`${API_URL}/v1/reading/${dateStr}`).catch(() => null),
-    fetch(`${API_URL}/v1/ephemeris/${dateStr}`).catch(() => null),
-  ]);
+  try {
+    // Fetch reading + ephemeris + fonts in parallel
+    const [readingRes, ephemRes, fonts] = await Promise.all([
+      fetch(`${API_URL}/v1/reading/${dateStr}`).catch(() => null),
+      fetch(`${API_URL}/v1/ephemeris/${dateStr}`).catch(() => null),
+      loadFonts(),
+    ]);
 
-  const reading = readingRes?.ok ? await readingRes.json() : null;
-  const ephemeris: EphemerisData = ephemRes?.ok ? await ephemRes.json() : {};
+    const reading = readingRes?.ok ? await readingRes.json() : null;
+    const ephemeris: EphemerisData = ephemRes?.ok ? await ephemRes.json() : {};
 
-  const title = reading?.title || `Reading for ${dateStr}`;
-  const subtitle = dateStr;
+    const title = reading?.title || `Reading for ${dateStr}`;
+    const subtitle = dateStr;
 
-  // Build mini wheel SVG string
-  const wheelSvg = buildWheelSvg(ephemeris);
+    // Build mini wheel as a base64 data URI for satori <img>
+    const wheelSvgStr = buildWheelSvg(ephemeris);
+    const wheelBase64 = `data:image/svg+xml;base64,${Buffer.from(wheelSvgStr).toString('base64')}`;
 
-  const [font, fontItalic] = await Promise.all([getFont(), getFontItalic()]);
-
-  // Satori renders JSX to SVG
-  const svg = await satori(
-    {
-      type: 'div',
-      props: {
-        style: {
-          width: '100%',
-          height: '100%',
-          display: 'flex',
-          background: 'linear-gradient(135deg, #060a16 0%, #0a0e1e 40%, #080510 100%)',
-          fontFamily: 'Inter',
-          position: 'relative',
-          overflow: 'hidden',
+    // Satori renders virtual DOM to SVG
+    const svg = await satori(
+      {
+        type: 'div',
+        props: {
+          style: {
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            background: '#060a16',
+            fontFamily: 'Inter',
+            position: 'relative',
+          },
+          children: [
+            // Subtle inset border
+            {
+              type: 'div',
+              props: {
+                style: {
+                  position: 'absolute',
+                  top: '16px',
+                  left: '16px',
+                  right: '16px',
+                  bottom: '16px',
+                  border: '1px solid rgba(214, 175, 114, 0.12)',
+                  borderRadius: '2px',
+                },
+              },
+            },
+            // Left: text content
+            {
+              type: 'div',
+              props: {
+                style: {
+                  display: 'flex',
+                  flexDirection: 'column' as const,
+                  justifyContent: 'center',
+                  padding: '60px 40px 60px 60px',
+                  flex: '1',
+                },
+                children: [
+                  {
+                    type: 'div',
+                    props: {
+                      style: {
+                        fontSize: '14px',
+                        fontWeight: 400,
+                        letterSpacing: '0.3em',
+                        color: '#d6af72',
+                        marginBottom: '24px',
+                      },
+                      children: 'VOIDWIRE',
+                    },
+                  },
+                  {
+                    type: 'div',
+                    props: {
+                      style: {
+                        fontSize: '44px',
+                        fontFamily: 'EB Garamond',
+                        fontWeight: 400,
+                        color: '#d9d4c9',
+                        lineHeight: 1.2,
+                        marginBottom: '20px',
+                        maxWidth: '540px',
+                      },
+                      children: title,
+                    },
+                  },
+                  {
+                    type: 'div',
+                    props: {
+                      style: {
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        marginTop: '4px',
+                      },
+                      children: [
+                        {
+                          type: 'div',
+                          props: {
+                            style: {
+                              width: '40px',
+                              height: '1px',
+                              background: 'rgba(214, 175, 114, 0.3)',
+                            },
+                          },
+                        },
+                        {
+                          type: 'div',
+                          props: {
+                            style: {
+                              fontSize: '13px',
+                              fontWeight: 400,
+                              letterSpacing: '0.2em',
+                              color: '#6f6a62',
+                            },
+                            children: subtitle,
+                          },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+            // Right: transit wheel
+            {
+              type: 'div',
+              props: {
+                style: {
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '420px',
+                  marginRight: '30px',
+                },
+                children: {
+                  type: 'img',
+                  props: {
+                    src: wheelBase64,
+                    width: 380,
+                    height: 380,
+                  },
+                },
+              },
+            },
+          ],
         },
-        children: [
-          // Subtle border
-          {
-            type: 'div',
-            props: {
-              style: {
-                position: 'absolute',
-                top: '16px',
-                left: '16px',
-                right: '16px',
-                bottom: '16px',
-                border: '1px solid rgba(214, 175, 114, 0.12)',
-                borderRadius: '2px',
-              },
-            },
-          },
-          // Left side: text content
-          {
-            type: 'div',
-            props: {
-              style: {
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'center',
-                padding: '60px 50px 60px 60px',
-                flex: '1',
-                zIndex: '1',
-              },
-              children: [
-                {
-                  type: 'div',
-                  props: {
-                    style: {
-                      fontSize: '13px',
-                      fontWeight: '500',
-                      letterSpacing: '0.3em',
-                      color: '#d6af72',
-                      textTransform: 'uppercase' as const,
-                      marginBottom: '20px',
-                    },
-                    children: 'VOIDWIRE',
-                  },
-                },
-                {
-                  type: 'div',
-                  props: {
-                    style: {
-                      fontSize: '42px',
-                      fontFamily: 'EB Garamond',
-                      fontWeight: '400',
-                      color: '#d9d4c9',
-                      lineHeight: '1.2',
-                      marginBottom: '16px',
-                      maxWidth: '560px',
-                    },
-                    children: title,
-                  },
-                },
-                {
-                  type: 'div',
-                  props: {
-                    style: {
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '12px',
-                      marginTop: '8px',
-                    },
-                    children: [
-                      {
-                        type: 'div',
-                        props: {
-                          style: {
-                            width: '40px',
-                            height: '1px',
-                            background: 'rgba(214, 175, 114, 0.3)',
-                          },
-                        },
-                      },
-                      {
-                        type: 'div',
-                        props: {
-                          style: {
-                            fontSize: '13px',
-                            fontWeight: '400',
-                            letterSpacing: '0.2em',
-                            color: '#6f6a62',
-                            textTransform: 'uppercase' as const,
-                          },
-                          children: subtitle,
-                        },
-                      },
-                    ],
-                  },
-                },
-              ],
-            },
-          },
-          // Right side: transit wheel
-          {
-            type: 'div',
-            props: {
-              style: {
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '420px',
-                marginRight: '30px',
-                zIndex: '1',
-                opacity: '0.85',
-              },
-              children: {
-                type: 'img',
-                props: {
-                  src: `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">${wheelSvg}</svg>`)}`,
-                  width: 380,
-                  height: 380,
-                },
-              },
-            },
-          },
+      },
+      {
+        width: WIDTH,
+        height: HEIGHT,
+        fonts: [
+          { name: 'Inter', data: fonts.inter, weight: 400, style: 'normal' as const },
+          { name: 'EB Garamond', data: fonts.garamond, weight: 400, style: 'normal' as const },
         ],
       },
-    },
-    {
-      width: WIDTH,
-      height: HEIGHT,
-      fonts: [
-        { name: 'Inter', data: font, weight: 400, style: 'normal' },
-        { name: 'EB Garamond', data: fontItalic, weight: 400, style: 'normal' },
-      ],
-    },
-  );
+    );
 
-  // Convert SVG to PNG
-  const resvg = new Resvg(svg, {
-    fitTo: { mode: 'width', value: WIDTH },
-  });
-  const png = resvg.render().asPng();
+    // SVG → PNG
+    const resvg = new Resvg(svg, {
+      fitTo: { mode: 'width', value: WIDTH },
+    });
+    const png = resvg.render().asPng();
 
-  return new Response(png, {
-    status: 200,
-    headers: {
-      'Content-Type': 'image/png',
-      'Cache-Control': 'public, max-age=86400, s-maxage=86400',
-    },
-  });
+    return new Response(png, {
+      status: 200,
+      headers: {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, max-age=86400, s-maxage=86400',
+      },
+    });
+  } catch (err) {
+    console.error('OG image generation failed:', err);
+    // Return a 1x1 transparent PNG as fallback
+    return new Response(null, { status: 500 });
+  }
 };

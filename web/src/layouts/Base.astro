@@ -89,7 +89,15 @@ try {
   canonicalUrl = '';
 }
 
-const ogImageUrl = ogImage || String(siteConfig.og_image_url || '').trim();
+const rawOgImage = ogImage || String(siteConfig.og_image_url || '').trim();
+let ogImageUrl = rawOgImage;
+// Social crawlers need absolute URLs — resolve relative paths against site_url
+if (ogImageUrl && !ogImageUrl.startsWith('http')) {
+  try {
+    const base = String(siteConfig.site_url || defaultSiteConfig.site_url).trim();
+    ogImageUrl = new URL(ogImageUrl, base).toString();
+  } catch {}
+}
 const twitterHandle = String(siteConfig.twitter_handle || '').trim();
 const trackingHead = String(siteConfig.tracking_head || '');
 const trackingBody = String(siteConfig.tracking_body || '');
