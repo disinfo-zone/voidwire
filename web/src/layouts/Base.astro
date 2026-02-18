@@ -7,6 +7,7 @@ interface Props {
 
 const { title, description, canonicalPath } = Astro.props;
 
+import { ViewTransitions } from 'astro:transitions';
 import '../styles/global.css';
 import { apiUrl, forwardedApiHeaders } from '../utils/api';
 
@@ -126,6 +127,7 @@ const trackingBody = String(siteConfig.tracking_body || '');
     <link rel="alternate" type="application/rss+xml" title="VOIDWIRE RSS" href="/feed.xml" />
     <link rel="alternate" type="application/atom+xml" title="VOIDWIRE Atom" href="/feed.atom" />
     {trackingHead && <Fragment set:html={trackingHead} />}
+    <ViewTransitions />
   </head>
   <body>
     <slot />
@@ -142,6 +144,51 @@ const trackingBody = String(siteConfig.tracking_body || '');
       <span>•</span>
       <a href="/disclaimer">Disclaimer</a>
     </footer>
+    <script is:inline>
+      (function() {
+        var _progressHandler = null;
+
+        function initReveal() {
+          var els = document.querySelectorAll('[data-reveal]:not(.revealed)');
+          if (!els.length) return;
+          var ob = new IntersectionObserver(function(entries) {
+            entries.forEach(function(e) {
+              if (e.isIntersecting) {
+                e.target.classList.add('revealed');
+                ob.unobserve(e.target);
+              }
+            });
+          }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+          els.forEach(function(el) { ob.observe(el); });
+        }
+
+        function initProgress() {
+          // Clean up previous listener
+          if (_progressHandler) {
+            window.removeEventListener('scroll', _progressHandler);
+            _progressHandler = null;
+          }
+          var bar = document.querySelector('.reading-progress');
+          var body = document.querySelector('.reading-body');
+          if (!bar || !body) return;
+          _progressHandler = function() {
+            var rect = body.getBoundingClientRect();
+            var start = rect.top + window.scrollY;
+            var end = start + rect.height;
+            var scroll = window.scrollY + window.innerHeight * 0.3;
+            var pct = Math.min(100, Math.max(0, ((scroll - start) / (end - start)) * 100));
+            bar.style.width = pct + '%';
+            bar.classList.toggle('visible', pct > 0 && pct < 100);
+          };
+          window.addEventListener('scroll', _progressHandler, { passive: true });
+          _progressHandler();
+        }
+
+        function initAll() { initReveal(); initProgress(); }
+        initAll();
+        document.addEventListener('astro:page-load', initAll);
+      })();
+    </script>
     <script is:inline>
       (() => {
         const navs = document.querySelectorAll('.site-nav');

@@ -35,15 +35,52 @@ if (reading) {
   } catch {}
 }
 
+// Fetch archive for prev/next navigation
+let prevReading: { date_context: string; title: string } | null = null;
+let nextReading: { date_context: string; title: string } | null = null;
+if (reading) {
+  try {
+    const archiveRes = await fetch(apiUrl('/v1/archive?per_page=100'), { headers: apiHeaders });
+    if (archiveRes.ok) {
+      const archive: { date_context: string; title: string }[] = await archiveRes.json();
+      const idx = archive.findIndex((r) => r.date_context === dateParam);
+      if (idx >= 0) {
+        // Archive is newest-first: prev = older (idx+1), next = newer (idx-1)
+        if (idx + 1 < archive.length) prevReading = archive[idx + 1];
+        if (idx - 1 >= 0) nextReading = archive[idx - 1];
+      }
+    }
+  } catch {}
+}
+
 const aspects = ephemeris?.aspects || [];
 const positions = ephemeris?.positions || {};
 const pageTitle = reading ? reading.title : `Reading for ${dateParam}`;
 const extended = reading?.extended || null;
 const showExtended = !!(extended && Array.isArray(extended.sections) && extended.sections.length > 0);
+
+function refineTypography(text: string) {
+  return text
+    .replace(/\.\.\./g, '&hellip;')
+    .replace(/--/g, '&mdash;')
+    .replace(/(^|[-\s(\[<{])"/g, '$1&ldquo;')
+    .replace(/"/g, '&rdquo;')
+    .replace(/(^|[-\s(\[<{])'/g, '$1&lsquo;')
+    .replace(/'/g, '&rsquo;');
+}
+
+function formatBody(text: string): string {
+  return text
+    .split(/\n\n+/)
+    .filter((p: string) => p.trim().length > 0)
+    .map((p: string) => `<p>${refineTypography(p.trim())}</p>`)
+    .join('\n');
+}
 ---
 
 <Base title={pageTitle}>
   <Background />
+  <div class="reading-progress"></div>
 
   <header class="site-header">
     <div class="site-title"><a href="/">VOIDWIRE</a></div>
@@ -61,32 +98,32 @@ const showExtended = !!(extended && Array.isArray(extended.sections) && extended
         body={reading.body}
         date_context={reading.date_context}
         word_count={reading.word_count}
-        has_extended={false} 
+        has_extended={false}
       />
     )}
 
     {reading && showExtended && (
-      <section class="extended-content">
+      <section class="extended-content" data-reveal>
         <div class="section-divider"></div>
-        
+
         {extended.sections.map((section: any) => (
           <article class="extended-block">
             {section.heading && <h3 class="extended-heading">{section.heading}</h3>}
-            <div class="extended-body">{section.body}</div>
+            <div class="extended-body" set:html={formatBody(section.body)} />
           </article>
         ))}
       </section>
     )}
 
     {reading && aspects.length > 0 && (
-      <section class="transit-visualization">
+      <section class="transit-visualization" data-reveal>
         <div class="section-label">Celestial Geometry</div>
         <TransitWheel positions={positions} aspects={aspects} client:visible />
       </section>
     )}
 
     {reading && reading.annotations && reading.annotations.length > 0 && (
-      <section class="annotations-section">
+      <section class="annotations-section" data-reveal>
         <div class="section-label">Annotations</div>
         <div class="annotations-list">
           {reading.annotations.map((a: any) => (
@@ -100,6 +137,23 @@ const showExtended = !!(extended && Array.isArray(extended.sections) && extended
           ))}
         </div>
       </section>
+    )}
+
+    {reading && (prevReading || nextReading) && (
+      <nav class="reading-nav" data-reveal>
+        {prevReading ? (
+          <a href={`/reading/${prevReading.date_context}`}>
+            <span class="nav-label">Previous</span>
+            <span class="nav-title">{prevReading.title}</span>
+          </a>
+        ) : <span />}
+        {nextReading ? (
+          <a href={`/reading/${nextReading.date_context}`} class="nav-next">
+            <span class="nav-label">Next</span>
+            <span class="nav-title">{nextReading.title}</span>
+          </a>
+        ) : <span />}
+      </nav>
     )}
 
     {notFound && (
@@ -152,6 +206,14 @@ const showExtended = !!(extended && Array.isArray(extended.sections) && extended
     font-size: 1.25rem;
     line-height: 1.8;
     color: var(--text-primary);
+  }
+
+  .extended-body :global(p) {
+    margin-bottom: 1.5em;
+  }
+
+  .extended-body :global(p:last-child) {
+    margin-bottom: 0;
   }
 
   .transit-visualization {

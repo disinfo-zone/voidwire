@@ -39,6 +39,7 @@ const positions = ephemeris?.positions || {};
 
 <Base>
   <Background />
+  <div class="reading-progress"></div>
 
   <header class="site-header">
     <div class="site-title"><a href="/">VOIDWIRE</a></div>
@@ -61,7 +62,7 @@ const positions = ephemeris?.positions || {};
     )}
 
     {reading && aspects.length > 0 && (
-      <section class="transit-visualization">
+      <section class="transit-visualization" data-reveal>
         <div class="section-label">Celestial Geometry</div>
         <TransitWheel positions={positions} aspects={aspects} client:visible />
       </section>
