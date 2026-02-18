@@ -157,8 +157,8 @@ function formatBody(text: string): string {
           {reading.annotations.map((a: any) => (
             <div class="annotation-item">
               <div class="annotation-aspect">{a.aspect}</div>
-              <div class="annotation-gloss">{a.gloss}</div>
-              {a.cultural_resonance && <div class="annotation-resonance">{a.cultural_resonance}</div>}
+              <div class="annotation-gloss" set:html={refineTypography(a.gloss)} />
+              {a.cultural_resonance && <div class="annotation-resonance" set:html={refineTypography(a.cultural_resonance)} />}
             </div>
           ))}
         </div>

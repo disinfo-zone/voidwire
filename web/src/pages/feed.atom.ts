@@ -48,6 +48,7 @@ export const GET: APIRoute = async () => {
     .join('\n');
 
   const atom = `<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="/feed.xsl"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
   <title>VOIDWIRE</title>
   <subtitle>Daily transmissions from the celestial wire.</subtitle>

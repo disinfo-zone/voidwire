@@ -37,7 +37,7 @@ const aspects = ephemeris?.aspects || [];
 const positions = ephemeris?.positions || {};
 ---
 
-<Base>
+<Base ogImage={reading ? `/og/${reading.date_context}.png` : undefined}>
   <Background />
   <div class="reading-progress"></div>
 

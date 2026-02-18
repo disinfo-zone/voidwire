@@ -9,8 +9,10 @@
   },
   "dependencies": {
     "@astrojs/node": "^8.3.4",
-    "astro": "^4.0.0",
     "@astrojs/svelte": "^5.0.0",
+    "@resvg/resvg-js": "^2.6.2",
+    "astro": "^4.0.0",
+    "satori": "^0.19.2",
     "svelte": "^4.0.0"
   }
 }

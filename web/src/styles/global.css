@@ -209,6 +209,18 @@ a:hover {
 .archive-title {
   color: var(--text-secondary);
   font-size: 1.1rem;
+  text-decoration: none;
+  background-image: linear-gradient(var(--accent), var(--accent));
+  background-size: 0% 1px;
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+  transition: background-size 0.4s ease, color 0.3s ease;
+}
+
+.archive-title:hover {
+  color: var(--text-primary);
+  background-size: 100% 1px;
+  opacity: 1;
 }
 
 /* About / Colophon */
