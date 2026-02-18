@@ -37,6 +37,10 @@ try {
   error = e instanceof Error ? e.message : 'Unknown error';
 }
 
+if (notFound) {
+  Astro.response.status = 404;
+}
+
 if (reading?.date_context) {
   try {
     const ephemRes = await fetch(apiUrl(`/v1/ephemeris/${reading.date_context}`), {
@@ -186,8 +190,30 @@ const jsonLd = reading ? JSON.stringify({
     )}
 
     {notFound && (
-      <div class="status-message">
-        <p>Event not found</p>
+      <div class="void-page">
+        <div class="void-container">
+          <div class="void-sigil">
+            <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" class="sigil-svg" aria-hidden="true">
+              <circle cx="60" cy="60" r="56" fill="none" stroke="var(--accent)" stroke-width="0.5" opacity="0.3" />
+              <circle cx="60" cy="60" r="40" fill="none" stroke="var(--accent)" stroke-width="0.3" opacity="0.2" />
+              <circle cx="60" cy="60" r="22" fill="none" stroke="var(--accent)" stroke-width="0.3" opacity="0.15" />
+              <line x1="60" y1="2" x2="60" y2="118" stroke="var(--accent)" stroke-width="0.3" opacity="0.12" />
+              <line x1="2" y1="60" x2="118" y2="60" stroke="var(--accent)" stroke-width="0.3" opacity="0.12" />
+              <circle cx="60" cy="60" r="3" fill="var(--accent)" opacity="0.15" />
+            </svg>
+          </div>
+          <div class="void-code">404</div>
+          <h1 class="void-title">Event not found</h1>
+          <p class="void-body">
+            This event has no transmission on the wire.
+          </p>
+          <div class="void-divider"></div>
+          <nav class="void-nav">
+            <a href="/events">All Events</a>
+            <span class="void-sep">&middot;</span>
+            <a href="/">Today&rsquo;s Reading</a>
+          </nav>
+        </div>
       </div>
     )}
 
@@ -345,5 +371,85 @@ const jsonLd = reading ? JSON.stringify({
     margin-top: 0.5rem;
     padding-left: 1rem;
     border-left: 1px solid var(--text-ghost);
+  }
+
+  .void-page {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: calc(100vh - 8rem);
+    padding: 2rem 1.5rem;
+  }
+
+  .void-container { text-align: center; max-width: 480px; }
+
+  .void-sigil {
+    width: 100px;
+    height: 100px;
+    margin: 0 auto 2rem;
+    animation: sigil-drift 16s ease-in-out infinite, sigil-fade-in 2s ease-out both;
+  }
+
+  .sigil-svg { width: 100%; height: 100%; }
+
+  @keyframes sigil-drift { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(180deg); } }
+  @keyframes sigil-fade-in { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
+
+  .void-code {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.4em;
+    color: var(--text-ghost);
+    margin-bottom: 1.25rem;
+    animation: void-in 1.5s ease-out 0.3s both;
+  }
+
+  .void-title {
+    font-family: var(--font-body);
+    font-size: 1.8rem;
+    font-weight: 400;
+    color: var(--text-primary);
+    line-height: 1.3;
+    margin-bottom: 1.25rem;
+    animation: void-in 1.5s ease-out 0.5s both;
+  }
+
+  .void-body {
+    font-family: var(--font-body);
+    font-size: 1rem;
+    line-height: 1.8;
+    color: var(--text-secondary);
+    margin-bottom: 2rem;
+    animation: void-in 1.5s ease-out 0.7s both;
+  }
+
+  .void-divider {
+    width: 50px;
+    height: 1px;
+    background: var(--text-ghost);
+    margin: 0 auto 1.5rem;
+    animation: void-in 1.5s ease-out 0.9s both;
+  }
+
+  .void-nav {
+    font-family: var(--font-sans);
+    font-size: 0.7rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+    animation: void-in 1.5s ease-out 1.1s both;
+  }
+
+  .void-nav a { color: var(--text-muted); transition: color 0.3s ease; }
+  .void-nav a:hover { color: var(--accent); opacity: 1; }
+  .void-sep { color: var(--text-ghost); font-size: 0.5rem; }
+
+  @keyframes void-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .void-sigil, .void-code, .void-title, .void-body, .void-divider, .void-nav { animation: none; }
   }
 </style>

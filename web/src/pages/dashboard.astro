@@ -849,15 +849,8 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         wheelCanvas.style.height = `${displaySize}px`;
         const wctx = wheelCanvas.getContext('2d');
         if (wctx) {
-          // Dark background fill
-          const bg = wctx.createRadialGradient(
-            wheelCanvas.width / 2, wheelCanvas.height / 2, 0,
-            wheelCanvas.width / 2, wheelCanvas.height / 2, wheelCanvas.width / 2,
-          );
-          bg.addColorStop(0, '#0a1228');
-          bg.addColorStop(1, '#080510');
-          wctx.fillStyle = bg;
-          wctx.fillRect(0, 0, wheelCanvas.width, wheelCanvas.height);
+          // Clear canvas (transparent background)
+          wctx.clearRect(0, 0, wheelCanvas.width, wheelCanvas.height);
           // Render wheel at 92% size for breathing room around sign labels
           const wheelSize = displaySize * dpr * 0.92;
           drawChartWheel(wctx, chart, wheelSize, (displaySize * dpr) / 2, (displaySize * dpr) / 2);

@@ -558,12 +558,12 @@
       <!-- Ambient glow halo -->
       <circle cx={CX} cy={CY} r={R_OUTER + 40} fill="url(#{uid}-glow)" />
 
-      <!-- Interior atmosphere -->
+      <!-- Interior atmosphere (clipped to wheel circle, no outer background) -->
       <g clip-path="url(#{uid}-clip)">
-        <rect width="520" height="520" fill="url(#{uid}-bg)" />
-        <rect width="520" height="520" fill="url(#{uid}-n1)" />
-        <rect width="520" height="520" fill="url(#{uid}-n2)" />
-        <rect width="520" height="520" fill="url(#{uid}-n3)" />
+        <circle cx={CX} cy={CY} r={R_OUTER} fill="url(#{uid}-bg)" />
+        <circle cx={CX} cy={CY} r={R_OUTER} fill="url(#{uid}-n1)" />
+        <circle cx={CX} cy={CY} r={R_OUTER} fill="url(#{uid}-n2)" />
+        <circle cx={CX} cy={CY} r={R_OUTER} fill="url(#{uid}-n3)" />
       </g>
 
       <!-- Sacred geometry -->

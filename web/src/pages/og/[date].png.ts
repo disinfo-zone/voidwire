@@ -1,6 +1,8 @@
 import type { APIRoute } from 'astro';
 import satori from 'satori';
 import { Resvg } from '@resvg/resvg-js';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 const API_URL = process.env.API_URL || import.meta.env.API_URL || 'http://voidwire-api:8000';
 
@@ -107,40 +109,18 @@ function buildWheelSvg(ephemeris: EphemerisData): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">${svg}</svg>`;
 }
 
-// Cached font buffers
-let interFont: ArrayBuffer | null = null;
-let garamondFont: ArrayBuffer | null = null;
+// Cached font buffers — loaded from bundled files (no network needed)
+let interFont: Buffer | null = null;
+let garamondFont: Buffer | null = null;
 
-async function loadFonts(): Promise<{ inter: ArrayBuffer; garamond: ArrayBuffer }> {
+async function loadFonts(): Promise<{ inter: Buffer; garamond: Buffer }> {
   if (interFont && garamondFont) return { inter: interFont, garamond: garamondFont };
 
-  // Fetch Google Fonts CSS to get actual woff2 URLs (version-stable)
-  const [interCss, garamondCss] = await Promise.all([
-    fetch('https://fonts.googleapis.com/css2?family=Inter:wght@400&display=swap', {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-    }).then(r => r.text()),
-    fetch('https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400&display=swap', {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-    }).then(r => r.text()),
-  ]);
-
-  // Extract the latin woff2 URL from the CSS
-  function extractWoff2(css: string): string {
-    // Match the last url() in the CSS (usually the latin subset)
-    const matches = [...css.matchAll(/url\((https:\/\/fonts\.gstatic\.com\/[^)]+\.woff2)\)/g)];
-    return matches.length > 0 ? matches[matches.length - 1][1] : '';
-  }
-
-  const interUrl = extractWoff2(interCss);
-  const garamondUrl = extractWoff2(garamondCss);
-
-  if (!interUrl || !garamondUrl) {
-    throw new Error('Could not resolve font URLs from Google Fonts CSS');
-  }
-
+  // Fonts are bundled in public/fonts/ → built to dist/client/fonts/
+  const clientDir = join(process.cwd(), 'dist', 'client', 'fonts');
   const [interBuf, garamondBuf] = await Promise.all([
-    fetch(interUrl).then(r => r.arrayBuffer()),
-    fetch(garamondUrl).then(r => r.arrayBuffer()),
+    readFile(join(clientDir, 'Inter-400-latin.woff2')),
+    readFile(join(clientDir, 'EBGaramond-400-latin.woff2')),
   ]);
 
   interFont = interBuf;
