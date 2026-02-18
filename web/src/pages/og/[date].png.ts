@@ -18,7 +18,8 @@ const BASE_ORBIT = 160, ORBIT_STEP = 22, MIN_DEG_SEP = 12;
 const MARKER_R = 10;
 const BRASS = '#d6af72';
 const PHI = 1.618033988749;
-const GLYPH_FONT = 'Noto Sans Symbols 2';
+const GLYPH_FONT = 'Noto Sans Symbols';
+const GLYPH_FONT_2 = 'Noto Sans Symbols 2';
 
 const SIGN_ORDER = [
   'Aries', 'Taurus', 'Gemini', 'Cancer', 'Leo', 'Virgo',
@@ -38,11 +39,20 @@ const SIGN_GLYPHS: Record<string, string> = {
   Sagittarius: '\u2650', Capricorn: '\u2651', Aquarius: '\u2652', Pisces: '\u2653',
 };
 
-const PLANET_GLYPHS: Record<string, string> = {
-  Sun: '\u2609', Moon: '\u263D', Mercury: '\u263F', Venus: '\u2640',
-  Mars: '\u2642', Jupiter: '\u2643', Saturn: '\u2644', Uranus: '\u2645',
-  Neptune: '\u2646', Pluto: '\u2647', 'North Node': '\u260A', Chiron: '\u26B7',
-  'Part Of Fortune': '\u2297',
+const PLANET_GLYPHS: Record<string, { char: string; font: string }> = {
+  Sun: { char: '\u2609', font: GLYPH_FONT_2 },
+  Moon: { char: '\u263D', font: GLYPH_FONT },
+  Mercury: { char: '\u263F', font: GLYPH_FONT },
+  Venus: { char: '\u2640', font: GLYPH_FONT },
+  Mars: { char: '\u2642', font: GLYPH_FONT },
+  Jupiter: { char: '\u2643', font: GLYPH_FONT },
+  Saturn: { char: '\u2644', font: GLYPH_FONT },
+  Uranus: { char: '\u2645', font: GLYPH_FONT },
+  Neptune: { char: '\u2646', font: GLYPH_FONT },
+  Pluto: { char: '\u2647', font: GLYPH_FONT },
+  'North Node': { char: '\u260A', font: GLYPH_FONT },
+  Chiron: { char: '\u26B7', font: GLYPH_FONT },
+  'Part Of Fortune': { char: '\u2297', font: GLYPH_FONT_2 },
 };
 
 const ASPECT_COLORS: Record<string, string> = {
@@ -198,9 +208,9 @@ function buildWheelSvg(ephemeris: EphemerisData): string {
     svg += `<circle cx="${pt.x}" cy="${pt.y}" r="${MARKER_R}" fill="#080c16"/>`;
     svg += `<circle cx="${pt.x}" cy="${pt.y}" r="${MARKER_R}" fill="none" stroke="${color}" stroke-width="1.2"/>`;
     // Unicode planet glyph
-    const glyph = PLANET_GLYPHS[p.name] || '';
-    if (glyph) {
-      svg += `<text x="${pt.x}" y="${pt.y}" text-anchor="middle" dominant-baseline="central" fill="${color}" font-size="14" font-family="${GLYPH_FONT}">${glyph}</text>`;
+    const glyphInfo = PLANET_GLYPHS[p.name];
+    if (glyphInfo) {
+      svg += `<text x="${pt.x}" y="${pt.y}" text-anchor="middle" dominant-baseline="central" fill="${color}" font-size="14" font-family="${glyphInfo.font}">${glyphInfo.char}</text>`;
     }
     // Retrograde: red outer ring
     if (p.retrograde) {
@@ -260,14 +270,15 @@ export const GET: APIRoute = async ({ params }) => {
     // Build wheel SVG with Unicode text glyphs
     const wheelSvg = buildWheelSvg(ephemeris);
 
-    // Pre-render wheel to PNG with symbol font (so Unicode glyphs render correctly)
-    const symbolFontPath = join(fonts.dir, 'NotoSansSymbols2.ttf');
+    // Pre-render wheel to PNG with symbol fonts (so Unicode glyphs render correctly)
+    const symbolFont1 = join(fonts.dir, 'NotoSansSymbols.ttf');
+    const symbolFont2 = join(fonts.dir, 'NotoSansSymbols2.ttf');
     const wheelResvg = new Resvg(wheelSvg, {
       fitTo: { mode: 'width', value: 490 },
       font: {
-        fontFiles: [symbolFontPath],
+        fontFiles: [symbolFont1, symbolFont2],
         defaultFontFamily: GLYPH_FONT,
-        loadSystemFonts: true,
+        loadSystemFonts: false,
       },
     });
     const wheelPng = wheelResvg.render().asPng();
