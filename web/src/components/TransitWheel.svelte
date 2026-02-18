@@ -553,9 +553,6 @@
           <stop offset="60%" stop-color="rgba(214, 175, 114, 0.04)" />
           <stop offset="100%" stop-color="rgba(0,0,0,0)" />
         </radialGradient>
-        <filter id="{uid}-planet-glow" x="-60%" y="-60%" width="220%" height="220%">
-          <feGaussianBlur in="SourceGraphic" stdDeviation="3" />
-        </filter>
       </defs>
 
       <!-- Ambient glow halo -->
@@ -675,14 +672,6 @@
           x1={innerPt.x} y1={innerPt.y} x2={planet.pos.x} y2={planet.pos.y}
           stroke={planet.color} stroke-width="0.6" opacity="0.25"
           stroke-dasharray="2 2"
-          style="pointer-events: none;"
-        />
-
-        <!-- Soft radial glow behind marker (matches dashboard aesthetic) -->
-        <circle
-          cx={planet.pos.x} cy={planet.pos.y} r={MARKER_R + 8}
-          fill={planet.color} opacity="0.15"
-          filter="url(#{uid}-planet-glow)"
           style="pointer-events: none;"
         />
 
