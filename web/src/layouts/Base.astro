@@ -202,15 +202,14 @@ const trackingBody = String(siteConfig.tracking_body || '');
     </script>
     <script is:inline>
       (() => {
-        const navs = document.querySelectorAll('.site-nav');
-        if (!navs.length) return;
-        fetch('/v1/user/auth/me', { credentials: 'include' })
-          .then((res) => (res.ok ? res.json() : null))
-          .then((me) => {
-            if (!me?.id) return;
-            navs.forEach((nav) => {
+        var _authUser = null;
+        function injectDashboardLink() {
+          var navs = document.querySelectorAll('.site-nav');
+          if (!navs.length) return;
+          if (_authUser) {
+            navs.forEach(function(nav) {
               if (nav.querySelector('a[href="/dashboard"]')) return;
-              const link = document.createElement('a');
+              var link = document.createElement('a');
               link.href = '/dashboard';
               link.textContent = 'Dashboard';
               if (window.location.pathname === '/dashboard') {
@@ -218,10 +217,18 @@ const trackingBody = String(siteConfig.tracking_body || '');
               }
               nav.appendChild(link);
             });
-          })
-          .catch(() => {
-            // Ignore auth probe errors; nav remains unchanged for guests.
-          });
+          } else if (_authUser === null) {
+            fetch('/v1/user/auth/me', { credentials: 'include' })
+              .then(function(res) { return res.ok ? res.json() : null; })
+              .then(function(me) {
+                _authUser = me?.id ? me : false;
+                if (_authUser) injectDashboardLink();
+              })
+              .catch(function() { _authUser = false; });
+          }
+        }
+        injectDashboardLink();
+        document.addEventListener('astro:page-load', injectDashboardLink);
       })();
     </script>
     {trackingBody && <Fragment set:html={trackingBody} />}
