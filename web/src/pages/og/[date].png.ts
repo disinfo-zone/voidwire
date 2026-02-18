@@ -10,8 +10,9 @@ const API_URL = process.env.API_URL || import.meta.env.API_URL || 'http://voidwi
 const WIDTH = 1200;
 const HEIGHT = 630;
 
-// --- Mini wheel SVG builder ---
-const WCX = 200, WCY = 200, WR = 170, WR_INNER = 115;
+// --- Mini wheel SVG builder for OG images ---
+const W = 460, WCX = W / 2, WCY = W / 2;
+const R_OUTER = 210, R_SIGN_MID = 185, R_INNER = 160, R_PLANET = 135, R_ASPECT = 120;
 
 const SIGN_COLORS: Record<string, string> = {
   Aries: '#ff8b7b', Taurus: '#e3c470', Gemini: '#f1ea86', Cancer: '#9fd2ff',
@@ -19,9 +20,15 @@ const SIGN_COLORS: Record<string, string> = {
   Sagittarius: '#ffad80', Capricorn: '#8ec5b8', Aquarius: '#90d0ff', Pisces: '#a0a6ff',
 };
 
-const ASPECT_COLORS: Record<string, string> = {
-  conjunction: '#c8ba32', trine: '#4a7ab5', square: '#b54a4a', opposition: '#c87832',
-  sextile: '#4ab56a', quincunx: '#8a6ab5', semisquare: '#b5804a', sesquiquadrate: '#b5804a',
+const ASPECT_STYLES: Record<string, { color: string; width: number; dash?: string }> = {
+  conjunction: { color: '#d6c65a', width: 1.8 },
+  trine: { color: '#5a8fd6', width: 1.5 },
+  square: { color: '#d65a5a', width: 1.5 },
+  opposition: { color: '#d6885a', width: 1.5 },
+  sextile: { color: '#5ad67a', width: 1.2 },
+  quincunx: { color: '#9a7ad6', width: 1.0, dash: '6 3' },
+  semisquare: { color: '#d6a05a', width: 0.8, dash: '4 3' },
+  sesquiquadrate: { color: '#d6a05a', width: 0.8, dash: '4 3' },
 };
 
 const SIGN_ORDER = [
@@ -29,9 +36,24 @@ const SIGN_ORDER = [
   'Libra', 'Scorpio', 'Sagittarius', 'Capricorn', 'Aquarius', 'Pisces',
 ];
 
+const PLANET_SIZES: Record<string, number> = {
+  sun: 8, moon: 7, mercury: 5, venus: 6, mars: 6,
+  jupiter: 7, saturn: 7, uranus: 5, neptune: 5, pluto: 4,
+  'north node': 4, chiron: 4,
+};
+
 function toXY(longitude: number, radius: number) {
   const rad = (180 - longitude) * Math.PI / 180;
   return { x: WCX + radius * Math.cos(rad), y: WCY - radius * Math.sin(rad) };
+}
+
+function arcPath(cx: number, cy: number, r: number, startDeg: number, endDeg: number): string {
+  const s = (180 - startDeg) * Math.PI / 180;
+  const e = (180 - endDeg) * Math.PI / 180;
+  const x1 = cx + r * Math.cos(s), y1 = cy - r * Math.sin(s);
+  const x2 = cx + r * Math.cos(e), y2 = cy - r * Math.sin(e);
+  const sweep = endDeg - startDeg <= 180 ? 0 : 1;
+  return `M ${x1} ${y1} A ${r} ${r} 0 ${sweep} 1 ${x2} ${y2}`;
 }
 
 function normalizeSign(sign: string): string {
@@ -49,23 +71,39 @@ function buildWheelSvg(ephemeris: EphemerisData): string {
   const aspects = ephemeris.aspects || [];
   const BRASS = '#d6af72';
 
+  let defs = '';
   let svg = '';
 
-  // Outer and inner rings
-  svg += `<circle cx="${WCX}" cy="${WCY}" r="${WR}" fill="none" stroke="${BRASS}" stroke-width="1" opacity="0.35"/>`;
-  svg += `<circle cx="${WCX}" cy="${WCY}" r="${WR_INNER}" fill="none" stroke="${BRASS}" stroke-width="0.6" opacity="0.2"/>`;
+  // SVG defs: glow filter, planet glow, center gradient
+  defs += `<filter id="glow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`;
+  defs += `<filter id="softglow"><feGaussianBlur stdDeviation="5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`;
+  defs += `<radialGradient id="centerglow" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="${BRASS}" stop-opacity="0.06"/><stop offset="100%" stop-color="${BRASS}" stop-opacity="0"/></radialGradient>`;
 
-  // Sign boundaries and midpoint markers
+  // Background glow
+  svg += `<circle cx="${WCX}" cy="${WCY}" r="${R_INNER}" fill="url(#centerglow)"/>`;
+
+  // Zodiac sign arcs — colored segments in the sign ring
   for (let i = 0; i < 12; i++) {
-    const startDeg = i * 30;
     const sign = SIGN_ORDER[i];
     const color = SIGN_COLORS[sign] || '#9aa6c0';
-    const p1 = toXY(startDeg, WR);
-    const p2 = toXY(startDeg, WR_INNER);
-    svg += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${BRASS}" stroke-width="0.4" opacity="0.15"/>`;
-    const mid = toXY(startDeg + 15, (WR + WR_INNER) / 2);
-    svg += `<circle cx="${mid.x}" cy="${mid.y}" r="2" fill="${color}" opacity="0.3"/>`;
+    const startDeg = i * 30;
+    const endDeg = startDeg + 30;
+    // Colored arc in the sign ring
+    svg += `<path d="${arcPath(WCX, WCY, R_SIGN_MID, startDeg, endDeg)}" fill="none" stroke="${color}" stroke-width="22" opacity="0.12" stroke-linecap="butt"/>`;
+    // Sign boundary radial line
+    const p1 = toXY(startDeg, R_OUTER);
+    const p2 = toXY(startDeg, R_INNER);
+    svg += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${BRASS}" stroke-width="0.6" opacity="0.25"/>`;
+    // Sign dot at midpoint
+    const mid = toXY(startDeg + 15, R_SIGN_MID);
+    svg += `<circle cx="${mid.x}" cy="${mid.y}" r="3" fill="${color}" opacity="0.5"/>`;
   }
+
+  // Ring strokes
+  svg += `<circle cx="${WCX}" cy="${WCY}" r="${R_OUTER}" fill="none" stroke="${BRASS}" stroke-width="1.2" opacity="0.4"/>`;
+  svg += `<circle cx="${WCX}" cy="${WCY}" r="${R_INNER}" fill="none" stroke="${BRASS}" stroke-width="0.8" opacity="0.25"/>`;
+  // Subtle inner ring
+  svg += `<circle cx="${WCX}" cy="${WCY}" r="${R_ASPECT - 5}" fill="none" stroke="${BRASS}" stroke-width="0.3" opacity="0.1"/>`;
 
   // Aspect lines
   const posMap: Record<string, number> = {};
@@ -79,35 +117,53 @@ function buildWheelSvg(ephemeris: EphemerisData): string {
     const lng1 = posMap[b1];
     const lng2 = posMap[b2];
     if (lng1 == null || lng2 == null) continue;
-    const color = ASPECT_COLORS[type] || '#555';
+    const style = ASPECT_STYLES[type] || { color: '#556', width: 0.8 };
     const orb = Math.abs(Number(asp.orb_degrees || asp.orb || 0));
-    const opacity = Math.max(0.1, 0.5 * (1 - orb / 10));
-    const p1 = toXY(lng1, WR_INNER - 5);
-    const p2 = toXY(lng2, WR_INNER - 5);
-    svg += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${color}" stroke-width="0.8" opacity="${opacity.toFixed(2)}"/>`;
+    const opacity = Math.max(0.15, 0.7 * (1 - orb / 10));
+    const p1 = toXY(lng1, R_ASPECT);
+    const p2 = toXY(lng2, R_ASPECT);
+    const dashAttr = style.dash ? ` stroke-dasharray="${style.dash}"` : '';
+    svg += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${style.color}" stroke-width="${style.width}" opacity="${opacity.toFixed(2)}"${dashAttr}/>`;
   }
 
-  // Planet markers
+  // Planet markers — glowing colored dots with size based on body
   const sorted = Object.entries(positions)
     .map(([name, pos]) => ({ name, ...pos }))
     .sort((a, b) => a.longitude - b.longitude);
+
+  // Collision avoidance — nudge clustered planets
+  const displayAngles: number[] = sorted.map(p => p.longitude);
+  for (let pass = 0; pass < 4; pass++) {
+    for (let i = 1; i < displayAngles.length; i++) {
+      let diff = displayAngles[i] - displayAngles[i - 1];
+      if (diff < 0) diff += 360;
+      if (diff < 8) {
+        const nudge = (8 - diff) / 2;
+        displayAngles[i - 1] -= nudge;
+        displayAngles[i] += nudge;
+      }
+    }
+  }
 
   for (let i = 0; i < sorted.length; i++) {
     const p = sorted[i];
     const sign = normalizeSign(p.sign);
     const color = SIGN_COLORS[sign] || BRASS;
-    let clusterDepth = 0;
-    for (let j = 0; j < i; j++) {
-      const diff = Math.abs(p.longitude - sorted[j].longitude);
-      if (Math.min(diff, 360 - diff) < 12) clusterDepth++;
-    }
-    const orbitR = 148 + clusterDepth * 16;
-    const pt = toXY(p.longitude, orbitR);
-    svg += `<circle cx="${pt.x}" cy="${pt.y}" r="5" fill="#080c16" stroke="${color}" stroke-width="0.8"/>`;
-    svg += `<circle cx="${pt.x}" cy="${pt.y}" r="2" fill="${color}" opacity="0.7"/>`;
+    const angle = displayAngles[i];
+    const r = PLANET_SIZES[p.name.toLowerCase()] || 5;
+    const pt = toXY(angle, R_PLANET);
+    // Outer glow
+    svg += `<circle cx="${pt.x}" cy="${pt.y}" r="${r + 4}" fill="${color}" opacity="0.15" filter="url(#softglow)"/>`;
+    // Dark background
+    svg += `<circle cx="${pt.x}" cy="${pt.y}" r="${r}" fill="#0a0e1a" stroke="${color}" stroke-width="1.5" opacity="0.95"/>`;
+    // Bright inner dot
+    svg += `<circle cx="${pt.x}" cy="${pt.y}" r="${Math.max(2, r - 3)}" fill="${color}" opacity="0.85"/>`;
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">${svg}</svg>`;
+  // Center dot
+  svg += `<circle cx="${WCX}" cy="${WCY}" r="2.5" fill="${BRASS}" opacity="0.2"/>`;
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${W}" width="${W}" height="${W}"><defs>${defs}</defs>${svg}</svg>`;
 }
 
 // Cached font buffers — loaded from bundled files (no network needed)
@@ -220,7 +276,7 @@ export const GET: APIRoute = async ({ params }) => {
                         color: '#d6af72',
                         marginBottom: '24px',
                       },
-                      children: 'VOIDWIRE',
+                      children: 'voidwireastro.com',
                     },
                   },
                   {
@@ -284,15 +340,15 @@ export const GET: APIRoute = async ({ params }) => {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  width: '420px',
-                  marginRight: '30px',
+                  width: '460px',
+                  marginRight: '20px',
                 },
                 children: {
                   type: 'img',
                   props: {
                     src: wheelBase64,
-                    width: 380,
-                    height: 380,
+                    width: 440,
+                    height: 440,
                   },
                 },
               },
