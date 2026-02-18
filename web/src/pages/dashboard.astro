@@ -39,7 +39,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           <div id="transit-overlay" class="transit-overlay" style="display: none;">
             <div class="section-label" data-tip="Where the planets are right now, overlaid on your natal chart &mdash; showing how today&rsquo;s sky activates your birth chart">Current Transits</div>
             <div class="chart-wheel-wrap">
-              <canvas id="transit-wheel-canvas"></canvas>
+              <div id="transit-wheel-mount"></div>
             </div>
             <div id="transit-content" class="chart-content"></div>
           </div>
@@ -57,7 +57,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
             </div>
           </div>
           <div class="chart-wheel-wrap">
-            <canvas id="chart-wheel-canvas"></canvas>
+            <div id="natal-wheel-mount"></div>
             <div class="chart-actions chart-actions-centered">
               <button id="export-chart-text-btn" class="action-button" style="display: none;">Copy Chart</button>
               <button id="export-chart-image-btn" class="action-button" style="display: none;">Share Chart Image</button>
@@ -120,6 +120,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
 <script>
   import { clearToken, authFetch } from '../utils/auth';
+  import TransitWheel from '../components/TransitWheel.svelte';
 
   type DashboardUser = {
     id: string;
@@ -156,7 +157,6 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
   let readingPollTimer: number | null = null;
   let readingPollStartedAt = 0;
   let cachedChart: Record<string, unknown> | null = null;
-  let chartPlanetScreenPositions: Array<{ body: string; sx: number; sy: number; sign: string; deg: string; house: string; retro: boolean }> = [];
   let chartBrandDomain = 'voidwire.app';
   const SIGN_ORDER = [
     'Aries',
@@ -837,53 +837,26 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       const angles = Array.isArray(chart?.angles) ? chart.angles : [];
       const houseSystem = String(chart?.house_system || 'Placidus');
 
-      // --- Render chart wheel on canvas ---
-      const wheelCanvas = document.getElementById('chart-wheel-canvas') as HTMLCanvasElement | null;
-      if (wheelCanvas) {
-        const container = wheelCanvas.parentElement;
-        const displaySize = Math.min(container?.clientWidth || 500, 500);
-        const dpr = window.devicePixelRatio || 1;
-        wheelCanvas.width = displaySize * dpr;
-        wheelCanvas.height = displaySize * dpr;
-        wheelCanvas.style.width = `${displaySize}px`;
-        wheelCanvas.style.height = `${displaySize}px`;
-        const wctx = wheelCanvas.getContext('2d');
-        if (wctx) {
-          // Clear canvas (transparent background)
-          wctx.clearRect(0, 0, wheelCanvas.width, wheelCanvas.height);
-          // Render wheel at 92% size for breathing room around sign labels
-          const wheelSize = displaySize * dpr * 0.92;
-          drawChartWheel(wctx, chart, wheelSize, (displaySize * dpr) / 2, (displaySize * dpr) / 2);
-
-          // Compute planet screen positions for interactive click detection
-          const wScale = wheelSize / 1100;
-          const ascA = angles.find((a: any) => String(a?.name || '').toLowerCase() === 'ascendant');
-          const ascLng = ascA ? Number(ascA.longitude || 0) : 0;
-          const BASE_ORBIT_I = 340, ORBIT_STEP_I = 44, MIN_DEG_SEP_I = 12;
-          const sPlanets = [...positions].map((pos: any) => {
-            const lng = Number(pos?.longitude || zodiacDegrees(pos?.sign, pos?.degree));
-            return { ...pos, _lng: lng };
-          }).sort((a: any, b: any) => a._lng - b._lng);
-          chartPlanetScreenPositions = sPlanets.map((p: any, idx: number) => {
-            let depth = 0;
-            for (let j = 0; j < idx; j++) {
-              const diff = Math.abs(p._lng - sPlanets[j]._lng);
-              if (Math.min(diff, 360 - diff) < MIN_DEG_SEP_I) depth++;
-            }
-            const orbitR = BASE_ORBIT_I + depth * ORBIT_STEP_I;
-            const angle = Math.PI - ((p._lng - ascLng) * Math.PI) / 180;
-            const cx = displaySize / 2 + Math.cos(angle) * orbitR * wScale;
-            const cy = displaySize / 2 + Math.sin(angle) * orbitR * wScale;
-            return {
-              body: displayBody(p.body),
-              sx: cx, sy: cy,
-              sign: normalizeSign(p.sign),
-              deg: Number(p.degree || 0).toFixed(1),
-              house: p.house ? `House ${p.house}` : '',
-              retro: Boolean(p.retrograde),
-            };
-          });
+      // --- Mount interactive natal chart wheel ---
+      const natalMount = document.getElementById('natal-wheel-mount');
+      if (natalMount) {
+        const posObj: Record<string, { sign: string; degree: number; longitude: number; speed_deg_day: number; retrograde: boolean }> = {};
+        for (const p of positions) {
+          const name = displayBody(p.body);
+          posObj[name] = {
+            sign: normalizeSign(p.sign),
+            degree: Number(p.degree || 0),
+            longitude: Number(p.longitude || zodiacDegrees(p.sign, p.degree)),
+            speed_deg_day: 0,
+            retrograde: Boolean(p.retrograde),
+          };
         }
+        const chartAspects = Array.isArray(chart?.aspects) ? chart.aspects : [];
+        natalMount.innerHTML = '';
+        new TransitWheel({
+          target: natalMount,
+          props: { positions: posObj, aspects: chartAspects },
+        });
       }
 
       // --- Build designed chart content ---
@@ -1669,117 +1642,32 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     if (!cachedChart || !hasProfile) return;
     const overlay = document.getElementById('transit-overlay');
     const transitContent = document.getElementById('transit-content');
-    const transitCanvas = document.getElementById('transit-wheel-canvas') as HTMLCanvasElement | null;
-    if (!overlay || !transitCanvas) return;
+    if (!overlay) return;
     try {
       const ephRes = await authFetch('/v1/ephemeris/today');
       if (!ephRes.ok) return;
       const ephData = await ephRes.json();
-      // Ephemeris API returns positions as a dict keyed by body name, convert to array
       const rawPositions = ephData?.positions;
-      const transitPositions: any[] = rawPositions && typeof rawPositions === 'object' && !Array.isArray(rawPositions)
-        ? Object.entries(rawPositions).map(([body, data]: [string, any]) => ({ body, ...data }))
+      // Ephemeris API returns positions as a dict keyed by body name
+      const transitPositionsObj: Record<string, any> = rawPositions && typeof rawPositions === 'object' && !Array.isArray(rawPositions)
+        ? rawPositions : {};
+      // Also need array form for the text list below
+      const transitPositions: any[] = Object.keys(transitPositionsObj).length > 0
+        ? Object.entries(transitPositionsObj).map(([body, data]: [string, any]) => ({ body, ...data }))
         : Array.isArray(rawPositions) ? rawPositions : [];
       const transitAspects = Array.isArray(ephData?.aspects) ? ephData.aspects : [];
       if (transitPositions.length === 0) return;
       overlay.style.display = 'block';
 
-      // Draw natal wheel with transit overlay
-      const natalChart = cachedChart as any;
-      const container = transitCanvas.parentElement;
-      const displaySize = Math.min(container?.clientWidth || 500, 500);
-      const dpr = window.devicePixelRatio || 1;
-      transitCanvas.width = displaySize * dpr;
-      transitCanvas.height = displaySize * dpr;
-      transitCanvas.style.width = `${displaySize}px`;
-      transitCanvas.style.height = `${displaySize}px`;
-      const ctx = transitCanvas.getContext('2d');
-      if (!ctx) return;
-
-      // Background
-      const bg = ctx.createRadialGradient(
-        transitCanvas.width / 2, transitCanvas.height / 2, 0,
-        transitCanvas.width / 2, transitCanvas.height / 2, transitCanvas.width / 2,
-      );
-      bg.addColorStop(0, '#0a1228');
-      bg.addColorStop(1, '#080510');
-      ctx.fillStyle = bg;
-      ctx.fillRect(0, 0, transitCanvas.width, transitCanvas.height);
-
-      // Draw natal wheel at 92% size
-      const wheelSize = displaySize * dpr * 0.92;
-      const cx = (displaySize * dpr) / 2;
-      const cy = (displaySize * dpr) / 2;
-      drawChartWheel(ctx, natalChart, wheelSize, cx, cy);
-
-      // Draw transit planets on outer rim
-      const scale = wheelSize / 1100;
-      const R_TRANSIT = 510;
-      const natalAngles = Array.isArray(natalChart.angles) ? natalChart.angles : [];
-      const natalAsc = natalAngles.find((a: any) => String(a?.name || '').toLowerCase() === 'ascendant');
-      const ascLong = natalAsc ? Number(natalAsc.longitude || 0) : 0;
-      function longToAngle(lng: number): number {
-        return Math.PI - ((lng - ascLong) * Math.PI) / 180;
+      // Mount interactive transit wheel (matches daily reading style)
+      const transitMount = document.getElementById('transit-wheel-mount');
+      if (transitMount) {
+        transitMount.innerHTML = '';
+        new TransitWheel({
+          target: transitMount,
+          props: { positions: transitPositionsObj, aspects: transitAspects },
+        });
       }
-
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.scale(scale, scale);
-      for (const tPos of transitPositions) {
-        const body = displayBody(tPos?.body);
-        const lng = Number(tPos?.longitude || 0);
-        const sign = normalizeSign(tPos?.sign);
-        const color = SIGN_COLORS[sign] || '#d6af72';
-        const glyph = PLANET_GLYPHS[body] || '';
-        const a = longToAngle(lng);
-        const x = Math.cos(a) * R_TRANSIT;
-        const y = Math.sin(a) * R_TRANSIT;
-
-        // Hollow circle marker for transits
-        ctx.strokeStyle = `${color}90`;
-        ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(x, y, 16, 0, Math.PI * 2); ctx.stroke();
-        ctx.fillStyle = `${color}20`;
-        ctx.fill();
-
-        ctx.fillStyle = `${color}cc`;
-        ctx.font = '400 22px "Segoe UI Symbol", "EB Garamond", Georgia, serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(glyph, x, y + 1);
-      }
-
-      // Draw transit-to-natal aspect lines
-      const natalPositions = Array.isArray(natalChart.positions) ? natalChart.positions : [];
-      const natalLongMap: Record<string, number> = {};
-      for (const np of natalPositions) {
-        natalLongMap[String(np?.body || '').toLowerCase()] = Number(np?.longitude || zodiacDegrees(np?.sign, np?.degree));
-      }
-      const R_INNER = 255;
-      for (const asp of transitAspects) {
-        const type = String(asp?.type || asp?.aspect_type || '').toLowerCase();
-        const color = CHART_ASPECT_COLORS[type];
-        if (!color) continue;
-        // Transit body → natal body
-        const transitBody = String(asp?.body1 || '').toLowerCase();
-        const natalBody = String(asp?.body2 || '').toLowerCase();
-        const transitLng = transitPositions.find((p: any) => String(p?.body || '').toLowerCase() === transitBody);
-        const natalLng = natalLongMap[natalBody];
-        if (!transitLng || natalLng == null) continue;
-        const a1 = longToAngle(Number(transitLng.longitude || 0));
-        const a2 = longToAngle(natalLng);
-        ctx.strokeStyle = color;
-        ctx.globalAlpha = 0.3;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath();
-        ctx.moveTo(Math.cos(a1) * R_TRANSIT, Math.sin(a1) * R_TRANSIT);
-        ctx.lineTo(Math.cos(a2) * (R_INNER - 10), Math.sin(a2) * (R_INNER - 10));
-        ctx.stroke();
-      }
-      ctx.globalAlpha = 1;
-      ctx.setLineDash([]);
-      ctx.restore();
 
       // Transit list below wheel
       if (transitContent) {
@@ -2442,57 +2330,6 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     stopReadingPolling();
   });
 
-  // --- Interactive chart wheel (click/tap planet to see details) ---
-  (() => {
-    const wheelCanvas = document.getElementById('chart-wheel-canvas');
-    if (!wheelCanvas) return;
-    wheelCanvas.style.cursor = 'pointer';
-    wheelCanvas.addEventListener('click', (e) => {
-      if (!cachedChart || chartPlanetScreenPositions.length === 0) return;
-      const rect = wheelCanvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-      const scaleX = rect.width > 0 ? 1 : 1;
-      let nearest: typeof chartPlanetScreenPositions[0] | null = null;
-      let nearestDist = Infinity;
-      for (const p of chartPlanetScreenPositions) {
-        const dx = mx - p.sx, dy = my - p.sy;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < nearestDist) { nearestDist = dist; nearest = p; }
-      }
-      if (!nearest || nearestDist > 30) return;
-      // Build detail text for tooltip
-      const aspects = Array.isArray((cachedChart as any)?.aspects) ? (cachedChart as any).aspects : [];
-      const bodyAspects = aspects.filter((a: any) =>
-        displayBody(a?.body1) === nearest!.body || displayBody(a?.body2) === nearest!.body
-      ).filter((a: any) => String(a?.significance || '').toLowerCase() !== 'minor');
-      const aspectLines = bodyAspects.map((a: any) => {
-        const other = displayBody(a.body1) === nearest!.body ? displayBody(a.body2) : displayBody(a.body1);
-        const type = String(a?.type || a?.aspect_type || '');
-        const orb = Number(a?.orb_degrees || a?.orb || 0).toFixed(1);
-        return `${type} ${other} (${orb}\u00B0)`;
-      }).join(', ');
-      const dignity = getDignity(nearest.body, nearest.sign);
-      const dignityLabel = dignity ? ` \u2014 ${DIGNITY_LABELS[dignity]?.label || ''}` : '';
-      const planetTip = PLANET_TIPS[nearest.body] || '';
-      let tipText = `${nearest.body}: ${nearest.deg}\u00B0 ${nearest.sign}`;
-      if (nearest.house) tipText += ` \u00B7 ${nearest.house}`;
-      if (nearest.retro) tipText += ' (Retrograde)';
-      if (dignityLabel) tipText += dignityLabel;
-      if (planetTip) tipText += ` \u2014 ${planetTip}`;
-      if (aspectLines) tipText += `\nAspects: ${aspectLines}`;
-      // Show via custom tooltip
-      const tipEl = document.querySelector('.tip-popup') as HTMLElement;
-      if (tipEl) {
-        tipEl.textContent = tipText;
-        tipEl.style.display = 'block';
-        tipEl.style.left = `${Math.min(e.clientX + 12, window.innerWidth - 300)}px`;
-        tipEl.style.top = `${Math.max(e.clientY - 60, 8)}px`;
-        setTimeout(() => { tipEl.style.display = 'none'; }, 5000);
-      }
-    });
-  })();
-
   // --- Custom tooltip system (works on hover + tap) ---
   (() => {
     const tip = document.createElement('div');
@@ -2814,10 +2651,9 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     margin-top: 0.5rem;
   }
 
-  .chart-wheel-wrap canvas {
-    border-radius: 12px;
-    max-width: 100%;
-    height: auto !important;
+  .chart-wheel-wrap :global(.transit-wheel-wrapper) {
+    max-width: 500px;
+    margin: 0 auto;
   }
 
   .chart-content {
@@ -3567,8 +3403,8 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     }
   }
 
-  /* --- Canvas fade-in --- */
-  .chart-wheel-wrap canvas {
+  /* --- Wheel fade-in --- */
+  .chart-wheel-wrap :global(.transit-wheel-wrapper) {
     animation: fadeSlideIn 0.4s ease both;
   }
 
