@@ -1,0 +1,73 @@
+---
+import Base from '../../layouts/Base.astro';
+import Background from '../../components/Background.svelte';
+
+const raw = String(Astro.params.rest || '').trim();
+const slug = raw.replace(/^\/+|\/+$/g, '');
+
+if (/^\d{4}-\d{2}-\d{2}$/.test(slug)) {
+  return Astro.redirect(`/reading/${slug}`, 308);
+}
+
+Astro.response.status = 404;
+---
+
+<Base title="Signal Lost">
+  <Background />
+
+  <header class="site-header">
+    <div class="site-title"><a href="/">VOIDWIRE</a></div>
+    <nav class="site-nav">
+      <a href="/archive">Archive</a>
+      <a href="/events">Events</a>
+      <a href="/about">About</a>
+    </nav>
+  </header>
+
+  <main class="void-page">
+    <div class="void-container">
+      <div class="void-code">404</div>
+      <h1 class="void-title">No transmission found</h1>
+      <p class="void-body">
+        This path is invalid. Use <code>/reading/YYYY-MM-DD</code> for a dated reading.
+      </p>
+    </div>
+  </main>
+</Base>
+
+<style>
+  .void-page {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: calc(100vh - 8rem);
+    padding: 2rem 1.5rem;
+  }
+
+  .void-container {
+    text-align: center;
+    max-width: 520px;
+  }
+
+  .void-code {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.35em;
+    color: var(--text-ghost);
+    margin-bottom: 1rem;
+  }
+
+  .void-title {
+    margin-bottom: 1rem;
+  }
+
+  .void-body {
+    color: var(--text-secondary);
+  }
+
+  .void-body code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    color: var(--accent);
+  }
+</style>

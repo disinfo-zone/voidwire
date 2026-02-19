@@ -5,7 +5,11 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
-    "preview": "astro preview"
+    "preview": "astro preview",
+    "smoke:routes": "node tests/smoke-routes.mjs",
+    "snapshots:update": "node tests/visual/snapshots.mjs --update",
+    "snapshots:check": "node tests/visual/snapshots.mjs",
+    "verify:ci": "npm run build && node tests/run-preview-checks.mjs"
   },
   "dependencies": {
     "@astrojs/node": "^8.3.4",

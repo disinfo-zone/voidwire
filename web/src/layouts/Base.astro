@@ -89,6 +89,17 @@ try {
   canonicalUrl = '';
 }
 
+function resolveCurrentNavHref(pathname: string): string | null {
+  const path = String(pathname || '/').trim();
+  if (path === '/archive' || path.startsWith('/archive/')) return '/archive';
+  if (path === '/events' || path.startsWith('/events/')) return '/events';
+  if (path === '/about' || path.startsWith('/about/')) return '/about';
+  if (path === '/dashboard' || path.startsWith('/dashboard/')) return '/dashboard';
+  return null;
+}
+
+const currentNavHref = resolveCurrentNavHref(Astro.url.pathname);
+
 const rawOgImage = ogImage || String(siteConfig.og_image_url || '').trim();
 let ogImageUrl = rawOgImage;
 // Social crawlers need absolute URLs — resolve relative paths against site_url
@@ -203,6 +214,24 @@ const trackingBody = sanitizeTrackingSnippet(trackingBodyRaw);
     <!-- Feeds -->
     <link rel="alternate" type="application/rss+xml" title="VOIDWIRE RSS" href="/feed.xml" />
     <link rel="alternate" type="application/atom+xml" title="VOIDWIRE Atom" href="/feed.atom" />
+    {currentNavHref && (
+      <style
+        is:inline
+        set:html={`
+          .site-nav a[href="${currentNavHref}"] {
+            color: var(--accent);
+            pointer-events: none;
+            cursor: default;
+            opacity: 1;
+            text-decoration: none;
+          }
+          .site-nav a[href="${currentNavHref}"]:hover {
+            color: var(--accent);
+            opacity: 1;
+          }
+        `}
+      />
+    )}
     {trackingHead && <Fragment set:html={trackingHead} />}
     <ViewTransitions />
   </head>
@@ -263,7 +292,44 @@ const trackingBody = sanitizeTrackingSnippet(trackingBodyRaw);
           _progressHandler();
         }
 
-        function initAll() { initReveal(); initProgress(); }
+        function initNavSelfLinkGuard() {
+          var navLinks = document.querySelectorAll('.site-nav a');
+          if (!navLinks.length) return;
+          navLinks.forEach(function(link) {
+            if (link.dataset.selfNavGuarded === '1') return;
+            link.dataset.selfNavGuarded = '1';
+            link.addEventListener('click', function(event) {
+              if (event.defaultPrevented) return;
+              if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              var href = link.getAttribute('href');
+              if (!href || href.startsWith('#')) return;
+              var target = link.getAttribute('target');
+              if (target && target !== '_self') return;
+              try {
+                var url = new URL(link.href, window.location.href);
+                if (url.origin !== window.location.origin) return;
+                if (url.pathname === window.location.pathname && url.search === window.location.search && !url.hash) {
+                  event.preventDefault();
+                }
+              } catch (_) {}
+            });
+          });
+        }
+
+        function initCurrentNavAria() {
+          var current = window.location.pathname;
+          document.querySelectorAll('.site-nav a[aria-current="page"]').forEach(function(link) {
+            link.removeAttribute('aria-current');
+          });
+          document.querySelectorAll('.site-nav a').forEach(function(link) {
+            var href = link.getAttribute('href');
+            if (href && href === current) {
+              link.setAttribute('aria-current', 'page');
+            }
+          });
+        }
+
+        function initAll() { initReveal(); initProgress(); initCurrentNavAria(); initNavSelfLinkGuard(); }
         initAll();
         document.addEventListener('astro:page-load', initAll);
       })();
@@ -274,6 +340,13 @@ const trackingBody = sanitizeTrackingSnippet(trackingBodyRaw);
         function injectDashboardLink() {
           var navs = document.querySelectorAll('.site-nav');
           if (!navs.length) return;
+          var onDashboard = window.location.pathname === '/dashboard';
+          if (onDashboard) {
+            navs.forEach(function(nav) {
+              nav.querySelectorAll('a[href="/dashboard"]').forEach(function(link) { link.remove(); });
+            });
+            return;
+          }
           if (_authUser) {
             navs.forEach(function(nav) {
               if (nav.querySelector('a[href="/dashboard"]')) return;

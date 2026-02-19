@@ -2,6 +2,7 @@
 import Base from '../../layouts/Base.astro';
 import Background from '../../components/Background.svelte';
 import { apiUrl, forwardedApiHeaders } from '../../utils/api';
+import { moonIllumination, moonIsWaxing, normalizePhasePct } from '../../utils/lunar';
 
 interface AstroEvent {
   id: string;
@@ -229,6 +230,12 @@ const nonEclipseEvents = ephemeris
 // Moon sign from positions
 const moonPos = ephemeris?.positions?.moon || ephemeris?.positions?.Moon;
 const moonSign = moonPos?.sign || '';
+const moonPhasePct = ephemeris ? normalizePhasePct(ephemeris.lunar.phase_pct) : 0;
+const moonIlluminationPct = ephemeris ? Math.round(moonIllumination(moonPhasePct) * 100) : 0;
+const moonAria = ephemeris
+  ? `${moonIlluminationPct}% illuminated, ${moonIsWaxing(moonPhasePct) ? 'waxing' : 'waning'} moon`
+  : 'Moon phase';
+const ephemerisUnavailable = !ephemeris;
 
 // Phase data attribute for CSS moon visual
 function phaseDataAttr(phaseName: string): string {
@@ -256,6 +263,15 @@ function phaseDataAttr(phaseName: string): string {
   <main class="page-container">
     <h2 class="page-title">Celestial Weather</h2>
 
+    {ephemerisUnavailable && (
+      <div class="weather-fallback" role="status" aria-live="polite">
+        <div class="weather-fallback-title">Live ephemeris is temporarily unavailable</div>
+        <div class="weather-fallback-body">
+          Scheduled events are still shown below. Real-time lunar and transit details will return automatically.
+        </div>
+      </div>
+    )}
+
     {ephemeris && (
       <div class="celestial-weather">
 
@@ -263,11 +279,23 @@ function phaseDataAttr(phaseName: string): string {
         <div class="weather-card">
           <div class="weather-label" data-tip="The Moon's current phase and sign \u2014 sets the emotional backdrop for the day">Current Moon</div>
           <div class="moon-phase-row">
-            <div class="moon-disc" data-phase={phaseDataAttr(ephemeris.lunar.phase_name)}></div>
+            <div class="moon-disc-wrap">
+              <canvas
+                class="moon-disc-canvas"
+                width="104"
+                height="104"
+                data-phase-pct={String(moonPhasePct)}
+                aria-label={moonAria}
+                role="img"
+              ></canvas>
+              <noscript>
+                <div class="moon-disc-fallback" data-phase={phaseDataAttr(ephemeris.lunar.phase_name)}></div>
+              </noscript>
+            </div>
             <div class="moon-info">
               <div class="moon-phase-name" data-tip={PHASE_TIPS[ephemeris.lunar.phase_name] || ''}>{formatPhaseName(ephemeris.lunar.phase_name)}</div>
               <div class="moon-detail">
-                {Math.round((1 - Math.cos(ephemeris.lunar.phase_pct * 2 * Math.PI)) / 2 * 100)}% illuminated
+                {moonIlluminationPct}% illuminated
                 {moonSign && <span> &middot; Moon in {moonSign}</span>}
               </div>
               {weather?.moon_phase && (
@@ -428,6 +456,30 @@ function phaseDataAttr(phaseName: string): string {
     padding-top: 0;
   }
 
+  .weather-fallback {
+    border: 1px solid var(--text-ghost);
+    background: rgba(255, 255, 255, 0.015);
+    border-radius: 6px;
+    padding: 0.9rem 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .weather-fallback-title {
+    font-family: var(--font-sans);
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.3rem;
+  }
+
+  .weather-fallback-body {
+    font-family: var(--font-sans);
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+
   .weather-label {
     font-family: var(--font-sans);
     font-size: 0.6rem;
@@ -462,7 +514,7 @@ function phaseDataAttr(phaseName: string): string {
     gap: 1rem;
   }
 
-  .moon-disc {
+  .moon-disc-wrap {
     width: 52px;
     height: 52px;
     border-radius: 50%;
@@ -471,7 +523,28 @@ function phaseDataAttr(phaseName: string): string {
     flex-shrink: 0;
   }
 
-  .moon-disc::before {
+  .moon-disc-canvas,
+  .moon-disc-fallback {
+    display: block;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+  }
+
+  .moon-disc-canvas {
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow:
+      0 0 18px rgba(170, 195, 235, 0.16),
+      0 0 1px rgba(255, 255, 255, 0.35) inset;
+    background: radial-gradient(circle at 40% 35%, rgba(140, 165, 205, 0.12), rgba(6, 8, 16, 0.95));
+  }
+
+  .moon-disc-fallback {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .moon-disc-fallback::before {
     content: '';
     position: absolute;
     inset: 0;
@@ -479,48 +552,48 @@ function phaseDataAttr(phaseName: string): string {
     background: var(--text-secondary);
   }
 
-  .moon-disc::after {
+  .moon-disc-fallback::after {
     content: '';
     position: absolute;
     inset: 0;
     border-radius: 50%;
   }
 
-  .moon-disc[data-phase="new"]::before {
+  .moon-disc-fallback[data-phase="new"]::before {
     background: var(--void);
   }
 
-  .moon-disc[data-phase="new"]::after {
+  .moon-disc-fallback[data-phase="new"]::after {
     background: var(--void);
   }
 
-  .moon-disc[data-phase="wax-crescent"]::after {
+  .moon-disc-fallback[data-phase="wax-crescent"]::after {
     background: linear-gradient(to left, transparent 35%, var(--void) 65%);
   }
 
-  .moon-disc[data-phase="first-quarter"]::after {
+  .moon-disc-fallback[data-phase="first-quarter"]::after {
     background: linear-gradient(to left, transparent 50%, var(--void) 50%);
   }
 
-  .moon-disc[data-phase="wax-gibbous"]::after {
+  .moon-disc-fallback[data-phase="wax-gibbous"]::after {
     background: linear-gradient(to right, transparent 65%, var(--void) 100%);
     opacity: 0.6;
   }
 
-  .moon-disc[data-phase="full"]::after {
+  .moon-disc-fallback[data-phase="full"]::after {
     background: transparent;
   }
 
-  .moon-disc[data-phase="wan-gibbous"]::after {
+  .moon-disc-fallback[data-phase="wan-gibbous"]::after {
     background: linear-gradient(to left, transparent 65%, var(--void) 100%);
     opacity: 0.6;
   }
 
-  .moon-disc[data-phase="last-quarter"]::after {
+  .moon-disc-fallback[data-phase="last-quarter"]::after {
     background: linear-gradient(to right, transparent 50%, var(--void) 50%);
   }
 
-  .moon-disc[data-phase="wan-crescent"]::after {
+  .moon-disc-fallback[data-phase="wan-crescent"]::after {
     background: linear-gradient(to right, transparent 35%, var(--void) 65%);
   }
 
@@ -762,7 +835,9 @@ function phaseDataAttr(phaseName: string): string {
 
   /* Responsive */
   @media (max-width: 768px) {
-    .moon-disc {
+    .moon-disc-wrap,
+    .moon-disc-canvas,
+    .moon-disc-fallback {
       width: 44px;
       height: 44px;
     }
@@ -785,7 +860,9 @@ function phaseDataAttr(phaseName: string): string {
       gap: 0.75rem;
     }
 
-    .moon-disc {
+    .moon-disc-wrap,
+    .moon-disc-canvas,
+    .moon-disc-fallback {
       width: 36px;
       height: 36px;
     }
@@ -822,6 +899,88 @@ function phaseDataAttr(phaseName: string): string {
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
   }
 </style>
+
+<script>
+  (() => {
+    function drawMoon(canvas: HTMLCanvasElement) {
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const rawPct = Number(canvas.dataset.phasePct || '0');
+      const phasePct = Number.isFinite(rawPct) ? ((rawPct % 1) + 1) % 1 : 0;
+      const phaseAngle = phasePct * 2 * Math.PI;
+
+      const size = canvas.width;
+      const radius = size / 2 - 1;
+      const center = size / 2;
+      const image = ctx.createImageData(size, size);
+      const bytes = image.data;
+
+      // Right-lit at first quarter, left-lit at last quarter.
+      const sunX = Math.sin(phaseAngle);
+      const sunZ = -Math.cos(phaseAngle);
+
+      const dark = [6, 10, 22];
+      const light = [220, 229, 240];
+      const glow = [138, 168, 216];
+
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const nx = (x + 0.5 - center) / radius;
+          const ny = (y + 0.5 - center) / radius;
+          const rr = nx * nx + ny * ny;
+          const idx = (y * size + x) * 4;
+          if (rr > 1) {
+            bytes[idx + 3] = 0;
+            continue;
+          }
+
+          const nz = Math.sqrt(1 - rr);
+          const lambert = nx * sunX + nz * sunZ;
+          const lit = Math.max(0, lambert);
+          const limb = Math.max(0, 1 - Math.sqrt(rr));
+          const earthshine = 0.06 * limb;
+          const brightness = Math.max(earthshine, Math.min(1, lit * 0.92 + limb * 0.06));
+          const value = Math.pow(brightness, 0.9);
+
+          bytes[idx] = Math.round(dark[0] + (light[0] - dark[0]) * value);
+          bytes[idx + 1] = Math.round(dark[1] + (light[1] - dark[1]) * value);
+          bytes[idx + 2] = Math.round(dark[2] + (light[2] - dark[2]) * value);
+          bytes[idx + 3] = 255;
+        }
+      }
+
+      ctx.clearRect(0, 0, size, size);
+      ctx.putImageData(image, 0, 0);
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(center, center, radius, 0, Math.PI * 2);
+      ctx.clip();
+      const halo = ctx.createRadialGradient(center * 0.78, center * 0.7, radius * 0.08, center, center, radius);
+      halo.addColorStop(0, `rgba(${glow[0]}, ${glow[1]}, ${glow[2]}, 0.16)`);
+      halo.addColorStop(0.75, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = halo;
+      ctx.fillRect(0, 0, size, size);
+      ctx.restore();
+
+      ctx.beginPath();
+      ctx.arc(center, center, radius - 0.5, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    function initMoonCanvas() {
+      document.querySelectorAll('canvas.moon-disc-canvas').forEach((node) => {
+        drawMoon(node as HTMLCanvasElement);
+      });
+    }
+
+    initMoonCanvas();
+    document.addEventListener('astro:page-load', initMoonCanvas);
+  })();
+</script>
 
 <script>
   // --- Custom tooltip system (works on hover + tap) ---
