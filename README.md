@@ -89,6 +89,29 @@ docker compose up -d
 
 This starts 8 services by default: PostgreSQL + pgvector, Redis, API, pipeline, public site, admin panel, Minio, and Caddy. On first run, the setup wizard guides through admin account creation, LLM configuration, and news source seeding.
 
+Production compose behavior:
+- `docker-compose.yml` is the base file (prod-safe defaults).
+- Only Caddy exposes a host port in base: `4480:80`.
+- All other services communicate only on Docker internal networking.
+
+### Docker Compose (Development Overlay)
+
+Use the dev overlay to expose service ports locally.
+
+Set `COMPOSE_FILE` in your local `.env`:
+- Linux/macOS (`bash`/`zsh`): `COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml`
+- Windows (`PowerShell`/`CMD`): `COMPOSE_FILE=docker-compose.yml;docker-compose.dev.yml`
+
+Then run:
+
+```bash
+docker compose up -d
+```
+
+With the dev overlay enabled, host ports are exposed for:
+- db `5432`, redis `6379`, api `8000`, web `4321`, admin `5173`, minio `9000/9001`
+- caddy `80/443` (in addition to base `4480`)
+
 The API container runs `alembic upgrade head` on startup before serving traffic.
 At API startup, the app also validates that DB revisions match Alembic heads and fails fast if the schema is behind.
 Keep `SKIP_MIGRATION_CHECK=false` for normal environments; only set it to `true` for ephemeral CI/local bypass cases.
@@ -99,7 +122,7 @@ To include Cloudflare Tunnel in production:
 docker compose --profile tunnel up -d
 ```
 
-When accessing services through Caddy (`http://localhost`), use the `/api` prefix for API routes (example: `/api/health`, `/api/admin/auth/login`). Caddy strips `/api` before proxying to `voidwire-api`.
+When accessing services through Caddy (`http://localhost` in dev overlay, `http://localhost:4480` in base-only mode), use the `/api` prefix for API routes (example: `/api/health`, `/api/admin/auth/login`). Caddy strips `/api` before proxying to `voidwire-api`.
 
 Local URLs:
 - Public site: `http://localhost/`
@@ -118,15 +141,15 @@ Local URLs:
 
 ## Services
 
-| Service | Port | Description |
-|---------|------|-------------|
-| `voidwire-db` | 5432 | PostgreSQL 16 with pgvector and pgcrypto |
-| `voidwire-redis` | 6379 | Session store and rate limiting |
-| `voidwire-api` | 8000 | FastAPI (public API + admin endpoints) |
-| `voidwire-web` | 4321 | Astro public site |
-| `voidwire-admin` | 5173 | React admin panel |
-| `voidwire-minio` | 9000/9001 | S3-compatible backup storage |
-| `voidwire-caddy` | 80/443 | Reverse proxy with TLS |
+| Service | Host Ports | Description |
+|---------|------------|-------------|
+| `voidwire-db` | none in base, `5432` in dev overlay | PostgreSQL 16 with pgvector and pgcrypto |
+| `voidwire-redis` | none in base, `6379` in dev overlay | Session store and rate limiting |
+| `voidwire-api` | none in base, `8000` in dev overlay | FastAPI (public API + admin endpoints) |
+| `voidwire-web` | none in base, `4321` in dev overlay | Astro public site |
+| `voidwire-admin` | none in base, `5173` in dev overlay | React admin panel |
+| `voidwire-minio` | none in base, `9000/9001` in dev overlay | S3-compatible backup storage |
+| `voidwire-caddy` | `4480` in base, plus `80/443` in dev overlay | Reverse proxy with TLS |
 | `cloudflared` | -- | Cloudflare Tunnel (optional via `--profile tunnel`) |
 
 ## Pipeline
@@ -279,7 +302,8 @@ Operational runbooks:
 ```
 voidwire/
   design_doc.md           # Technical design document (v0.4)
-  docker-compose.yml      # All 9 services
+  docker-compose.yml      # Base/prod-safe compose (only Caddy host port)
+  docker-compose.dev.yml  # Dev overlay (adds local host port mappings)
   .env.example            # Environment template
   pyproject.toml          # Python workspace root
   alembic.ini             # Database migration config

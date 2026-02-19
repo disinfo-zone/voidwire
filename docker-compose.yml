@@ -10,8 +10,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-voidwire}
     volumes:
       - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U voidwire"]
       interval: 10s
@@ -23,8 +21,6 @@ services:
     image: redis:7-alpine
     container_name: voidwire-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -44,8 +40,6 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-voidwire}:${POSTGRES_PASSWORD:-voidwire}@voidwire-db:5432/${POSTGRES_DB:-voidwire}
       REDIS_URL: redis://voidwire-redis:6379/0
-    ports:
-      - "8000:8000"
     depends_on:
       voidwire-db:
         condition: service_healthy
@@ -76,8 +70,6 @@ services:
     restart: unless-stopped
     environment:
       API_URL: http://voidwire-api:8000
-    ports:
-      - "4321:4321"
     depends_on:
       - voidwire-api
 
@@ -90,8 +82,6 @@ services:
     restart: unless-stopped
     environment:
       VITE_API_URL: http://voidwire-api:8000
-    ports:
-      - "5173:80"
     depends_on:
       - voidwire-api
 
@@ -106,9 +96,6 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-voidwire-minio-secret}
     volumes:
       - miniodata:/data
-    ports:
-      - "9000:9000"
-      - "9001:9001"
 
   # === Caddy (reverse proxy) ===
   voidwire-caddy:
@@ -120,8 +107,7 @@ services:
       - caddydata:/data
       - caddyconfig:/config
     ports:
-      - "80:80"
-      - "443:443"
+      - "4480:80"
     depends_on:
       - voidwire-api
       - voidwire-web

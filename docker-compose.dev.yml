@@ -1,0 +1,30 @@
+services:
+  voidwire-db:
+    ports:
+      - "5432:5432"
+
+  voidwire-redis:
+    ports:
+      - "6379:6379"
+
+  voidwire-api:
+    ports:
+      - "8000:8000"
+
+  voidwire-web:
+    ports:
+      - "4321:4321"
+
+  voidwire-admin:
+    ports:
+      - "5173:80"
+
+  voidwire-minio:
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  voidwire-caddy:
+    ports:
+      - "80:80"
+      - "443:443"
