@@ -27,6 +27,14 @@ function mutationHeaders(): Record<string, string> {
   return headers;
 }
 
+function clearAdminSessionFlag(): void {
+  try {
+    localStorage.removeItem(ADMIN_SESSION_KEY);
+  } catch {
+    // Ignore storage access issues.
+  }
+}
+
 async function buildApiError(res: Response): Promise<Error> {
   let detail = '';
   try {
@@ -43,7 +51,7 @@ async function buildApiError(res: Response): Promise<Error> {
     }
   }
   if (res.status === 401) {
-    localStorage.removeItem(ADMIN_SESSION_KEY);
+    clearAdminSessionFlag();
   }
   return new Error(detail ? `API error: ${res.status} - ${detail}` : `API error: ${res.status}`);
 }

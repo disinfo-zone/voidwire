@@ -115,7 +115,7 @@
 
   // Natal chart rotation: when ascendant is provided, rotate the wheel
   // so that the ascendant degree sits at 9 o'clock (standard natal orientation).
-  $: wheelRotation = ascendant != null ? -ascendant : 0;
+  $: wheelRotation = ascendant != null ? ascendant : 0;
   $: counterRotation = -wheelRotation;
 
   let isTouchDevice = false;
@@ -126,7 +126,8 @@
   // --- Coordinate helpers ---
   function toXY(longitude: number, radius: number) {
     const rad = (180 - longitude) * Math.PI / 180;
-    return { x: CX + radius * Math.cos(rad), y: CY - radius * Math.sin(rad) };
+    // Positive screen-y keeps MC above ASC in standard natal orientation.
+    return { x: CX + radius * Math.cos(rad), y: CY + radius * Math.sin(rad) };
   }
 
   function arcPath(r1: number, r2: number, startDeg: number, endDeg: number): string {

@@ -65,7 +65,15 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           </div>
           <div id="chart-content" class="chart-content"></div>
 
-          <div class="section-label section-toggle" data-target="birth-data-body">Birth Data</div>
+          <button
+            type="button"
+            class="section-label section-toggle"
+            data-target="birth-data-body"
+            aria-controls="birth-data-body"
+            aria-expanded="false"
+          >
+            Birth Data
+          </button>
           <div id="birth-data-body" class="section-body collapsed">
             <div id="profile-status" class="profile-status"></div>
             <button id="toggle-birth-form" class="edit-button" style="display: none;">Edit Birth Data</button>
@@ -74,18 +82,42 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
             </div>
           </div>
 
-          <div class="section-label section-toggle" data-target="account-body">Account</div>
+          <button
+            type="button"
+            class="section-label section-toggle"
+            data-target="account-body"
+            aria-controls="account-body"
+            aria-expanded="false"
+          >
+            Account
+          </button>
           <div id="account-body" class="section-body collapsed">
             <div id="user-info" class="user-info"></div>
             <button id="delete-account-link" class="delete-account-link">Delete Account</button>
           </div>
 
-          <div class="section-label section-toggle" data-target="subscription-body">Subscription</div>
+          <button
+            type="button"
+            class="section-label section-toggle"
+            data-target="subscription-body"
+            aria-controls="subscription-body"
+            aria-expanded="false"
+          >
+            Subscription
+          </button>
           <div id="subscription-body" class="section-body collapsed">
             <SubscriptionManager client:visible />
           </div>
 
-          <div class="section-label section-toggle" data-target="data-export-body">Data Export</div>
+          <button
+            type="button"
+            class="section-label section-toggle"
+            data-target="data-export-body"
+            aria-controls="data-export-body"
+            aria-expanded="false"
+          >
+            Data Export
+          </button>
           <div id="data-export-body" class="section-body collapsed">
             <div class="chart-actions">
               <button id="export-account-btn" class="action-button">Export Account JSON</button>
@@ -2132,9 +2164,13 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         if (viewReadingButton) viewReadingButton.disabled = true;
         // Open Birth Data section when no profile exists
         const birthDataBody = document.getElementById('birth-data-body');
-        const birthDataToggle = document.querySelector('[data-target="birth-data-body"]');
+        const birthDataToggle = document.querySelector('[data-target="birth-data-body"]') as HTMLElement | null;
         if (birthDataBody) birthDataBody.classList.remove('collapsed');
-        if (birthDataToggle) birthDataToggle.classList.add('open');
+        if (birthDataBody) birthDataBody.hidden = false;
+        if (birthDataToggle) {
+          birthDataToggle.classList.add('open');
+          birthDataToggle.setAttribute('aria-expanded', 'true');
+        }
         setView('settings');
         return;
       }
@@ -2232,13 +2268,27 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
   // --- Collapsible section toggles ---
   for (const toggle of document.querySelectorAll('.section-toggle')) {
+    const toggleEl = toggle as HTMLElement;
+    const targetId = toggleEl.getAttribute('data-target');
+    if (targetId) {
+      const body = document.getElementById(targetId);
+      if (body) {
+        const collapsed = body.classList.contains('collapsed');
+        toggleEl.classList.toggle('open', !collapsed);
+        toggleEl.setAttribute('aria-expanded', String(!collapsed));
+        body.hidden = collapsed;
+      }
+    }
     toggle.addEventListener('click', () => {
       const targetId = toggle.getAttribute('data-target');
       if (!targetId) return;
       const body = document.getElementById(targetId);
       if (!body) return;
       body.classList.toggle('collapsed');
-      toggle.classList.toggle('open', !body.classList.contains('collapsed'));
+      const isCollapsed = body.classList.contains('collapsed');
+      toggle.classList.toggle('open', !isCollapsed);
+      toggle.setAttribute('aria-expanded', String(!isCollapsed));
+      body.hidden = isCollapsed;
     });
   }
 
@@ -2334,6 +2384,11 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
   // --- Custom tooltip system (works on hover + tap) ---
   (() => {
+    const globalScope = window as Window & { __voidwireTipCleanup?: () => void };
+    if (typeof globalScope.__voidwireTipCleanup === 'function') {
+      globalScope.__voidwireTipCleanup();
+    }
+
     const tip = document.createElement('div');
     tip.className = 'tip-popup';
     tip.style.display = 'none';
@@ -2374,17 +2429,19 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     }
 
     // Desktop: hover
-    document.addEventListener('mouseenter', (e) => {
+    const onMouseEnter = (e: Event) => {
       const target = (e.target as Element)?.closest?.('[data-tip]');
       if (target && target.getAttribute('data-tip')) showTip(target);
-    }, true);
-    document.addEventListener('mouseleave', (e) => {
+    };
+    const onMouseLeave = (e: Event) => {
       const target = (e.target as Element)?.closest?.('[data-tip]');
       if (target && target === activeTarget) scheduledHide();
-    }, true);
+    };
+    document.addEventListener('mouseenter', onMouseEnter, true);
+    document.addEventListener('mouseleave', onMouseLeave, true);
 
     // Mobile: tap to show, tap elsewhere to dismiss
-    document.addEventListener('click', (e) => {
+    const onClick = (e: Event) => {
       const target = (e.target as Element)?.closest?.('[data-tip]');
       if (target && target.getAttribute('data-tip')) {
         if (activeTarget === target) {
@@ -2395,7 +2452,15 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       } else {
         if (activeTarget) hideTip();
       }
-    });
+    };
+    document.addEventListener('click', onClick);
+
+    globalScope.__voidwireTipCleanup = () => {
+      document.removeEventListener('mouseenter', onMouseEnter, true);
+      document.removeEventListener('mouseleave', onMouseLeave, true);
+      document.removeEventListener('click', onClick);
+      tip.remove();
+    };
   })();
 
   void loadDashboard();
@@ -2780,6 +2845,10 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
   /* --- Collapsible sections --- */
   .section-toggle {
+    background: transparent;
+    border: none;
+    width: 100%;
+    text-align: left;
     cursor: pointer;
     user-select: none;
     display: flex;
@@ -2794,19 +2863,23 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     transition: transform 0.2s ease;
   }
 
+  .section-toggle:focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: 2px;
+  }
+
   .section-toggle.open::after {
     transform: rotate(90deg);
   }
 
   .section-body {
-    max-height: 2000px;
-    overflow: hidden;
-    transition: max-height 0.4s ease, opacity 0.3s ease;
+    overflow: visible;
+    transition: opacity 0.2s ease;
     opacity: 1;
   }
 
   .section-body.collapsed {
-    max-height: 0;
+    display: none;
     opacity: 0;
     pointer-events: none;
   }

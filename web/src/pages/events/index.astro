@@ -67,6 +67,7 @@ let error: string | null = null;
 let ephemeris: EphemerisData | null = null;
 let weather: WeatherDescriptions | null = null;
 let siteTimezone = 'UTC';
+let siteUrl = String(Astro.url.origin || '').trim() || 'https://voidwire.app';
 const apiHeaders = forwardedApiHeaders(Astro.clientAddress);
 
 try {
@@ -74,6 +75,7 @@ try {
   if (cfgRes.ok) {
     const cfg = await cfgRes.json();
     siteTimezone = String(cfg?.timezone || 'UTC') || 'UTC';
+    siteUrl = String(cfg?.site_url || siteUrl).trim() || siteUrl;
   }
 } catch {}
 
@@ -161,6 +163,25 @@ function formatDateOnly(iso: string): string {
 function formatTimelineDate(iso: string, isMajor: boolean): string {
   if (isMajor) return formatShortDate(iso);
   return formatDateOnly(iso);
+}
+
+function safeEventReadingHref(readingUrl: string | null | undefined, eventId: string): string {
+  const fallback = `/events/${eventId}`;
+  const raw = String(readingUrl || '').trim();
+  if (!raw) return fallback;
+  if (raw.startsWith('/')) return raw;
+  try {
+    const base = new URL(siteUrl);
+    const candidate = new URL(raw);
+    const protocolOk =
+      candidate.protocol === 'https:' ||
+      (candidate.protocol === 'http:' && (candidate.hostname === 'localhost' || candidate.hostname === '127.0.0.1'));
+    if (!protocolOk) return fallback;
+    if (candidate.origin !== base.origin) return fallback;
+    return `${candidate.pathname}${candidate.search}${candidate.hash}`;
+  } catch {
+    return fallback;
+  }
 }
 
 // Tooltip lookup maps
@@ -337,7 +358,7 @@ function phaseDataAttr(phaseName: string): string {
                 <div class="eclipse-date">{formatDate(event.at)}</div>
                 {event.reading_available && (
                   <div class="event-reading-link">
-                    <a href={event.reading_url || `/events/${event.id}`}>Read Event Reading</a>
+                    <a href={safeEventReadingHref(event.reading_url, event.id)}>Read Event Reading</a>
                   </div>
                 )}
               </div>
@@ -377,7 +398,7 @@ function phaseDataAttr(phaseName: string): string {
               <div class="event-date">{formatDate(event.at)}</div>
               {event.reading_available && (
                 <div class="event-reading-link">
-                  <a href={event.reading_url || `/events/${event.id}`}>Read Event Reading</a>
+                  <a href={safeEventReadingHref(event.reading_url, event.id)}>Read Event Reading</a>
                   {event.reading_title && <span class="event-reading-title">- {event.reading_title}</span>}
                 </div>
               )}
@@ -805,6 +826,11 @@ function phaseDataAttr(phaseName: string): string {
 <script>
   // --- Custom tooltip system (works on hover + tap) ---
   (() => {
+    const globalScope = window as Window & { __voidwireTipCleanup?: () => void };
+    if (typeof globalScope.__voidwireTipCleanup === 'function') {
+      globalScope.__voidwireTipCleanup();
+    }
+
     const tip = document.createElement('div');
     tip.className = 'tip-popup';
     tip.style.display = 'none';
@@ -845,17 +871,19 @@ function phaseDataAttr(phaseName: string): string {
     }
 
     // Desktop: hover
-    document.addEventListener('mouseenter', (e) => {
+    const onMouseEnter = (e: Event) => {
       const target = (e.target as Element)?.closest?.('[data-tip]');
       if (target && target.getAttribute('data-tip')) showTip(target);
-    }, true);
-    document.addEventListener('mouseleave', (e) => {
+    };
+    const onMouseLeave = (e: Event) => {
       const target = (e.target as Element)?.closest?.('[data-tip]');
       if (target && target === activeTarget) scheduledHide();
-    }, true);
+    };
+    document.addEventListener('mouseenter', onMouseEnter, true);
+    document.addEventListener('mouseleave', onMouseLeave, true);
 
     // Mobile: tap to show, tap elsewhere to dismiss
-    document.addEventListener('click', (e) => {
+    const onClick = (e: Event) => {
       const target = (e.target as Element)?.closest?.('[data-tip]');
       if (target && target.getAttribute('data-tip')) {
         if (activeTarget === target) {
@@ -866,6 +894,14 @@ function phaseDataAttr(phaseName: string): string {
       } else {
         if (activeTarget) hideTip();
       }
-    });
+    };
+    document.addEventListener('click', onClick);
+
+    globalScope.__voidwireTipCleanup = () => {
+      document.removeEventListener('mouseenter', onMouseEnter, true);
+      document.removeEventListener('mouseleave', onMouseLeave, true);
+      document.removeEventListener('click', onClick);
+      tip.remove();
+    };
   })();
 </script>

@@ -71,9 +71,14 @@ type EphemerisData = {
   aspects?: Array<{ body1: string; body2: string; type?: string; aspect_type?: string; orb_degrees?: number; orb?: number; applying?: boolean }>;
 };
 
+function displayBrandHost(originUrl: URL): string {
+  const host = String(originUrl.hostname || '').trim().replace(/^www\./i, '');
+  return (host || 'voidwire.app').toUpperCase();
+}
+
 function toXY(deg: number, r: number) {
   const rad = (180 - deg) * Math.PI / 180;
-  return { x: CX + r * Math.cos(rad), y: CY - r * Math.sin(rad) };
+  return { x: CX + r * Math.cos(rad), y: CY + r * Math.sin(rad) };
 }
 
 function arcPath(r1: number, r2: number, startDeg: number, endDeg: number): string {
@@ -249,7 +254,7 @@ async function loadFonts(): Promise<{ dir: string; inter: Buffer; garamond: Buff
 }
 
 // --- Route handler ---
-export const GET: APIRoute = async ({ params }) => {
+export const GET: APIRoute = async ({ params, url }) => {
   const dateStr = params.date;
   if (!dateStr) return new Response('Not found', { status: 404 });
 
@@ -265,6 +270,7 @@ export const GET: APIRoute = async ({ params }) => {
     const title = reading?.title || `Reading for ${dateStr}`;
 
     const len = title.length;
+    const brandHost = displayBrandHost(url);
     const titleSize = len <= 25 ? 50 : len <= 40 ? 44 : len <= 55 ? 38 : 32;
 
     // Build wheel SVG with Unicode text glyphs
@@ -298,7 +304,7 @@ export const GET: APIRoute = async ({ params }) => {
               props: {
                 style: { display: 'flex', flexDirection: 'column' as const, justifyContent: 'center', padding: '60px 20px 60px 60px', flex: '1' },
                 children: [
-                  { type: 'div', props: { style: { fontSize: '12px', fontWeight: 400, letterSpacing: '0.25em', color: '#d6af72', marginBottom: '28px' }, children: 'VOIDWIREASTRO.COM' } },
+                  { type: 'div', props: { style: { fontSize: '12px', fontWeight: 400, letterSpacing: '0.25em', color: '#d6af72', marginBottom: '28px' }, children: brandHost } },
                   { type: 'div', props: { style: { fontSize: `${titleSize}px`, fontFamily: 'EB Garamond', fontWeight: 400, color: '#d9d4c9', lineHeight: 1.2, marginBottom: '24px' }, children: title } },
                   {
                     type: 'div',

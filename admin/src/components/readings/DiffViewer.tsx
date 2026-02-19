@@ -12,7 +12,7 @@ export default function DiffViewer({ diff }: Props) {
       {diff.generated_standard && diff.published_standard && (
         <div>
           <h4 className="text-xs text-accent mb-2">Standard Reading</h4>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             <div>
               <div className="text-xs text-text-muted mb-1">Generated</div>
               <div className="bg-surface border border-text-ghost rounded p-3 text-xs text-text-secondary">

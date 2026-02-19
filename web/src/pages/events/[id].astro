@@ -78,8 +78,15 @@ const pageTitle = event ? `${formatEventType(event.event_type)} Event Reading` :
 const extended = reading?.extended || null;
 const showExtended = !!(extended && Array.isArray(extended.sections) && extended.sections.length > 0);
 
-function refineTypography(text: string) {
+function escapeHtml(text: string) {
   return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function refineTypography(text: string) {
+  return escapeHtml(text)
     .replace(/\.\.\./g, '&hellip;')
     .replace(/--/g, '&mdash;')
     .replace(/(^|[-\s(\[<{])"/g, '$1&ldquo;')
@@ -89,7 +96,7 @@ function refineTypography(text: string) {
 }
 
 function formatBody(text: string): string {
-  return text
+  return String(text || '')
     .split(/\n\n+/)
     .filter((p: string) => p.trim().length > 0)
     .map((p: string) => `<p>${refineTypography(p.trim())}</p>`)

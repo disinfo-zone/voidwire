@@ -14,11 +14,19 @@ export default function SetupWizardPage() {
 
   useEffect(() => {
     let cancelled = false;
+    const SESSION_KEY = 'voidwire_admin_session';
+    function hasAdminSession(): boolean {
+      try {
+        return Boolean(localStorage.getItem(SESSION_KEY));
+      } catch {
+        return false;
+      }
+    }
     async function checkSetupStatus() {
       try {
         const data = await apiGet('/setup/status');
         if (!cancelled && data?.is_complete) {
-          const hasToken = Boolean(localStorage.getItem('voidwire_admin_token'));
+          const hasToken = hasAdminSession();
           navigate(hasToken ? '/' : '/login', { replace: true });
           return;
         }

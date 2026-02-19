@@ -46,9 +46,18 @@ const positions = ephemeris?.positions || {};
 const pageTitle = reading ? reading.title : `Reading for ${dateParam}`;
 const extended = reading?.extended || null;
 const showExtended = !!(extended && Array.isArray(extended.sections) && extended.sections.length > 0);
+let siteOrigin = String(Astro.url.origin || '').trim();
+if (!siteOrigin) siteOrigin = 'https://voidwire.app';
+
+function escapeHtml(text: string) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
 
 function refineTypography(text: string) {
-  return text
+  return escapeHtml(text)
     .replace(/\.\.\./g, '&hellip;')
     .replace(/--/g, '&mdash;')
     .replace(/(^|[-\s(\[<{])"/g, '$1&ldquo;')
@@ -58,7 +67,7 @@ function refineTypography(text: string) {
 }
 
 function formatBody(text: string): string {
-  return text
+  return String(text || '')
     .split(/\n\n+/)
     .filter((p: string) => p.trim().length > 0)
     .map((p: string) => `<p>${refineTypography(p.trim())}</p>`)
@@ -74,7 +83,7 @@ const jsonLd = reading ? JSON.stringify({
   dateModified: reading.date_context,
   description: reading.body ? reading.body.substring(0, 200).replace(/\n/g, ' ').trim() : undefined,
   wordCount: reading.word_count || undefined,
-  image: `https://voidwireastro.com/og/${dateParam}.png`,
+  image: `${siteOrigin}/og/${dateParam}.png`,
   author: { '@type': 'Organization', name: 'VOIDWIRE' },
   publisher: { '@type': 'Organization', name: 'VOIDWIRE' },
   mainEntityOfPage: { '@type': 'WebPage', '@id': `/reading/${dateParam}` },

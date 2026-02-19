@@ -52,6 +52,9 @@
 
   onMount(() => {
     hydrateFromProfile(initialData);
+    if (!birthTimezone.trim()) {
+      birthTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    }
   });
 
   $: if (initialData && !hydratedFromInitial) {
@@ -114,8 +117,6 @@
     birthCity = result.display_name.split(',').slice(0, 2).join(',').trim();
     birthLatitude = parseFloat(result.lat);
     birthLongitude = parseFloat(result.lon);
-
-    birthTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     locationQuery = birthCity;
     locationResults = [];

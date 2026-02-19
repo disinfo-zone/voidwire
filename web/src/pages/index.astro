@@ -35,6 +35,8 @@ if (reading) {
 
 const aspects = ephemeris?.aspects || [];
 const positions = ephemeris?.positions || {};
+let siteOrigin = String(Astro.url.origin || '').trim();
+if (!siteOrigin) siteOrigin = 'https://voidwire.app';
 
 const jsonLd = reading ? JSON.stringify({
   '@context': 'https://schema.org',
@@ -44,7 +46,7 @@ const jsonLd = reading ? JSON.stringify({
   dateModified: reading.date_context,
   description: reading.body ? reading.body.substring(0, 200).replace(/\n/g, ' ').trim() : undefined,
   wordCount: reading.word_count || undefined,
-  image: reading.date_context ? `https://voidwireastro.com/og/${reading.date_context}.png` : undefined,
+  image: reading.date_context ? `${siteOrigin}/og/${reading.date_context}.png` : undefined,
   author: { '@type': 'Organization', name: 'VOIDWIRE' },
   publisher: { '@type': 'Organization', name: 'VOIDWIRE' },
   mainEntityOfPage: { '@type': 'WebPage', '@id': '/' },

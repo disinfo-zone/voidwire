@@ -9,8 +9,15 @@ interface Props {
 
 const { title, body, date_context, word_count, has_extended } = Astro.props;
 
-function refineTypography(text: string) {
+function escapeHtml(text: string) {
   return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function refineTypography(text: string) {
+  return escapeHtml(text)
     // ellipses
     .replace(/\.\.\./g, '&hellip;')
     // em-dashes

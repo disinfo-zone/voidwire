@@ -99,8 +99,68 @@ if (ogImageUrl && !ogImageUrl.startsWith('http')) {
   } catch {}
 }
 const twitterHandle = String(siteConfig.twitter_handle || '').trim();
-const trackingHead = String(siteConfig.tracking_head || '');
-const trackingBody = String(siteConfig.tracking_body || '');
+const trackingHeadRaw = String(siteConfig.tracking_head || '');
+const trackingBodyRaw = String(siteConfig.tracking_body || '');
+const allowUnsafeTrackingSnippets =
+  String(process.env.ALLOW_UNSAFE_TRACKING_SNIPPETS || import.meta.env.ALLOW_UNSAFE_TRACKING_SNIPPETS || '')
+    .trim()
+    .toLowerCase() === 'true';
+const TRACKING_ALLOWED_TAGS = new Set(['script', 'noscript', 'iframe', 'img', 'div', 'span', 'a']);
+
+function isSafeTrackingUrl(value: string): boolean {
+  const raw = String(value || '').trim();
+  if (!raw) return false;
+  if (raw.startsWith('/')) return true;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol === 'https:') return true;
+    if (parsed.protocol === 'http:' && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function sanitizeTrackingSnippet(raw: string): string {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  if (allowUnsafeTrackingSnippets) return value;
+  if (/(on[a-z]+\s*=|javascript:|<\s*(object|embed|svg|math)\b)/i.test(value)) return '';
+
+  const tagPattern = /<\/?([a-z0-9-]+)\b[^>]*>/gi;
+  let tagMatch: RegExpExecArray | null;
+  while ((tagMatch = tagPattern.exec(value)) !== null) {
+    const tag = String(tagMatch[1] || '').toLowerCase();
+    if (!TRACKING_ALLOWED_TAGS.has(tag)) return '';
+  }
+
+  const scriptPattern = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+  let sawScript = false;
+  let scriptMatch: RegExpExecArray | null;
+  while ((scriptMatch = scriptPattern.exec(value)) !== null) {
+    sawScript = true;
+    const attrs = String(scriptMatch[1] || '');
+    const body = String(scriptMatch[2] || '');
+    const srcMatch = attrs.match(/\bsrc\s*=\s*["']([^"']+)["']/i);
+    if (!srcMatch) return '';
+    if (body.trim()) return '';
+    if (!isSafeTrackingUrl(srcMatch[1])) return '';
+  }
+  if (/<script\b/i.test(value) && !sawScript) return '';
+
+  const resourcePattern = /\b(?:src|href)\s*=\s*["']([^"']+)["']/gi;
+  let resourceMatch: RegExpExecArray | null;
+  while ((resourceMatch = resourcePattern.exec(value)) !== null) {
+    if (!isSafeTrackingUrl(resourceMatch[1])) return '';
+  }
+
+  return value;
+}
+
+const trackingHead = sanitizeTrackingSnippet(trackingHeadRaw);
+const trackingBody = sanitizeTrackingSnippet(trackingBodyRaw);
 ---
 
 <!doctype html>
@@ -166,8 +226,13 @@ const trackingBody = String(siteConfig.tracking_body || '');
         var _progressHandler = null;
 
         function initReveal() {
+          document.documentElement.classList.add('js-reveal');
           var els = document.querySelectorAll('[data-reveal]:not(.revealed)');
           if (!els.length) return;
+          if (!('IntersectionObserver' in window)) {
+            els.forEach(function(el) { el.classList.add('revealed'); });
+            return;
+          }
           var ob = new IntersectionObserver(function(entries) {
             entries.forEach(function(e) {
               if (e.isIntersecting) {

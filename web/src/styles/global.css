@@ -370,18 +370,24 @@ a:hover {
 
 /* Scroll-triggered reveal */
 [data-reveal] {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.js-reveal [data-reveal]:not(.revealed) {
   opacity: 0;
   transform: translateY(20px);
   transition: opacity 0.8s ease, transform 0.8s ease;
 }
 
-[data-reveal].revealed {
+.js-reveal [data-reveal].revealed {
   opacity: 1;
   transform: translateY(0);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  [data-reveal] {
+  .js-reveal [data-reveal]:not(.revealed),
+  .js-reveal [data-reveal].revealed {
     opacity: 1;
     transform: none;
     transition: none;

@@ -63,8 +63,15 @@ try {
   // Keep fallback content when API is unavailable.
 }
 
-function refineTypography(text: string) {
+function escapeHtml(text: string) {
   return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function refineTypography(text: string) {
+  return escapeHtml(text)
     .replace(/\.\.\./g, '&hellip;')
     .replace(/--/g, '&mdash;')
     .replace(/(^|[-\s(\[<{])"/g, '$1&ldquo;')

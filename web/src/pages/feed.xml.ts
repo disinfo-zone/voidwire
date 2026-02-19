@@ -1,6 +1,5 @@
 import type { APIRoute } from 'astro';
 
-const SITE_URL = 'https://voidwireastro.com';
 const API_URL = process.env.API_URL || import.meta.env.API_URL || 'http://voidwire-api:8000';
 
 function escapeXml(str: string): string {
@@ -12,7 +11,8 @@ function escapeXml(str: string): string {
     .replace(/'/g, '&apos;');
 }
 
-export const GET: APIRoute = async () => {
+export const GET: APIRoute = async ({ url }) => {
+  const siteUrl = url.origin;
   let items: Array<{ date_context: string; title: string; body?: string }> = [];
 
   try {
@@ -27,7 +27,7 @@ export const GET: APIRoute = async () => {
 
   const itemsXml = items
     .map((item) => {
-      const link = `${SITE_URL}/reading/${item.date_context}`;
+      const link = `${siteUrl}/reading/${item.date_context}`;
       const description = item.body
         ? escapeXml(item.body.substring(0, 500) + (item.body.length > 500 ? '...' : ''))
         : '';
@@ -46,10 +46,10 @@ export const GET: APIRoute = async () => {
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>VOIDWIRE</title>
-    <link>${SITE_URL}</link>
+    <link>${siteUrl}</link>
     <description>Daily transmissions from the celestial wire.</description>
     <language>en-us</language>
-    <atom:link href="${SITE_URL}/feed.xml" rel="self" type="application/rss+xml" />
+    <atom:link href="${siteUrl}/feed.xml" rel="self" type="application/rss+xml" />
     <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
 ${itemsXml}
   </channel>

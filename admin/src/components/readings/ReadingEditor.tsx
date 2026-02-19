@@ -108,7 +108,7 @@ export default function ReadingEditor({ reading, onSave }: Props) {
 
       <div>
         <h3 className="text-xs text-text-muted uppercase tracking-wider mb-2">Extended Reading</h3>
-        <div className="grid grid-cols-2 gap-2 mb-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
           <input value={extTitle} onChange={(e) => setExtTitle(e.target.value)} placeholder="Title" className="bg-surface border border-text-ghost rounded px-3 py-2 text-sm text-text-primary" />
           <input value={extSubtitle} onChange={(e) => setExtSubtitle(e.target.value)} placeholder="Subtitle" className="bg-surface border border-text-ghost rounded px-3 py-2 text-sm text-text-primary" />
         </div>
