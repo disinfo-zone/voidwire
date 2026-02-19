@@ -81,10 +81,26 @@ function toXY(deg: number, r: number) {
   return { x: CX + r * Math.cos(rad), y: CY + r * Math.sin(rad) };
 }
 
-function arcPath(r1: number, r2: number, startDeg: number, endDeg: number): string {
-  const s1 = toXY(startDeg, r1), e1 = toXY(endDeg, r1);
-  const s2 = toXY(endDeg, r2), e2 = toXY(startDeg, r2);
-  return `M ${s1.x} ${s1.y} A ${r1} ${r1} 0 0 0 ${e1.x} ${e1.y} L ${s2.x} ${s2.y} A ${r2} ${r2} 0 0 1 ${e2.x} ${e2.y} Z`;
+function ringSegmentPath(rOuter: number, rInner: number, startDeg: number, endDeg: number): string {
+  const outerPoints: Array<{ x: number; y: number }> = [];
+  const innerPoints: Array<{ x: number; y: number }> = [];
+
+  for (let deg = startDeg; deg <= endDeg; deg += 1) outerPoints.push(toXY(deg, rOuter));
+  const outerEnd = toXY(endDeg, rOuter);
+  if (outerPoints.length === 0 || outerPoints[outerPoints.length - 1]!.x !== outerEnd.x || outerPoints[outerPoints.length - 1]!.y !== outerEnd.y) {
+    outerPoints.push(outerEnd);
+  }
+
+  for (let deg = endDeg; deg >= startDeg; deg -= 1) innerPoints.push(toXY(deg, rInner));
+  const innerStart = toXY(startDeg, rInner);
+  if (innerPoints.length === 0 || innerPoints[innerPoints.length - 1]!.x !== innerStart.x || innerPoints[innerPoints.length - 1]!.y !== innerStart.y) {
+    innerPoints.push(innerStart);
+  }
+
+  let d = `M ${outerPoints[0]!.x} ${outerPoints[0]!.y}`;
+  for (let i = 1; i < outerPoints.length; i++) d += ` L ${outerPoints[i]!.x} ${outerPoints[i]!.y}`;
+  for (let i = 0; i < innerPoints.length; i++) d += ` L ${innerPoints[i]!.x} ${innerPoints[i]!.y}`;
+  return `${d} Z`;
 }
 
 function normalizeSign(sign: string): string {
@@ -145,7 +161,7 @@ function buildWheelSvg(ephemeris: EphemerisData): string {
     const sign = SIGN_ORDER[i];
     const color = SIGN_COLORS[sign] || '#9aa6c0';
     const startDeg = i * 30;
-    svg += `<path d="${arcPath(R_OUTER, R_SIGN_INNER, startDeg, startDeg + 30)}" fill="${color}" opacity="0.06" stroke="none"/>`;
+    svg += `<path d="${ringSegmentPath(R_OUTER, R_SIGN_INNER, startDeg, startDeg + 30)}" fill="${color}" opacity="0.06" stroke="none"/>`;
     const b1 = toXY(startDeg, R_OUTER), b2 = toXY(startDeg, R_SIGN_INNER);
     svg += `<line x1="${b1.x}" y1="${b1.y}" x2="${b2.x}" y2="${b2.y}" stroke="${BRASS}" stroke-width="0.5" opacity="0.2"/>`;
     // Unicode sign glyph

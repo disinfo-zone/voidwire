@@ -130,12 +130,24 @@
     return { x: CX + radius * Math.cos(rad), y: CY + radius * Math.sin(rad) };
   }
 
-  function arcPath(r1: number, r2: number, startDeg: number, endDeg: number): string {
-    const s1 = toXY(startDeg, r1);
-    const e1 = toXY(endDeg, r1);
-    const s2 = toXY(endDeg, r2);
-    const e2 = toXY(startDeg, r2);
-    return `M ${s1.x} ${s1.y} A ${r1} ${r1} 0 0 0 ${e1.x} ${e1.y} L ${s2.x} ${s2.y} A ${r2} ${r2} 0 0 1 ${e2.x} ${e2.y} Z`;
+  function ringSegmentPath(rOuter: number, rInner: number, startDeg: number, endDeg: number): string {
+    const outerPoints: { x: number; y: number }[] = [];
+    const innerPoints: { x: number; y: number }[] = [];
+
+    for (let deg = startDeg; deg <= endDeg; deg += 1) outerPoints.push(toXY(deg, rOuter));
+    if (outerPoints.length === 0 || outerPoints[outerPoints.length - 1]!.x !== toXY(endDeg, rOuter).x || outerPoints[outerPoints.length - 1]!.y !== toXY(endDeg, rOuter).y) {
+      outerPoints.push(toXY(endDeg, rOuter));
+    }
+
+    for (let deg = endDeg; deg >= startDeg; deg -= 1) innerPoints.push(toXY(deg, rInner));
+    if (innerPoints.length === 0 || innerPoints[innerPoints.length - 1]!.x !== toXY(startDeg, rInner).x || innerPoints[innerPoints.length - 1]!.y !== toXY(startDeg, rInner).y) {
+      innerPoints.push(toXY(startDeg, rInner));
+    }
+
+    let d = `M ${outerPoints[0]!.x} ${outerPoints[0]!.y}`;
+    for (let i = 1; i < outerPoints.length; i++) d += ` L ${outerPoints[i]!.x} ${outerPoints[i]!.y}`;
+    for (let i = 0; i < innerPoints.length; i++) d += ` L ${innerPoints[i]!.x} ${innerPoints[i]!.y}`;
+    return `${d} Z`;
   }
 
   // Batch tick marks into a single <path> d string for performance
@@ -301,7 +313,7 @@
       glyph: SIGN_GLYPHS[sign] || '',
       abbr: SIGN_ABBR[sign] || sign.slice(0, 3).toUpperCase(),
       color: SIGN_COLORS[sign] || '#9aa6c0',
-      path: arcPath(R_OUTER, R_SIGN_INNER, startDeg, startDeg + 30),
+      path: ringSegmentPath(R_OUTER, R_SIGN_INNER, startDeg, startDeg + 30),
       glyphPos: toXY(midDeg, glyphR),
       labelPos: toXY(midDeg, R_LABEL),
     };
