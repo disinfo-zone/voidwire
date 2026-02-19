@@ -84,7 +84,7 @@ function toXY(deg: number, r: number) {
 function arcPath(r1: number, r2: number, startDeg: number, endDeg: number): string {
   const s1 = toXY(startDeg, r1), e1 = toXY(endDeg, r1);
   const s2 = toXY(endDeg, r2), e2 = toXY(startDeg, r2);
-  return `M ${s1.x} ${s1.y} A ${r1} ${r1} 0 0 1 ${e1.x} ${e1.y} L ${s2.x} ${s2.y} A ${r2} ${r2} 0 0 0 ${e2.x} ${e2.y} Z`;
+  return `M ${s1.x} ${s1.y} A ${r1} ${r1} 0 0 0 ${e1.x} ${e1.y} L ${s2.x} ${s2.y} A ${r2} ${r2} 0 0 1 ${e2.x} ${e2.y} Z`;
 }
 
 function normalizeSign(sign: string): string {

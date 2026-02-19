@@ -135,7 +135,7 @@
     const e1 = toXY(endDeg, r1);
     const s2 = toXY(endDeg, r2);
     const e2 = toXY(startDeg, r2);
-    return `M ${s1.x} ${s1.y} A ${r1} ${r1} 0 0 1 ${e1.x} ${e1.y} L ${s2.x} ${s2.y} A ${r2} ${r2} 0 0 0 ${e2.x} ${e2.y} Z`;
+    return `M ${s1.x} ${s1.y} A ${r1} ${r1} 0 0 0 ${e1.x} ${e1.y} L ${s2.x} ${s2.y} A ${r2} ${r2} 0 0 1 ${e2.x} ${e2.y} Z`;
   }
 
   // Batch tick marks into a single <path> d string for performance
