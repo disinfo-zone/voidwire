@@ -73,7 +73,25 @@
       "Bash(.venvScriptspython.exe -m pytest --tb=short -q)",
       "Bash(.venv/Scripts/python.exe -m pytest:*)",
       "Bash(cd:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(git push:*)",
+      "Bash(npx astro check:*)",
+      "Bash(npx tsc:*)",
+      "Bash(node:*)",
+      "Bash(npx astro build:*)",
+      "Bash(git status:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm install:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)",
+      "Bash(grep:*)",
+      "WebFetch(domain:voidwireastro.com)",
+      "Bash(tar xzf:*)",
+      "Bash(git rm:*)",
+      "Bash(xxd:*)",
+      "Bash(git checkout:*)"
     ]
   }
 }

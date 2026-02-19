@@ -19,6 +19,8 @@ from api.services.email_service import (
 )
 from api.services.oauth_config import load_oauth_config, save_oauth_config
 from api.services.site_config import load_site_config, save_site_asset, save_site_config
+from api.services.stripe_config import load_stripe_config, resolve_stripe_runtime_config, save_stripe_config
+from api.services.stripe_service import run_stripe_connectivity_check
 
 router = APIRouter()
 
@@ -78,6 +80,13 @@ class OAuthAppleConfigUpdateRequest(BaseModel):
 class OAuthConfigUpdateRequest(BaseModel):
     google: OAuthGoogleConfigUpdateRequest | None = None
     apple: OAuthAppleConfigUpdateRequest | None = None
+
+
+class StripeConfigUpdateRequest(BaseModel):
+    enabled: bool | None = None
+    publishable_key: str | None = Field(default=None, max_length=320)
+    secret_key: str | None = Field(default=None, max_length=320)
+    webhook_secret: str | None = Field(default=None, max_length=320)
 
 
 def _decode_base64_payload(raw: str) -> bytes:
@@ -215,6 +224,67 @@ async def update_oauth_config(
         )
     )
     return updated
+
+
+@router.get("/billing/stripe")
+async def get_stripe_config(
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(require_admin),
+):
+    _ = user
+    return await load_stripe_config(db)
+
+
+@router.put("/billing/stripe")
+async def update_stripe_config(
+    req: StripeConfigUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(require_admin),
+):
+    payload = req.model_dump(exclude_none=True)
+    updated = await save_stripe_config(db, payload)
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            action="billing.stripe.update",
+            target_type="site",
+            target_id="billing.stripe",
+            detail={
+                "updated_fields": list(payload.keys()),
+                "enabled": bool(updated.get("enabled")),
+                "is_configured": bool(updated.get("is_configured")),
+            },
+        )
+    )
+    return updated
+
+
+@router.post("/billing/stripe/test")
+async def test_stripe_config(
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(require_admin),
+):
+    runtime = await resolve_stripe_runtime_config(db)
+    result = run_stripe_connectivity_check(
+        secret_key=str(runtime.get("secret_key") or "").strip(),
+        publishable_key=str(runtime.get("publishable_key") or "").strip(),
+        webhook_secret=str(runtime.get("webhook_secret") or "").strip(),
+        price_limit=5,
+    )
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            action="billing.stripe.test",
+            target_type="site",
+            target_id="billing.stripe",
+            detail={
+                "status": result.get("status"),
+                "warnings": result.get("warnings", []),
+                "active_price_count": result.get("active_price_count", 0),
+            },
+        )
+    )
+    return result
 
 
 @router.post("/assets")

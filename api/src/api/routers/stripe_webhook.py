@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.models import AnalyticsEvent, StripeWebhookEvent, Subscription, User
 
 from api.dependencies import get_db
+from api.services.stripe_config import resolve_stripe_runtime_config
 from api.services.stripe_service import verify_webhook_signature
 
 logger = logging.getLogger(__name__)
@@ -127,9 +128,15 @@ def _extract_price_id(stripe_sub: dict) -> str | None:
 async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature", "")
+    stripe_config = await resolve_stripe_runtime_config(db)
 
     try:
-        event = verify_webhook_signature(payload, sig_header)
+        event = verify_webhook_signature(
+            payload,
+            sig_header,
+            webhook_secret=str(stripe_config.get("webhook_secret") or "").strip(),
+            secret_key=str(stripe_config.get("secret_key") or "").strip(),
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except Exception:

@@ -48,6 +48,17 @@ def _stripe_settings() -> SimpleNamespace:
     )
 
 
+def _runtime_stripe_config() -> dict[str, str | bool]:
+    return {
+        "enabled": True,
+        "secret_key": "sk_test_123",
+        "publishable_key": "pk_test_123",
+        "webhook_secret": "whsec_test_123",
+        "is_configured": True,
+        "webhook_is_configured": True,
+    }
+
+
 @pytest.mark.asyncio
 async def test_birth_data_rejects_invalid_time_when_known(user_client: AsyncClient):
     response = await user_client.put(
@@ -106,7 +117,13 @@ async def test_birth_data_rejects_invalid_timezone(user_client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_checkout_rejects_untrusted_success_url(user_client: AsyncClient):
-    with patch("api.routers.user_subscription.get_settings", return_value=_stripe_settings()):
+    with (
+        patch("api.routers.user_subscription.get_settings", return_value=_stripe_settings()),
+        patch(
+            "api.routers.user_subscription.resolve_stripe_runtime_config",
+            new=AsyncMock(return_value=_runtime_stripe_config()),
+        ),
+    ):
         response = await user_client.post(
             "/v1/user/subscription/checkout",
             json={
@@ -121,7 +138,13 @@ async def test_checkout_rejects_untrusted_success_url(user_client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_portal_rejects_untrusted_return_url(user_client: AsyncClient):
-    with patch("api.routers.user_subscription.get_settings", return_value=_stripe_settings()):
+    with (
+        patch("api.routers.user_subscription.get_settings", return_value=_stripe_settings()),
+        patch(
+            "api.routers.user_subscription.resolve_stripe_runtime_config",
+            new=AsyncMock(return_value=_runtime_stripe_config()),
+        ),
+    ):
         response = await user_client.post(
             "/v1/user/subscription/portal",
             json={"return_url": "https://evil.example/portal"},
@@ -134,6 +157,10 @@ async def test_portal_rejects_untrusted_return_url(user_client: AsyncClient):
 async def test_checkout_rejects_unknown_price(user_client: AsyncClient):
     with (
         patch("api.routers.user_subscription.get_settings", return_value=_stripe_settings()),
+        patch(
+            "api.routers.user_subscription.resolve_stripe_runtime_config",
+            new=AsyncMock(return_value=_runtime_stripe_config()),
+        ),
         patch("api.routers.user_subscription.is_price_active_recurring", return_value=False),
     ):
         response = await user_client.post(
@@ -152,6 +179,10 @@ async def test_checkout_rejects_unknown_price(user_client: AsyncClient):
 async def test_checkout_allows_whitelisted_redirect_urls(user_client: AsyncClient):
     with (
         patch("api.routers.user_subscription.get_settings", return_value=_stripe_settings()),
+        patch(
+            "api.routers.user_subscription.resolve_stripe_runtime_config",
+            new=AsyncMock(return_value=_runtime_stripe_config()),
+        ),
         patch("api.routers.user_subscription.is_price_active_recurring", return_value=True),
         patch(
             "api.routers.user_subscription.get_or_create_customer",
@@ -179,6 +210,10 @@ async def test_checkout_applies_valid_discount_code(user_client: AsyncClient):
     discount = SimpleNamespace(stripe_promotion_code_id="promo_123")
     with (
         patch("api.routers.user_subscription.get_settings", return_value=_stripe_settings()),
+        patch(
+            "api.routers.user_subscription.resolve_stripe_runtime_config",
+            new=AsyncMock(return_value=_runtime_stripe_config()),
+        ),
         patch("api.routers.user_subscription.is_price_active_recurring", return_value=True),
         patch(
             "api.routers.user_subscription.resolve_usable_discount_code",
@@ -212,6 +247,10 @@ async def test_checkout_applies_valid_discount_code(user_client: AsyncClient):
 async def test_checkout_rejects_invalid_discount_code(user_client: AsyncClient):
     with (
         patch("api.routers.user_subscription.get_settings", return_value=_stripe_settings()),
+        patch(
+            "api.routers.user_subscription.resolve_stripe_runtime_config",
+            new=AsyncMock(return_value=_runtime_stripe_config()),
+        ),
         patch("api.routers.user_subscription.is_price_active_recurring", return_value=True),
         patch(
             "api.routers.user_subscription.resolve_usable_discount_code",
@@ -235,6 +274,10 @@ async def test_checkout_rejects_invalid_discount_code(user_client: AsyncClient):
 async def test_checkout_returns_actionable_discount_error(user_client: AsyncClient):
     with (
         patch("api.routers.user_subscription.get_settings", return_value=_stripe_settings()),
+        patch(
+            "api.routers.user_subscription.resolve_stripe_runtime_config",
+            new=AsyncMock(return_value=_runtime_stripe_config()),
+        ),
         patch("api.routers.user_subscription.is_price_active_recurring", return_value=True),
         patch(
             "api.routers.user_subscription.get_or_create_customer",
@@ -255,3 +298,35 @@ async def test_checkout_returns_actionable_discount_error(user_client: AsyncClie
         )
     assert response.status_code == 400
     assert response.json()["detail"] == "Discount code is invalid"
+
+
+@pytest.mark.asyncio
+async def test_checkout_returns_503_when_stripe_disabled(user_client: AsyncClient):
+    with patch(
+        "api.routers.user_subscription.resolve_stripe_runtime_config",
+        new=AsyncMock(return_value={"enabled": False, "secret_key": "", "publishable_key": ""}),
+    ):
+        response = await user_client.post(
+            "/v1/user/subscription/checkout",
+            json={
+                "price_id": "price_known",
+                "success_url": "https://voidwire.test/dashboard?ok=1",
+                "cancel_url": "https://voidwire.test/dashboard",
+            },
+        )
+    assert response.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_prices_reports_disabled_when_stripe_disabled(user_client: AsyncClient):
+    with patch(
+        "api.routers.user_subscription.resolve_stripe_runtime_config",
+        new=AsyncMock(
+            return_value={"enabled": False, "secret_key": "", "publishable_key": "pk_test_123"}
+        ),
+    ):
+        response = await user_client.get("/v1/user/subscription/prices")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enabled"] is False
+    assert body["prices"] == []

@@ -49,6 +49,15 @@ import Background from '../components/Background.svelte';
         </form>
       </div>
 
+      <div id="oauth-section" style="display: none;">
+        <div class="auth-divider"><span>or continue with</span></div>
+        <div class="oauth-buttons">
+          <div id="oauth-google-button" style="display: none;"></div>
+          <button type="button" id="oauth-apple-button" class="oauth-button" style="display: none;">
+            Continue with Apple
+          </button>
+        </div>
+      </div>
       <p id="oauth-note" class="oauth-note" style="display: none;"></p>
 
       <p class="auth-link">Don't have an account? <a href="/register">Register</a></p>
@@ -80,10 +89,79 @@ import Background from '../components/Background.svelte';
   const queryMessageEl = document.getElementById('query-message') as HTMLDivElement;
   const resetPanel = document.getElementById('reset-panel') as HTMLDivElement;
   const resetForm = document.getElementById('reset-form') as HTMLFormElement;
+  const oauthSectionEl = document.getElementById('oauth-section') as HTMLDivElement | null;
+  const googleButtonMount = document.getElementById('oauth-google-button') as HTMLDivElement | null;
+  const appleButtonEl = document.getElementById('oauth-apple-button') as HTMLButtonElement | null;
   const oauthNoteEl = document.getElementById('oauth-note') as HTMLParagraphElement | null;
   const params = new URLSearchParams(window.location.search);
   const verifyToken = params.get('verify_token');
   const resetToken = params.get('reset_token');
+  let oauthInFlight = false;
+
+  type OAuthProviders = {
+    google?: { enabled?: boolean; client_id?: string };
+    apple?: { enabled?: boolean; client_id?: string };
+  };
+
+  function showAuthError(message: string): void {
+    errorEl.textContent = message;
+    errorEl.style.display = 'block';
+  }
+
+  function clearAuthError(): void {
+    errorEl.style.display = 'none';
+  }
+
+  function loadExternalScript(src: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const selector = `script[data-oauth-src="${src}"]`;
+      const existing = document.querySelector(selector) as HTMLScriptElement | null;
+      if (existing) {
+        if (existing.dataset.loaded === 'true') {
+          resolve();
+          return;
+        }
+        existing.addEventListener('load', () => resolve(), { once: true });
+        existing.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)), {
+          once: true,
+        });
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = src;
+      script.async = true;
+      script.defer = true;
+      script.dataset.oauthSrc = src;
+      script.addEventListener(
+        'load',
+        () => {
+          script.dataset.loaded = 'true';
+          resolve();
+        },
+        { once: true },
+      );
+      script.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)), {
+        once: true,
+      });
+      document.head.appendChild(script);
+    });
+  }
+
+  async function completeOauthLogin(path: string, payload: Record<string, unknown>): Promise<void> {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data?.detail || 'OAuth login failed');
+    }
+    const data = await res.json();
+    setToken(data.access_token);
+    window.location.href = '/dashboard';
+  }
 
   async function handleQueryTokens() {
     if (verifyToken) {
@@ -112,18 +190,120 @@ import Background from '../components/Background.svelte';
 
   void handleQueryTokens();
 
+  async function setupGoogleOauth(clientId: string): Promise<void> {
+    if (!googleButtonMount) return;
+    await loadExternalScript('https://accounts.google.com/gsi/client');
+    const googleApi = (window as any).google;
+    if (!googleApi?.accounts?.id) {
+      throw new Error('Google OAuth SDK failed to load');
+    }
+    googleButtonMount.style.display = 'block';
+    googleButtonMount.innerHTML = '';
+    googleApi.accounts.id.initialize({
+      client_id: clientId,
+      callback: async (response: any) => {
+        const credential = String(response?.credential || '').trim();
+        if (!credential) {
+          showAuthError('Google sign-in did not return a credential');
+          return;
+        }
+        if (oauthInFlight) return;
+        oauthInFlight = true;
+        clearAuthError();
+        try {
+          await completeOauthLogin('/v1/user/auth/oauth/google', { id_token: credential });
+        } catch (err) {
+          showAuthError(err instanceof Error ? err.message : 'Google sign-in failed');
+        } finally {
+          oauthInFlight = false;
+        }
+      },
+    });
+    googleApi.accounts.id.renderButton(googleButtonMount, {
+      theme: 'outline',
+      size: 'large',
+      text: 'continue_with',
+      width: 320,
+    });
+  }
+
+  async function setupAppleOauth(clientId: string): Promise<void> {
+    if (!appleButtonEl) return;
+    await loadExternalScript(
+      'https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js',
+    );
+    const appleApi = (window as any).AppleID;
+    if (!appleApi?.auth) {
+      throw new Error('Apple OAuth SDK failed to load');
+    }
+    appleApi.auth.init({
+      clientId,
+      scope: 'name email',
+      redirectURI: `${window.location.origin}/login`,
+      usePopup: true,
+    });
+    appleButtonEl.style.display = 'block';
+    appleButtonEl.addEventListener('click', async () => {
+      if (oauthInFlight) return;
+      oauthInFlight = true;
+      clearAuthError();
+      try {
+        const authResponse = await appleApi.auth.signIn();
+        const code = String(authResponse?.authorization?.code || '').trim();
+        if (!code) {
+          throw new Error('Apple sign-in did not return an authorization code');
+        }
+        await completeOauthLogin('/v1/user/auth/oauth/apple', { authorization_code: code });
+      } catch (err: any) {
+        if (String(err?.error || '').toLowerCase() === 'popup_closed_by_user') {
+          showAuthError('Apple sign-in was cancelled');
+        } else {
+          showAuthError(err instanceof Error ? err.message : 'Apple sign-in failed');
+        }
+      } finally {
+        oauthInFlight = false;
+      }
+    });
+  }
+
   async function loadOauthState() {
-    if (!oauthNoteEl) return;
     try {
       const res = await fetch('/v1/user/auth/oauth/providers');
       if (!res.ok) return;
-      const providers = await res.json();
+      const providers = (await res.json()) as OAuthProviders;
       const labels: string[] = [];
-      if (providers?.google?.enabled) labels.push('Google');
-      if (providers?.apple?.enabled) labels.push('Apple');
+      const googleEnabled = Boolean(providers?.google?.enabled);
+      const appleEnabled = Boolean(providers?.apple?.enabled);
+      if (googleEnabled) {
+        labels.push('Google');
+      }
+      if (appleEnabled) {
+        labels.push('Apple');
+      }
       if (labels.length === 0) return;
-      oauthNoteEl.textContent = `OAuth sign-in enabled: ${labels.join(', ')}`;
-      oauthNoteEl.style.display = 'block';
+      if (oauthSectionEl) {
+        oauthSectionEl.style.display = 'block';
+      }
+      if (oauthNoteEl) {
+        oauthNoteEl.textContent = `OAuth sign-in enabled: ${labels.join(', ')}`;
+        oauthNoteEl.style.display = 'block';
+      }
+      if (googleEnabled) {
+        const googleClientId = String(providers?.google?.client_id || '').trim();
+        if (googleClientId) {
+          await setupGoogleOauth(googleClientId);
+        } else {
+          showAuthError('Google OAuth is enabled but missing client ID');
+        }
+      }
+      if (appleEnabled) {
+        const appleClientId = String(providers?.apple?.client_id || '').trim();
+        if (appleClientId) {
+          await setupAppleOauth(appleClientId);
+        } else {
+          showAuthError('Apple OAuth is enabled but missing client ID');
+        }
+      }
     } catch {
       // Leave OAuth note hidden when provider status cannot be loaded.
     }

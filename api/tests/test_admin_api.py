@@ -1136,7 +1136,7 @@ class TestAccountsAPI:
 
         assert resp.status_code == 200
         assert resp.json()["is_active"] is False
-        set_active.assert_called_once_with("promo_123", active=False)
+        set_active.assert_called_once_with("promo_123", active=False, secret_key=None)
 
     async def test_delete_discount_code(self, client: AsyncClient, mock_db):
         code_id = uuid.uuid4()
@@ -1152,7 +1152,7 @@ class TestAccountsAPI:
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "deleted"
-        set_active.assert_called_once_with("promo_legacy", active=False)
+        set_active.assert_called_once_with("promo_legacy", active=False, secret_key=None)
         mock_db.delete.assert_awaited_once_with(discount)
 
     async def test_operational_health_endpoint(self, client: AsyncClient, mock_db):
@@ -1258,6 +1258,7 @@ class TestRouteRegistration:
             ("GET", "/admin/signals/stats"),
             ("GET", "/admin/content/pages"),
             ("GET", "/admin/site/config"),
+            ("GET", "/admin/site/billing/stripe"),
             ("GET", "/admin/backup/storage"),
             ("GET", "/admin/accounts/users"),
             ("GET", "/admin/accounts/reading-jobs"),

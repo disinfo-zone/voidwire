@@ -435,17 +435,21 @@ async def oauth_google(
     if not google_sub:
         raise HTTPException(status_code=401, detail="Invalid Google token")
     email = _normalize_email(idinfo.get("email", ""))
+    email_verified = _coerce_bool(idinfo.get("email_verified"))
 
     # Find by google_id
     result = await db.execute(select(User).where(User.google_id == google_sub))
     user = result.scalars().first()
 
     if not user and email:
+        if not email_verified:
+            raise HTTPException(status_code=401, detail="Google account email must be verified")
         # Check if email already exists (link accounts)
         result = await db.execute(select(User).where(func.lower(User.email) == email))
         user = result.scalars().first()
         if user:
             user.google_id = google_sub
+            user.email_verified = bool(user.email_verified or email_verified)
 
     if not user:
         if not email:
@@ -453,11 +457,13 @@ async def oauth_google(
                 status_code=400,
                 detail="Google account email is required to create a user",
             )
+        if not email_verified:
+            raise HTTPException(status_code=401, detail="Google account email must be verified")
         user = User(
             email=email,
             google_id=google_sub,
             display_name=idinfo.get("name"),
-            email_verified=_coerce_bool(idinfo.get("email_verified")),
+            email_verified=True,
         )
         db.add(user)
         await db.flush()
@@ -539,15 +545,19 @@ async def oauth_apple(
     if not apple_sub:
         raise HTTPException(status_code=401, detail="Invalid Apple token")
     email = _normalize_email(claims.get("email", ""))
+    email_verified = _coerce_bool(claims.get("email_verified"))
 
     result = await db.execute(select(User).where(User.apple_id == apple_sub))
     user = result.scalars().first()
 
     if not user and email:
+        if not email_verified:
+            raise HTTPException(status_code=401, detail="Apple account email must be verified")
         result = await db.execute(select(User).where(func.lower(User.email) == email))
         user = result.scalars().first()
         if user:
             user.apple_id = apple_sub
+            user.email_verified = bool(user.email_verified or email_verified)
 
     if not user:
         if not email:
@@ -555,10 +565,12 @@ async def oauth_apple(
                 status_code=400,
                 detail="Apple account email is required to create a user",
             )
+        if not email_verified:
+            raise HTTPException(status_code=401, detail="Apple account email must be verified")
         user = User(
             email=email,
             apple_id=apple_sub,
-            email_verified=_coerce_bool(claims.get("email_verified")),
+            email_verified=True,
         )
         db.add(user)
         await db.flush()

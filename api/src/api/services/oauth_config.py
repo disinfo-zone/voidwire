@@ -234,6 +234,7 @@ async def load_public_oauth_providers(session: AsyncSession) -> dict[str, Any]:
         },
         "apple": {
             "enabled": bool(runtime["apple"]["enabled"]),
+            "client_id": _normalize_text(runtime["apple"].get("client_id")),
         },
         "any_enabled": bool(runtime["google"]["enabled"] or runtime["apple"]["enabled"]),
     }

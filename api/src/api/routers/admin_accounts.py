@@ -29,6 +29,7 @@ from api.services.stripe_service import (
     create_coupon_and_promotion_code,
     set_promotion_code_active,
 )
+from api.services.stripe_config import resolve_stripe_runtime_config
 from api.services.subscription_service import has_active_pro_override
 
 router = APIRouter()
@@ -277,6 +278,12 @@ async def _count_active_owners(db: AsyncSession) -> int:
         )
     )
     return int(result.scalar() or 0)
+
+
+async def _stripe_secret_key(db: AsyncSession) -> str | None:
+    stripe_config = await resolve_stripe_runtime_config(db)
+    secret_key = str(stripe_config.get("secret_key") or "").strip()
+    return secret_key or None
 
 
 @router.get("/users")
@@ -621,6 +628,7 @@ async def create_discount_code(
     if existing.scalars().first() is not None:
         raise HTTPException(status_code=409, detail="Discount code already exists")
 
+    stripe_secret_key = await _stripe_secret_key(db)
     try:
         stripe_ids = create_coupon_and_promotion_code(
             code=req.code,
@@ -631,6 +639,7 @@ async def create_discount_code(
             duration_in_months=req.duration_in_months,
             max_redemptions=req.max_redemptions,
             expires_at=expires_at,
+            secret_key=stripe_secret_key,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
@@ -687,11 +696,13 @@ async def delete_discount_code(
     if not discount_code:
         raise HTTPException(status_code=404, detail="Discount code not found")
 
+    stripe_secret_key = await _stripe_secret_key(db)
     if discount_code.is_active:
         try:
             set_promotion_code_active(
                 discount_code.stripe_promotion_code_id,
                 active=False,
+                secret_key=stripe_secret_key,
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc))
@@ -723,6 +734,7 @@ async def update_discount_code(
     db: AsyncSession = Depends(get_db),
     user: AdminUser = Depends(require_admin),
 ):
+    stripe_secret_key = await _stripe_secret_key(db)
     discount_code = await db.get(DiscountCode, discount_code_id)
     if not discount_code:
         raise HTTPException(status_code=404, detail="Discount code not found")
@@ -756,6 +768,7 @@ async def update_discount_code(
                 set_promotion_code_active(
                     discount_code.stripe_promotion_code_id,
                     active=req.is_active,
+                    secret_key=stripe_secret_key,
                 )
             except RuntimeError as exc:
                 raise HTTPException(status_code=503, detail=str(exc))

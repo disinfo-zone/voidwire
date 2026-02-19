@@ -20,6 +20,7 @@ from api.services.stripe_service import (
     list_active_recurring_prices,
     map_checkout_exception,
 )
+from api.services.stripe_config import resolve_stripe_runtime_config
 from api.services.subscription_service import get_user_tier
 
 router = APIRouter()
@@ -117,16 +118,17 @@ async def create_checkout(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a Stripe Checkout session for subscription."""
-    settings = get_settings()
-    if not settings.stripe_secret_key:
-        raise HTTPException(status_code=501, detail="Stripe not configured")
+    stripe_config = await resolve_stripe_runtime_config(db)
+    stripe_secret_key = str(stripe_config.get("secret_key") or "").strip()
+    if not stripe_config.get("enabled") or not stripe_secret_key:
+        raise HTTPException(status_code=503, detail="Subscription checkout is not enabled")
 
     success_url = _validate_redirect_url(req.success_url, field_name="success_url")
     cancel_url = _validate_redirect_url(req.cancel_url, field_name="cancel_url")
 
     normalized_discount_code = req.discount_code.strip().upper() if req.discount_code else None
     try:
-        if not is_price_active_recurring(req.price_id):
+        if not is_price_active_recurring(req.price_id, secret_key=stripe_secret_key):
             _track_checkout_event(
                 db,
                 event_type="checkout.failure",
@@ -152,13 +154,14 @@ async def create_checkout(
                 raise HTTPException(status_code=400, detail="Invalid or expired discount code")
             promotion_code_id = discount_code.stripe_promotion_code_id
 
-        customer_id = await get_or_create_customer(user, db)
+        customer_id = await get_or_create_customer(user, db, secret_key=stripe_secret_key)
         url = create_checkout_session(
             customer_id=customer_id,
             price_id=req.price_id,
             success_url=success_url,
             cancel_url=cancel_url,
             promotion_code_id=promotion_code_id,
+            secret_key=stripe_secret_key,
         )
         _track_checkout_event(
             db,
@@ -200,17 +203,19 @@ async def create_portal(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a Stripe Billing Portal session."""
-    settings = get_settings()
-    if not settings.stripe_secret_key:
-        raise HTTPException(status_code=501, detail="Stripe not configured")
+    stripe_config = await resolve_stripe_runtime_config(db)
+    stripe_secret_key = str(stripe_config.get("secret_key") or "").strip()
+    if not stripe_config.get("enabled") or not stripe_secret_key:
+        raise HTTPException(status_code=503, detail="Billing portal is not enabled")
 
     return_url = _validate_redirect_url(req.return_url, field_name="return_url")
 
     try:
-        customer_id = await get_or_create_customer(user, db)
+        customer_id = await get_or_create_customer(user, db, secret_key=stripe_secret_key)
         url = create_billing_portal_session(
             customer_id=customer_id,
             return_url=return_url,
+            secret_key=stripe_secret_key,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
@@ -218,26 +223,34 @@ async def create_portal(
 
 
 @router.get("/prices")
-async def get_prices():
+async def get_prices(db: AsyncSession = Depends(get_db)):
     """Get available subscription prices."""
-    settings = get_settings()
-    if not settings.stripe_secret_key:
-        return {"prices": []}
+    stripe_config = await resolve_stripe_runtime_config(db)
+    stripe_secret_key = str(stripe_config.get("secret_key") or "").strip()
+    publishable_key = str(stripe_config.get("publishable_key") or "").strip()
+    if not stripe_config.get("enabled") or not stripe_secret_key:
+        return {"enabled": False, "prices": [], "publishable_key": publishable_key}
 
     try:
-        prices = list_active_recurring_prices(limit=10)
+        prices = list_active_recurring_prices(limit=10, secret_key=stripe_secret_key)
         return {
+            "enabled": True,
             "prices": [
                 {
                     "id": p["id"],
                     "unit_amount": p["unit_amount"],
                     "currency": p["currency"],
                     "interval": p["recurring"]["interval"] if p.get("recurring") else None,
-                    "product": p["product"],
+                    "product": (
+                        p["product"]["name"]
+                        if isinstance(p.get("product"), dict)
+                        else p.get("product")
+                    ),
+                    "nickname": p.get("nickname"),
                 }
                 for p in prices
             ],
-            "publishable_key": settings.stripe_publishable_key,
+            "publishable_key": publishable_key,
         }
     except Exception:
-        return {"prices": [], "publishable_key": settings.stripe_publishable_key}
+        return {"enabled": True, "prices": [], "publishable_key": publishable_key}

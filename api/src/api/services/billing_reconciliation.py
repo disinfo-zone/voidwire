@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.models import AnalyticsEvent, Subscription
 
+from api.services.stripe_config import resolve_stripe_runtime_config
 from api.services.stripe_service import _get_stripe_client
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,9 @@ async def run_billing_reconciliation(
 ) -> dict[str, Any]:
     started_at = datetime.now(UTC)
     try:
-        stripe_client = _get_stripe_client()
+        stripe_config = await resolve_stripe_runtime_config(db)
+        stripe_secret_key = str(stripe_config.get("secret_key") or "").strip() or None
+        stripe_client = _get_stripe_client(secret_key=stripe_secret_key)
     except RuntimeError as exc:
         summary = {
             "status": "skipped",

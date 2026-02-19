@@ -97,6 +97,85 @@ async def test_update_oauth_config(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_get_stripe_config(client: AsyncClient):
+    payload = {
+        "enabled": True,
+        "publishable_key": "pk_test_123",
+        "secret_key_masked": "sk_t****1234",
+        "webhook_secret_masked": "whse****1234",
+        "is_configured": True,
+        "webhook_is_configured": True,
+    }
+    with patch("api.routers.admin_site.load_stripe_config", new=AsyncMock(return_value=payload)):
+        response = await client.get("/admin/site/billing/stripe")
+    assert response.status_code == 200
+    assert response.json()["enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_update_stripe_config(client: AsyncClient):
+    payload = {
+        "enabled": True,
+        "publishable_key": "pk_test_123",
+        "secret_key_masked": "sk_t****1234",
+        "webhook_secret_masked": "whse****1234",
+        "is_configured": True,
+        "webhook_is_configured": True,
+    }
+    with patch("api.routers.admin_site.save_stripe_config", new=AsyncMock(return_value=payload)):
+        response = await client.put(
+            "/admin/site/billing/stripe",
+            json={
+                "enabled": True,
+                "publishable_key": "pk_test_123",
+                "secret_key": "sk_test_123",
+                "webhook_secret": "whsec_123",
+            },
+        )
+    assert response.status_code == 200
+    assert response.json()["publishable_key"] == "pk_test_123"
+
+
+@pytest.mark.asyncio
+async def test_run_stripe_connectivity_check(client: AsyncClient):
+    check_payload = {
+        "status": "ok",
+        "message": "Stripe connectivity check passed",
+        "enabled": True,
+        "account_id": "acct_123",
+        "api_mode": "test",
+        "secret_key_mode": "test",
+        "publishable_key_mode": "test",
+        "key_mode_match": True,
+        "webhook_ready": True,
+        "active_price_count": 2,
+        "sample_prices": [],
+        "warnings": [],
+    }
+    with (
+        patch(
+            "api.routers.admin_site.resolve_stripe_runtime_config",
+            new=AsyncMock(
+                return_value={
+                    "secret_key": "sk_test_123",
+                    "publishable_key": "pk_test_123",
+                    "webhook_secret": "whsec_123",
+                }
+            ),
+        ),
+        patch(
+            "api.routers.admin_site.run_stripe_connectivity_check",
+            return_value=check_payload,
+        ),
+    ):
+        response = await client.post("/admin/site/billing/stripe/test")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert response.json()["account_id"] == "acct_123"
+
+
+@pytest.mark.asyncio
 async def test_upload_site_asset_sets_favicon_url(client: AsyncClient):
     uploaded_asset = {
         "kind": "favicon",
