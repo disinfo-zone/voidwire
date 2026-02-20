@@ -445,6 +445,7 @@ async def delete_user(
         await db.delete(user)
         # Flush before returning so callers never receive a false success.
         await db.flush()
+        await db.commit()
         return {"status": "deleted", "user_id": str(user_id)}
     except IntegrityError:
         await db.rollback()
@@ -453,18 +454,23 @@ async def delete_user(
             return {"status": "deleted", "user_id": str(user_id)}
         persisted.is_active = False
         persisted.token_version = int(persisted.token_version or 0) + 1
-        await db.flush()
-        db.add(
-            AuditLog(
-                user_id=admin.id,
-                action="user.deactivate_fallback",
-                target_type="user",
-                target_id=str(user_id),
-                detail={"reason": "delete_integrity_fallback"},
+        try:
+            await db.flush()
+            db.add(
+                AuditLog(
+                    user_id=admin.id,
+                    action="user.deactivate_fallback",
+                    target_type="user",
+                    target_id=str(user_id),
+                    detail={"reason": "delete_integrity_fallback"},
+                )
             )
-        )
-        await db.flush()
-        return {"status": "deactivated", "user_id": str(user_id)}
+            await db.flush()
+            await db.commit()
+            return {"status": "deactivated", "user_id": str(user_id)}
+        except Exception as exc:
+            await db.rollback()
+            raise HTTPException(status_code=500, detail="Failed to delete or deactivate user") from exc
 
 
 @router.get("/admin-users")

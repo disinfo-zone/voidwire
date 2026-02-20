@@ -998,6 +998,57 @@ async def delete_account(
             )
         )
         await db.flush()
+    try:
+        # Commit inside endpoint so deferred constraints surface before the HTTP response.
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        # Handle deferred FK checks the same way as flush-time integrity failures.
+        deletion_mode = "soft"
+        persisted_user = await db.get(User, user_id)
+        if persisted_user is not None:
+            await db.execute(
+                delete(UserProfile).where(UserProfile.user_id == user_id)
+            )
+            await db.execute(
+                delete(Subscription).where(Subscription.user_id == user_id)
+            )
+            await db.execute(
+                delete(PersonalReading).where(PersonalReading.user_id == user_id)
+            )
+            await db.execute(
+                delete(EmailVerificationToken).where(EmailVerificationToken.user_id == user_id)
+            )
+            await db.execute(
+                delete(PasswordResetToken).where(PasswordResetToken.user_id == user_id)
+            )
+            await db.execute(delete(AsyncJob).where(AsyncJob.user_id == user_id))
+
+            persisted_user.is_active = False
+            persisted_user.token_version = int(persisted_user.token_version or 0) + 1
+            persisted_user.password_hash = None
+            persisted_user.google_id = None
+            persisted_user.apple_id = None
+            persisted_user.display_name = None
+            persisted_user.pro_override = False
+            persisted_user.pro_override_reason = None
+            persisted_user.pro_override_until = None
+            persisted_user.email_verified = False
+            persisted_user.email = f"deleted+{str(user_id).replace('-', '')}@voidwire.local"
+            await db.flush()
+
+        db.add(
+            AnalyticsEvent(
+                event_type="user.account.delete",
+                metadata_json={
+                    "user_id": str(user_id),
+                    "mode": deletion_mode,
+                    "reason": f"deferred_constraint:{str(exc)[:260]}",
+                },
+            )
+        )
+        await db.flush()
+        await db.commit()
 
     response = JSONResponse({"detail": "Account deleted", "mode": deletion_mode})
     _clear_user_auth_cookie(response)

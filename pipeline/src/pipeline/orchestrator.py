@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import difflib
 import hashlib
 import json
 import logging
+import re
 import subprocess
 import uuid
 from datetime import UTC, date, datetime
@@ -270,15 +272,83 @@ async def _get_recent_titles(session: AsyncSession, date_context: date, limit: i
     return [str(row[0]).strip() for row in result.fetchall() if row[0]]
 
 
+_TITLE_NOISE_TOKENS = {
+    "a",
+    "an",
+    "and",
+    "at",
+    "by",
+    "for",
+    "from",
+    "in",
+    "of",
+    "on",
+    "or",
+    "the",
+    "to",
+    "with",
+}
+
+
+def _normalize_title(title: str) -> str:
+    normalized = re.sub(r"[^a-z0-9\s]", " ", str(title or "").lower())
+    return " ".join(normalized.split())
+
+
+def _title_tokens(normalized_title: str) -> set[str]:
+    return {
+        token
+        for token in normalized_title.split()
+        if token and token not in _TITLE_NOISE_TOKENS
+    }
+
+
+def _title_similarity(candidate: str, recent: str) -> tuple[bool, float]:
+    candidate_norm = _normalize_title(candidate)
+    recent_norm = _normalize_title(recent)
+    if not candidate_norm or not recent_norm:
+        return False, 0.0
+    if candidate_norm == recent_norm:
+        return True, 1.0
+    if len(candidate_norm) >= 14 and (
+        candidate_norm in recent_norm or recent_norm in candidate_norm
+    ):
+        return True, 0.97
+
+    seq_ratio = difflib.SequenceMatcher(None, candidate_norm, recent_norm).ratio()
+    candidate_tokens = _title_tokens(candidate_norm)
+    recent_tokens = _title_tokens(recent_norm)
+    union_size = len(candidate_tokens | recent_tokens)
+    token_jaccard = (
+        len(candidate_tokens & recent_tokens) / union_size if union_size else 0.0
+    )
+
+    # Blend char-level and token-level similarity to catch minor phrase rewrites.
+    duplicate = (
+        seq_ratio >= 0.92
+        or (seq_ratio >= 0.86 and token_jaccard >= 0.65)
+        or token_jaccard >= 0.82
+    )
+    return duplicate, max(seq_ratio, token_jaccard)
+
+
+def _find_similar_recent_title(title: str, recent_titles: list[str]) -> tuple[str | None, float]:
+    best_match: str | None = None
+    best_score = 0.0
+    for recent in recent_titles:
+        is_dup, score = _title_similarity(title, recent)
+        if is_dup and score > best_score:
+            best_score = score
+            best_match = recent
+    return best_match, best_score
+
+
 def _is_duplicate_title(title: str, recent_titles: list[str]) -> bool:
     """Check if a title is too similar to any recent title."""
     if not title or not recent_titles:
         return False
-    normalized = title.strip().lower()
-    for recent in recent_titles:
-        if normalized == recent.strip().lower():
-            return True
-    return False
+    match, _score = _find_similar_recent_title(title, recent_titles)
+    return match is not None
 
 
 async def _regenerate_title(
@@ -289,34 +359,59 @@ async def _regenerate_title(
     date_context: date,
 ) -> str:
     """Use the distillation model to generate a new unique title."""
-    titles_str = ", ".join(f'"{t}"' for t in recent_titles[:20])
-    prompt = (
-        f"The following reading was generated for {date_context.isoformat()}:\n\n"
-        f"Current title: \"{current_title}\"\n"
-        f"Body excerpt: \"{reading_body[:500]}...\"\n\n"
-        f"This title duplicates a recent one. Recent titles to avoid: {titles_str}\n\n"
-        "Generate a single NEW title for this reading that:\n"
-        "- Captures the same mood and themes as the body\n"
-        "- Does NOT resemble any of the recent titles listed above\n"
-        "- Uses proper em-dashes (\u2014) not hyphens\n"
-        "- Is evocative and literary, not generic\n"
-        "- Does not address the reader as \"you\"\n\n"
-        "Return ONLY a JSON object: {\"title\": \"Your New Title Here\"}"
-    )
+    titles_to_avoid = list(dict.fromkeys([*(recent_titles or []), current_title]))
     client = await _get_llm_client(session, "distillation", timeout=30.0)
     try:
-        raw = await client.generate(
-            "distillation",
-            [{"role": "user", "content": prompt}],
-            temperature=0.8,
-        )
         from voidwire.services.llm_client import strip_json_fencing
-        cleaned = strip_json_fencing(raw)
-        data = json.loads(cleaned)
-        new_title = str(data.get("title", "")).strip()
-        if new_title and not _is_duplicate_title(new_title, recent_titles):
-            return new_title
-        logger.warning("Regenerated title still duplicates or is empty, keeping original")
+
+        for attempt in range(3):
+            titles_str = ", ".join(f'"{t}"' for t in titles_to_avoid[-25:])
+            prompt = (
+                f"The following reading was generated for {date_context.isoformat()}:\n\n"
+                f"Current title: \"{current_title}\"\n"
+                f"Body excerpt: \"{reading_body[:600]}...\"\n\n"
+                f"This title duplicates recent usage. Titles to avoid: {titles_str}\n\n"
+                "Generate a single NEW title for this reading that:\n"
+                "- Captures the same mood and themes as the body\n"
+                "- Does NOT resemble any of the titles listed above\n"
+                "- Uses proper em-dashes (\u2014) not hyphens\n"
+                "- Is evocative and literary, not generic\n"
+                "- Does not address the reader as \"you\"\n"
+                "- Must be meaningfully different from the listed titles\n\n"
+                "Return ONLY a JSON object: {\"title\": \"Your New Title Here\"}"
+            )
+            raw = await client.generate(
+                "distillation",
+                [{"role": "user", "content": prompt}],
+                temperature=min(1.0, 0.75 + (attempt * 0.1)),
+            )
+            cleaned = strip_json_fencing(raw)
+            data = json.loads(cleaned)
+            new_title = str(data.get("title", "")).strip()
+            if not new_title:
+                continue
+            similar, score = _find_similar_recent_title(new_title, titles_to_avoid)
+            if similar is None:
+                return new_title
+            logger.warning(
+                "Regenerated title still too similar (attempt %d): '%s' ~ '%s' (score=%.2f)",
+                attempt + 1,
+                new_title,
+                similar,
+                score,
+            )
+            titles_to_avoid.append(new_title)
+
+        # Deterministic final fallback to avoid repeated publish collisions.
+        date_suffix = date_context.strftime("%b %d").replace(" 0", " ")
+        fallback = f"{current_title} — {date_suffix}"
+        if not _is_duplicate_title(fallback, titles_to_avoid):
+            return fallback
+        fallback = f"{current_title} — {date_context.isoformat()}"
+        if not _is_duplicate_title(fallback, titles_to_avoid):
+            return fallback
+
+        logger.warning("Regenerated title remained too similar after retries, keeping original")
         return current_title
     except Exception as e:
         logger.warning("Title regeneration failed: %s", e)
@@ -672,10 +767,16 @@ async def run_pipeline(
                         standard_reading = synthesis_result.get("standard_reading", SILENCE_READING)
                         if recent_titles and isinstance(standard_reading, dict):
                             std_title = str(standard_reading.get("title", "")).strip()
-                            if std_title and _is_duplicate_title(std_title, recent_titles):
+                            similar_title, similarity_score = _find_similar_recent_title(
+                                std_title,
+                                recent_titles,
+                            )
+                            if std_title and similar_title is not None:
                                 logger.warning(
-                                    "Duplicate title detected: '%s', regenerating via distillation model",
+                                    "Duplicate/similar title detected: '%s' ~ '%s' (score=%.2f), regenerating",
                                     std_title,
+                                    similar_title,
+                                    similarity_score,
                                 )
                                 try:
                                     new_title = await _regenerate_title(
@@ -691,6 +792,8 @@ async def run_pipeline(
                                     telemetry["title_regenerated"] = {
                                         "original": std_title,
                                         "replacement": new_title,
+                                        "similar_to": similar_title,
+                                        "similarity_score": round(float(similarity_score), 4),
                                     }
                                     logger.info("Title regenerated: '%s' -> '%s'", std_title, new_title)
                                 except Exception as title_err:
