@@ -24,6 +24,7 @@
   let success = '';
   let hydratedFromInitial = false;
   let houseSystemDescription = '';
+  const BIRTH_DATA_SAVED_EVENT = 'voidwire:birth-data-saved';
 
   const houseSystemDescriptions: Record<string, string> = {
     placidus: 'Most common modern system. Unequal houses based on latitude and time.',
@@ -148,6 +149,9 @@
       }
 
       success = 'Birth data saved and natal chart computed.';
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(BIRTH_DATA_SAVED_EVENT));
+      }
       if (onSave) onSave();
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to save';

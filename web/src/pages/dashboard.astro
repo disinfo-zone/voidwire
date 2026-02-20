@@ -78,7 +78,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
             <div id="profile-status" class="profile-status"></div>
             <button id="toggle-birth-form" class="edit-button" style="display: none;">Edit Birth Data</button>
             <div id="birth-form-wrapper" style="display: none;">
-              <BirthDataForm client:visible onSave={() => window.location.reload()} />
+              <BirthDataForm client:visible />
             </div>
           </div>
 
@@ -179,6 +179,11 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     template_version?: string;
   };
 
+  type DashboardLoadOptions = {
+    preferredView?: 'reading' | 'settings';
+    eagerChartLoad?: boolean;
+  };
+
   let hasProfile = false;
   let canManageReadings = false;
   let activeJobId: string | null = null;
@@ -191,6 +196,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
   let transitWheelCtorPromise: Promise<any> | null = null;
   let currentUserId: string | null = null;
   let natalProfileCacheKey: string | null = null;
+  let birthDataRefreshPromise: Promise<void> | null = null;
   const SIGN_ORDER = [
     'Aries',
     'Taurus',
@@ -331,6 +337,16 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     Sagittarius: 'Jupiter', Capricorn: 'Saturn', Aquarius: 'Uranus', Pisces: 'Neptune',
   };
   const NATAL_CACHE_NS = 'voidwire:natal-chart:v1:';
+  const BIRTH_DATA_SAVED_EVENT = 'voidwire:birth-data-saved';
+  const CHART_SKELETON_HTML = `
+    <div class="skeleton-wheel"></div>
+    <div class="skeleton-lines">
+      <div class="skeleton-line"></div>
+      <div class="skeleton-line short"></div>
+      <div class="skeleton-line"></div>
+      <div class="skeleton-line short"></div>
+    </div>
+  `;
 
   function getDignity(body: string, sign: string): string | null {
     const entry = DIGNITY_TABLE[body];
@@ -706,6 +722,52 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     } catch {
       // Best effort: ignore storage write failures.
     }
+  }
+
+  function resetChartSkeleton() {
+    const chartStatus = document.getElementById('chart-status');
+    if (!chartStatus) return;
+    chartStatus.className = 'chart-skeleton';
+    chartStatus.innerHTML = CHART_SKELETON_HTML;
+    chartStatus.style.display = 'block';
+  }
+
+  function resetChartOutputs() {
+    cachedChart = null;
+    natalChartLoaded = false;
+    natalChartLoadPromise = null;
+    const natalMount = document.getElementById('natal-wheel-mount');
+    const chartContent = document.getElementById('chart-content');
+    const transitMount = document.getElementById('transit-wheel-mount');
+    const transitContent = document.getElementById('transit-content');
+    const transitOverlay = document.getElementById('transit-overlay');
+    const exportTextButton = document.getElementById('export-chart-text-btn') as HTMLButtonElement | null;
+    const exportImageButton = document.getElementById('export-chart-image-btn') as HTMLButtonElement | null;
+    if (natalMount) natalMount.innerHTML = '';
+    if (chartContent) chartContent.innerHTML = '';
+    if (transitMount) transitMount.innerHTML = '';
+    if (transitContent) transitContent.innerHTML = '';
+    if (transitOverlay) transitOverlay.style.display = 'none';
+    if (exportTextButton) exportTextButton.style.display = 'none';
+    if (exportImageButton) exportImageButton.style.display = 'none';
+  }
+
+  async function refreshAfterBirthDataSave() {
+    if (birthDataRefreshPromise) {
+      await birthDataRefreshPromise;
+      return;
+    }
+    birthDataRefreshPromise = (async () => {
+      stopReadingPolling();
+      resetChartOutputs();
+      resetChartSkeleton();
+      updateReadingStatus('Birth data saved. Loading your personalized chart...');
+      renderReadingMessage('Attuning to your natal frequency...');
+      await loadDashboard({ preferredView: 'settings', eagerChartLoad: true });
+    })().finally(() => {
+      birthDataRefreshPromise = null;
+    });
+    await birthDataRefreshPromise;
   }
 
   async function loadTransitWheelCtor() {
@@ -2204,7 +2266,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     }
   }
 
-  async function loadDashboard() {
+  async function loadDashboard(options: DashboardLoadOptions = {}) {
     try {
       const meRes = await authFetch('/v1/user/auth/me');
       if (!meRes.ok) {
@@ -2244,8 +2306,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       const viewReadingButton = document.getElementById('view-reading-btn') as HTMLButtonElement | null;
 
       if (!hasProfile) {
-        cachedChart = null;
-        natalChartLoaded = false;
+        resetChartOutputs();
         natalProfileCacheKey = null;
         if (onboarding) {
           onboarding.style.display = 'block';
@@ -2300,8 +2361,14 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       if (toggleBirthFormButton) toggleBirthFormButton.style.display = 'inline-flex';
       if (birthFormWrapper) birthFormWrapper.style.display = 'none';
 
-      setView('reading');
-      await startReadingFlow();
+      resetChartSkeleton();
+      const preferredView = options.preferredView || 'reading';
+      setView(preferredView);
+      const readingFlowPromise = startReadingFlow();
+      if (options.eagerChartLoad) {
+        await ensureNatalChartLoaded();
+      }
+      await readingFlowPromise;
     } catch (err) {
       console.error('Dashboard load error:', err);
       renderReadingMessage('Could not load dashboard.');
@@ -2511,7 +2578,18 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     void loadDashboard();
   }
 
-  const dashboardGlobal = window as Window & { __voidwireDashboardCleanupBound?: boolean };
+  const dashboardGlobal = window as Window & {
+    __voidwireDashboardCleanupBound?: boolean;
+    __voidwireBirthDataSavedBound?: boolean;
+    __voidwireOnBirthDataSaved?: (() => void) | null;
+  };
+  dashboardGlobal.__voidwireOnBirthDataSaved = () => { void refreshAfterBirthDataSave(); };
+  if (!dashboardGlobal.__voidwireBirthDataSavedBound) {
+    dashboardGlobal.__voidwireBirthDataSavedBound = true;
+    window.addEventListener(BIRTH_DATA_SAVED_EVENT, () => {
+      dashboardGlobal.__voidwireOnBirthDataSaved?.();
+    });
+  }
   if (!dashboardGlobal.__voidwireDashboardCleanupBound) {
     dashboardGlobal.__voidwireDashboardCleanupBound = true;
     document.addEventListener('astro:before-swap', () => { stopReadingPolling(); });
