@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { apiGet, apiPost, apiPut } from '../api/client';
 import { useToast } from '../components/ui/ToastProvider';
 import Spinner from '../components/ui/Spinner';
@@ -59,37 +60,6 @@ type OAuthConfig = {
   any_enabled?: boolean;
 };
 
-type StripeConfig = {
-  enabled: boolean;
-  publishable_key: string;
-  secret_key_masked?: string;
-  webhook_secret_masked?: string;
-  is_configured?: boolean;
-  webhook_is_configured?: boolean;
-};
-
-type StripeCheckResult = {
-  status: 'ok' | 'warning' | 'error';
-  message: string;
-  enabled: boolean;
-  account_id?: string;
-  api_mode?: string;
-  secret_key_mode?: string | null;
-  publishable_key_mode?: string | null;
-  key_mode_match: boolean;
-  webhook_ready: boolean;
-  active_price_count: number;
-  sample_prices: Array<{
-    id: string | null;
-    unit_amount: number | null;
-    currency: string | null;
-    interval: string | null;
-    product?: string | null;
-    nickname?: string | null;
-  }>;
-  warnings: string[];
-};
-
 const EMPTY_SITE: SiteConfig = {
   site_title: 'VOIDWIRE',
   tagline: '',
@@ -143,37 +113,22 @@ const EMPTY_OAUTH: OAuthConfig = {
   any_enabled: false,
 };
 
-const EMPTY_STRIPE: StripeConfig = {
-  enabled: false,
-  publishable_key: '',
-  secret_key_masked: '',
-  webhook_secret_masked: '',
-  is_configured: false,
-  webhook_is_configured: false,
-};
-
 export default function SiteSettingsPage() {
   const [site, setSite] = useState<SiteConfig>(EMPTY_SITE);
   const [storage, setStorage] = useState<BackupStorageConfig>(EMPTY_STORAGE);
   const [smtp, setSmtp] = useState<SMTPConfig>(EMPTY_SMTP);
   const [oauth, setOauth] = useState<OAuthConfig>(EMPTY_OAUTH);
-  const [stripe, setStripe] = useState<StripeConfig>(EMPTY_STRIPE);
   const [s3AccessKey, setS3AccessKey] = useState('');
   const [s3SecretKey, setS3SecretKey] = useState('');
   const [smtpPassword, setSmtpPassword] = useState('');
   const [smtpTestEmail, setSmtpTestEmail] = useState('');
   const [googleClientSecret, setGoogleClientSecret] = useState('');
   const [applePrivateKey, setApplePrivateKey] = useState('');
-  const [stripeSecretKey, setStripeSecretKey] = useState('');
-  const [stripeWebhookSecret, setStripeWebhookSecret] = useState('');
   const [loading, setLoading] = useState(true);
   const [savingSite, setSavingSite] = useState(false);
   const [savingStorage, setSavingStorage] = useState(false);
   const [savingSmtp, setSavingSmtp] = useState(false);
   const [savingOauth, setSavingOauth] = useState(false);
-  const [savingStripe, setSavingStripe] = useState(false);
-  const [testingStripe, setTestingStripe] = useState(false);
-  const [stripeCheckResult, setStripeCheckResult] = useState<StripeCheckResult | null>(null);
   const [testingSmtp, setTestingSmtp] = useState(false);
   const [uploadingFavicon, setUploadingFavicon] = useState(false);
   const [uploadingTwitterCard, setUploadingTwitterCard] = useState(false);
@@ -186,12 +141,11 @@ export default function SiteSettingsPage() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [siteData, storageData, smtpData, oauthData, stripeData] = await Promise.all([
+      const [siteData, storageData, smtpData, oauthData] = await Promise.all([
         apiGet('/admin/site/config'),
         apiGet('/admin/backup/storage'),
         apiGet('/admin/site/email/smtp'),
         apiGet('/admin/site/auth/oauth'),
-        apiGet('/admin/site/billing/stripe'),
       ]);
       setSite({ ...EMPTY_SITE, ...siteData });
       setStorage({ ...EMPTY_STORAGE, ...storageData });
@@ -202,7 +156,6 @@ export default function SiteSettingsPage() {
         google: { ...EMPTY_OAUTH.google, ...(oauthData?.google || {}) },
         apple: { ...EMPTY_OAUTH.apple, ...(oauthData?.apple || {}) },
       });
-      setStripe({ ...EMPTY_STRIPE, ...(stripeData || {}) });
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -358,61 +311,6 @@ export default function SiteSettingsPage() {
       toast.error(e.message);
     } finally {
       setSavingOauth(false);
-    }
-  }
-
-  async function saveStripe() {
-    setSavingStripe(true);
-    try {
-      const payload: any = {
-        enabled: stripe.enabled,
-        publishable_key: stripe.publishable_key || '',
-      };
-      if (stripeSecretKey.trim().length > 0) {
-        payload.secret_key = stripeSecretKey.trim();
-      }
-      if (stripeWebhookSecret.trim().length > 0) {
-        payload.webhook_secret = stripeWebhookSecret.trim();
-      }
-      const updated = await apiPut('/admin/site/billing/stripe', payload);
-      setStripe({ ...EMPTY_STRIPE, ...(updated || {}) });
-      setStripeSecretKey('');
-      setStripeWebhookSecret('');
-      toast.success('Stripe settings saved');
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setSavingStripe(false);
-    }
-  }
-
-  async function runStripeCheck() {
-    setTestingStripe(true);
-    setStripeCheckResult(null);
-    try {
-      const result = await apiPost('/admin/site/billing/stripe/test', {});
-      setStripeCheckResult(result as StripeCheckResult);
-      if (result?.status === 'ok') {
-        toast.success('Stripe check passed');
-      } else if (result?.status === 'warning') {
-        toast.info('Stripe check completed with warnings');
-      } else {
-        toast.error(result?.message || 'Stripe check failed');
-      }
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setTestingStripe(false);
-    }
-  }
-
-  function formatStripeCheckPrice(amount: number | null, currency: string | null): string {
-    if (typeof amount !== 'number' || !Number.isFinite(amount)) return '-';
-    const code = (currency || 'USD').toUpperCase();
-    try {
-      return new Intl.NumberFormat('en-US', { style: 'currency', currency: code }).format(amount / 100);
-    } catch {
-      return `${amount / 100} ${code}`;
     }
   }
 
@@ -794,116 +692,17 @@ export default function SiteSettingsPage() {
         </div>
       </section>
 
-      <section className="bg-surface-raised border border-text-ghost rounded p-4 space-y-3">
-        <div className="flex justify-between items-center">
-          <h2 className="text-sm text-text-primary">Stripe Billing</h2>
-          <button
-            onClick={saveStripe}
-            disabled={savingStripe}
-            className="text-xs px-3 py-1 bg-accent/20 text-accent rounded hover:bg-accent/30 disabled:opacity-50"
-          >
-            {savingStripe ? 'Saving...' : 'Save Stripe Settings'}
-          </button>
-        </div>
+      <section className="bg-surface-raised border border-text-ghost rounded p-4 space-y-2">
+        <h2 className="text-sm text-text-primary">Billing Configuration</h2>
         <div className="text-xs text-text-muted">
-          Configure publishable/secret keys and webhook secret. Enable only when checkout is ready for users.
+          Stripe credentials, discount codes, pricing visibility, and billing analytics now live in the dedicated Billing panel.
         </div>
-
-        <label className="flex items-center gap-2 text-xs text-text-muted">
-          <input
-            type="checkbox"
-            checked={stripe.enabled}
-            onChange={(e) => setStripe((prev) => ({ ...prev, enabled: e.target.checked }))}
-          />
-          Enable Stripe checkout and billing portal
-        </label>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs text-text-muted block mb-1">Publishable Key</label>
-            <input
-              value={stripe.publishable_key}
-              onChange={(e) => setStripe((prev) => ({ ...prev, publishable_key: e.target.value }))}
-              placeholder="pk_live_..."
-              className="w-full bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-text-muted block mb-1">
-              Secret Key {stripe.secret_key_masked ? `(current: ${stripe.secret_key_masked})` : ''}
-            </label>
-            <input
-              type="password"
-              value={stripeSecretKey}
-              onChange={(e) => setStripeSecretKey(e.target.value)}
-              placeholder="leave blank to keep current"
-              className="w-full bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary"
-            />
-          </div>
-          <div className="md:col-span-2">
-            <label className="text-xs text-text-muted block mb-1">
-              Webhook Secret {stripe.webhook_secret_masked ? `(current: ${stripe.webhook_secret_masked})` : ''}
-            </label>
-            <input
-              type="password"
-              value={stripeWebhookSecret}
-              onChange={(e) => setStripeWebhookSecret(e.target.value)}
-              placeholder="whsec_... (leave blank to keep current)"
-              className="w-full bg-surface border border-text-ghost rounded px-2 py-1 text-sm text-text-primary"
-            />
-          </div>
-        </div>
-
-        <div className="text-xs text-text-muted">
-          Status: {stripe.is_configured ? 'configured' : 'incomplete'} {stripe.enabled ? '(enabled)' : '(disabled)'}
-          {' · '}Webhook: {stripe.webhook_is_configured ? 'configured' : 'missing'}
-        </div>
-
-        <div className="border-t border-text-ghost/40 pt-3 space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="text-xs text-text-muted">Run live connectivity check (keys + account + prices + webhook readiness)</div>
-            <button
-              onClick={runStripeCheck}
-              disabled={testingStripe}
-              className="text-xs px-3 py-1 bg-surface border border-text-ghost rounded text-text-secondary hover:text-text-primary disabled:opacity-50"
-            >
-              {testingStripe ? 'Checking...' : 'Run Stripe Check'}
-            </button>
-          </div>
-          {stripeCheckResult && (
-            <div className="border border-text-ghost rounded p-3 space-y-2 text-xs text-text-muted">
-              <div className="text-text-primary">
-                Check status: <span className="text-accent">{stripeCheckResult.status}</span> · {stripeCheckResult.message}
-              </div>
-              <div>
-                Account: <span className="text-text-secondary">{stripeCheckResult.account_id || 'n/a'}</span>
-                {' · '}API mode: <span className="text-text-secondary">{stripeCheckResult.api_mode || 'unknown'}</span>
-                {' · '}Key mode match: <span className="text-text-secondary">{stripeCheckResult.key_mode_match ? 'yes' : 'no'}</span>
-                {' · '}Webhook ready: <span className="text-text-secondary">{stripeCheckResult.webhook_ready ? 'yes' : 'no'}</span>
-              </div>
-              <div>
-                Active recurring prices: <span className="text-text-secondary">{stripeCheckResult.active_price_count}</span>
-              </div>
-              {stripeCheckResult.warnings?.length > 0 && (
-                <div className="space-y-1">
-                  {stripeCheckResult.warnings.map((warning, idx) => (
-                    <div key={`stripe-warning-${idx}`} className="text-amber-300">- {warning}</div>
-                  ))}
-                </div>
-              )}
-              {stripeCheckResult.sample_prices?.length > 0 && (
-                <div className="space-y-1">
-                  {stripeCheckResult.sample_prices.map((price, idx) => (
-                    <div key={`stripe-price-${price.id || idx}`} className="text-text-secondary">
-                      {price.nickname || price.product || price.id || `price_${idx + 1}`} · {formatStripeCheckPrice(price.unit_amount, price.currency)}
-                      {' / '}{price.interval || 'recurring'}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+        <Link
+          to="/billing"
+          className="inline-flex text-xs px-3 py-1 bg-accent/20 text-accent rounded hover:bg-accent/30"
+        >
+          Open Billing
+        </Link>
       </section>
 
       <section className="bg-surface-raised border border-text-ghost rounded p-4 space-y-2">

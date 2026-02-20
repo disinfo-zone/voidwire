@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { apiDelete, apiGet, apiPatch, apiPost } from '../api/client';
 import { useToast } from '../components/ui/ToastProvider';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
@@ -19,22 +20,6 @@ type AccountUser = {
   pro_override_until: string | null;
   created_at: string | null;
   last_login_at: string | null;
-};
-
-type DiscountCode = {
-  id: string;
-  code: string;
-  description: string | null;
-  percent_off: number | null;
-  amount_off_cents: number | null;
-  currency: string | null;
-  duration: string;
-  duration_in_months: number | null;
-  max_redemptions: number | null;
-  starts_at: string | null;
-  expires_at: string | null;
-  is_active: boolean;
-  is_usable_now: boolean;
 };
 
 type AdminUserAccount = {
@@ -79,13 +64,10 @@ function fromInputDateTime(value: string): string | null {
 export default function AccountsPage() {
   const [users, setUsers] = useState<AccountUser[]>([]);
   const [adminUsers, setAdminUsers] = useState<AdminUserAccount[]>([]);
-  const [discountCodes, setDiscountCodes] = useState<DiscountCode[]>([]);
   const [readingJobs, setReadingJobs] = useState<ReadingJob[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [loadingAdminUsers, setLoadingAdminUsers] = useState(true);
-  const [loadingCodes, setLoadingCodes] = useState(true);
   const [loadingReadingJobs, setLoadingReadingJobs] = useState(true);
-  const [reconcilingBilling, setReconcilingBilling] = useState(false);
   const [runningRetentionCleanup, setRunningRetentionCleanup] = useState(false);
   const [readingJobStatusFilter, setReadingJobStatusFilter] = useState<'all' | 'queued' | 'running' | 'completed' | 'failed'>('all');
   const [query, setQuery] = useState('');
@@ -114,26 +96,10 @@ export default function AccountsPage() {
   const [overrideEnabled, setOverrideEnabled] = useState(true);
   const [overrideReason, setOverrideReason] = useState('');
   const [overrideExpiresAt, setOverrideExpiresAt] = useState('');
-  const [showInactiveCodes, setShowInactiveCodes] = useState(true);
-  const [deleteCodeId, setDeleteCodeId] = useState<string | null>(null);
-  const [createCodeForm, setCreateCodeForm] = useState({
-    code: '',
-    discountType: 'percent',
-    percentOff: '20',
-    amountOffCents: '',
-    currency: 'usd',
-    duration: 'once',
-    durationInMonths: '',
-    maxRedemptions: '',
-    startsAt: '',
-    expiresAt: '',
-    description: '',
-  });
-  const [creatingCode, setCreatingCode] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
-    void Promise.all([loadUsers(), loadAdminUsers(), loadDiscountCodes(), loadReadingJobs()]);
+    void Promise.all([loadUsers(), loadAdminUsers(), loadReadingJobs()]);
   }, []);
 
   useEffect(() => {
@@ -152,18 +118,6 @@ export default function AccountsPage() {
       toast.error(e.message);
     } finally {
       setLoadingUsers(false);
-    }
-  }
-
-  async function loadDiscountCodes() {
-    setLoadingCodes(true);
-    try {
-      const data = await apiGet('/admin/accounts/discount-codes');
-      setDiscountCodes(Array.isArray(data) ? data : []);
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setLoadingCodes(false);
     }
   }
 
@@ -296,20 +250,6 @@ export default function AccountsPage() {
     }
   }
 
-  async function reconcileBilling() {
-    setReconcilingBilling(true);
-    try {
-      const data = await apiPost('/admin/accounts/billing/reconcile');
-      const updated = typeof data?.updated === 'number' ? data.updated : 0;
-      const scanned = typeof data?.scanned === 'number' ? data.scanned : 0;
-      toast.success(`Billing reconciliation complete (${updated}/${scanned} updated)`);
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setReconcilingBilling(false);
-    }
-  }
-
   async function cleanupRetentionData() {
     setRunningRetentionCleanup(true);
     try {
@@ -346,116 +286,12 @@ export default function AccountsPage() {
     }
   }
 
-  async function toggleDiscountCode(code: DiscountCode, nextActive: boolean) {
-    try {
-      await apiPatch(`/admin/accounts/discount-codes/${code.id}`, {
-        is_active: nextActive,
-      });
-      toast.success(nextActive ? 'Discount code enabled' : 'Discount code disabled');
-      await loadDiscountCodes();
-    } catch (e: any) {
-      toast.error(e.message);
-    }
-  }
-
-  function discountLabel(code: DiscountCode): string {
-    if (code.percent_off != null) {
-      return `${code.percent_off}% off`;
-    }
-    if (code.amount_off_cents != null && code.currency) {
-      return `${(code.amount_off_cents / 100).toFixed(2)} ${code.currency.toUpperCase()} off`;
-    }
-    return 'discount';
-  }
-
-  async function createDiscountCode() {
-    const payload: Record<string, unknown> = {
-      code: createCodeForm.code,
-      duration: createCodeForm.duration,
-      duration_in_months:
-        createCodeForm.duration === 'repeating' && createCodeForm.durationInMonths
-          ? Number(createCodeForm.durationInMonths)
-          : null,
-      max_redemptions: createCodeForm.maxRedemptions
-        ? Number(createCodeForm.maxRedemptions)
-        : null,
-      starts_at: fromInputDateTime(createCodeForm.startsAt),
-      expires_at: fromInputDateTime(createCodeForm.expiresAt),
-      description: createCodeForm.description.trim() || null,
-    };
-
-    if (createCodeForm.discountType === 'percent') {
-      const percentOff = Number(createCodeForm.percentOff);
-      if (!Number.isFinite(percentOff) || percentOff <= 0 || percentOff > 100) {
-        toast.error('Percent off must be between 0 and 100');
-        return;
-      }
-      payload.percent_off = percentOff;
-    } else {
-      const amountOffCents = Number(createCodeForm.amountOffCents);
-      if (!Number.isFinite(amountOffCents) || amountOffCents < 1) {
-        toast.error('Amount off must be at least 1 cent');
-        return;
-      }
-      payload.amount_off_cents = amountOffCents;
-      payload.currency = createCodeForm.currency.trim().toLowerCase();
-    }
-
-    setCreatingCode(true);
-    try {
-      await apiPost('/admin/accounts/discount-codes', payload);
-      toast.success('Discount code created');
-      setCreateCodeForm({
-        code: '',
-        discountType: 'percent',
-        percentOff: '20',
-        amountOffCents: '',
-        currency: 'usd',
-        duration: 'once',
-        durationInMonths: '',
-        maxRedemptions: '',
-        startsAt: '',
-        expiresAt: '',
-        description: '',
-      });
-      await loadDiscountCodes();
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setCreatingCode(false);
-    }
-  }
-
-  async function deleteDiscountCode() {
-    if (!deleteCodeId) return;
-    try {
-      await apiDelete(`/admin/accounts/discount-codes/${deleteCodeId}`);
-      toast.success('Discount code deleted');
-      await loadDiscountCodes();
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setDeleteCodeId(null);
-    }
-  }
-
-  const visibleCodes = showInactiveCodes
-    ? discountCodes
-    : discountCodes.filter((code) => code.is_active);
-
   return (
     <div className="space-y-8">
       <section>
         <div className="flex justify-between items-center mb-4">
           <h1 className="text-xl text-accent">Admin Access</h1>
           <div className="flex gap-2">
-            <button
-              onClick={reconcileBilling}
-              disabled={reconcilingBilling}
-              className="text-xs px-3 py-1 bg-surface border border-text-ghost rounded text-text-secondary hover:text-text-primary disabled:opacity-50"
-            >
-              {reconcilingBilling ? 'Reconciling...' : 'Reconcile Billing'}
-            </button>
             <button
               onClick={cleanupRetentionData}
               disabled={runningRetentionCleanup}
@@ -516,6 +352,12 @@ export default function AccountsPage() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <h1 className="text-xl text-accent">Accounts</h1>
           <div className="flex gap-2">
+            <Link
+              to="/billing"
+              className="px-3 py-1 text-xs bg-accent/20 text-accent rounded hover:bg-accent/30"
+            >
+              Open Billing
+            </Link>
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -878,177 +720,6 @@ export default function AccountsPage() {
         )}
       </section>
 
-      <section>
-        <h2 className="text-xl text-accent mb-4">Discount Codes</h2>
-        <div className="bg-surface-raised border border-text-ghost rounded p-4 space-y-3 mb-4">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-            <input
-              value={createCodeForm.code}
-              onChange={(event) => setCreateCodeForm((prev) => ({ ...prev, code: event.target.value.toUpperCase() }))}
-              placeholder="Code (e.g. TEST50)"
-              className="bg-surface border border-text-ghost rounded px-3 py-1 text-sm text-text-primary uppercase"
-              maxLength={32}
-            />
-            <select
-              value={createCodeForm.discountType}
-              onChange={(event) => setCreateCodeForm((prev) => ({ ...prev, discountType: event.target.value }))}
-              className="bg-surface border border-text-ghost rounded px-3 py-1 text-sm text-text-primary"
-            >
-              <option value="percent">Percent Off</option>
-              <option value="amount">Fixed Amount</option>
-            </select>
-            {createCodeForm.discountType === 'percent' ? (
-              <input
-                type="number"
-                value={createCodeForm.percentOff}
-                onChange={(event) => setCreateCodeForm((prev) => ({ ...prev, percentOff: event.target.value }))}
-                placeholder="Percent off"
-                className="bg-surface border border-text-ghost rounded px-3 py-1 text-sm text-text-primary"
-                min={1}
-                max={100}
-              />
-            ) : (
-              <input
-                type="number"
-                value={createCodeForm.amountOffCents}
-                onChange={(event) => setCreateCodeForm((prev) => ({ ...prev, amountOffCents: event.target.value }))}
-                placeholder="Amount off (cents)"
-                className="bg-surface border border-text-ghost rounded px-3 py-1 text-sm text-text-primary"
-                min={1}
-              />
-            )}
-            <input
-              value={createCodeForm.currency}
-              onChange={(event) => setCreateCodeForm((prev) => ({ ...prev, currency: event.target.value.toLowerCase() }))}
-              placeholder="Currency (usd)"
-              className="bg-surface border border-text-ghost rounded px-3 py-1 text-sm text-text-primary uppercase"
-              maxLength={3}
-              disabled={createCodeForm.discountType !== 'amount'}
-            />
-            <select
-              value={createCodeForm.duration}
-              onChange={(event) => setCreateCodeForm((prev) => ({ ...prev, duration: event.target.value }))}
-              className="bg-surface border border-text-ghost rounded px-3 py-1 text-sm text-text-primary"
-            >
-              <option value="once">Once</option>
-              <option value="forever">Forever</option>
-              <option value="repeating">Repeating</option>
-            </select>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-            <input
-              type="number"
-              value={createCodeForm.durationInMonths}
-              onChange={(event) => setCreateCodeForm((prev) => ({ ...prev, durationInMonths: event.target.value }))}
-              placeholder="Duration months"
-              className="bg-surface border border-text-ghost rounded px-3 py-1 text-sm text-text-primary"
-              min={1}
-              max={36}
-              disabled={createCodeForm.duration !== 'repeating'}
-            />
-            <input
-              type="number"
-              value={createCodeForm.maxRedemptions}
-              onChange={(event) => setCreateCodeForm((prev) => ({ ...prev, maxRedemptions: event.target.value }))}
-              placeholder="Max redemptions"
-              className="bg-surface border border-text-ghost rounded px-3 py-1 text-sm text-text-primary"
-              min={1}
-            />
-            <input
-              type="datetime-local"
-              value={createCodeForm.startsAt}
-              onChange={(event) => setCreateCodeForm((prev) => ({ ...prev, startsAt: event.target.value }))}
-              className="bg-surface border border-text-ghost rounded px-3 py-1 text-sm text-text-primary"
-            />
-            <input
-              type="datetime-local"
-              value={createCodeForm.expiresAt}
-              onChange={(event) => setCreateCodeForm((prev) => ({ ...prev, expiresAt: event.target.value }))}
-              className="bg-surface border border-text-ghost rounded px-3 py-1 text-sm text-text-primary"
-            />
-          </div>
-          <input
-            value={createCodeForm.description}
-            onChange={(event) => setCreateCodeForm((prev) => ({ ...prev, description: event.target.value }))}
-            placeholder="Description (optional)"
-            className="w-full bg-surface border border-text-ghost rounded px-3 py-1 text-sm text-text-primary"
-          />
-          <button
-            onClick={createDiscountCode}
-            disabled={creatingCode}
-            className="text-xs px-3 py-1 bg-accent/20 text-accent rounded hover:bg-accent/30 disabled:opacity-50"
-          >
-            {creatingCode ? 'Creating...' : 'Create Discount Code'}
-          </button>
-        </div>
-
-        {loadingCodes ? (
-          <div className="flex justify-center py-8"><Spinner /></div>
-        ) : (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs text-text-muted flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={showInactiveCodes}
-                  onChange={(event) => setShowInactiveCodes(event.target.checked)}
-                />
-                Show archived/disabled codes
-              </label>
-            </div>
-            {visibleCodes.map((code) => (
-              <div key={code.id} className="bg-surface-raised border border-text-ghost rounded p-4">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                  <div>
-                    <div className="text-sm text-text-primary">
-                      {code.code}
-                      <span className="text-text-muted ml-2">
-                        {discountLabel(code)}
-                      </span>
-                    </div>
-                    <div className="text-xs text-text-muted">
-                      {code.description || 'No description'} | {code.duration}
-                      {code.duration_in_months ? ` (${code.duration_in_months} months)` : ''}
-                    </div>
-                    <div className="text-xs mt-1">
-                      {code.is_active ? (
-                        <span className="text-green-400">active</span>
-                      ) : (
-                        <span className="text-red-400">disabled</span>
-                      )}
-                      {!code.is_usable_now && code.is_active && (
-                        <span className="text-yellow-300 ml-2">outside active window</span>
-                      )}
-                      {code.expires_at && (
-                        <span className="text-text-muted ml-2">
-                          expires {new Date(code.expires_at).toLocaleString()}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => toggleDiscountCode(code, !code.is_active)}
-                      className="text-xs px-3 py-1 bg-surface border border-text-ghost rounded text-text-secondary hover:text-text-primary"
-                    >
-                      {code.is_active ? 'Archive' : 'Restore'}
-                    </button>
-                    <button
-                      onClick={() => setDeleteCodeId(code.id)}
-                      className="text-xs px-3 py-1 bg-red-900/30 border border-red-700 rounded text-red-300 hover:bg-red-900/50"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-            {visibleCodes.length === 0 && (
-              <div className="text-sm text-text-muted">No discount codes yet.</div>
-            )}
-          </div>
-        )}
-      </section>
       <ConfirmDialog
         open={!!deleteUserId}
         title="Delete User"
@@ -1056,15 +727,6 @@ export default function AccountsPage() {
         onConfirm={deleteUser}
         onCancel={() => setDeleteUserId(null)}
         confirmLabel="Delete User"
-        destructive
-      />
-      <ConfirmDialog
-        open={!!deleteCodeId}
-        title="Delete Discount Code"
-        message="This permanently deletes the local code entry. The Stripe promotion code will be deactivated first."
-        onConfirm={deleteDiscountCode}
-        onCancel={() => setDeleteCodeId(null)}
-        confirmLabel="Delete"
         destructive
       />
     </div>

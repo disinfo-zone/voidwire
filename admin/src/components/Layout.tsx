@@ -16,6 +16,7 @@ const navItems = [
   { to: '/llm', label: 'LLM Config' },
   { to: '/settings', label: 'Settings' },
   { to: '/site', label: 'Site Settings' },
+  { to: '/billing', label: 'Billing' },
   { to: '/content', label: 'Content' },
   { to: '/accounts', label: 'Accounts' },
   { to: '/backup', label: 'Backups' },

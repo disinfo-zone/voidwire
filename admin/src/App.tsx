@@ -18,6 +18,7 @@ import SetupWizardPage from './pages/SetupWizardPage';
 import ContentPage from './pages/ContentPage';
 import SiteSettingsPage from './pages/SiteSettingsPage';
 import AccountsPage from './pages/AccountsPage';
+import BillingPage from './pages/BillingPage';
 import { useAuth } from './hooks/useAuth';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -59,6 +60,7 @@ export default function App() {
           <Route path="llm" element={<LLMConfigPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="site" element={<SiteSettingsPage />} />
+          <Route path="billing" element={<BillingPage />} />
           <Route path="content" element={<ContentPage />} />
           <Route path="accounts" element={<AccountsPage />} />
           <Route path="backup" element={<BackupPage />} />
