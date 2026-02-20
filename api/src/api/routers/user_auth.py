@@ -545,6 +545,7 @@ async def oauth_apple(
             jwks = jwks_resp.json()
 
         apple_id_token = str(token_data["id_token"])
+        apple_access_token = str(token_data.get("access_token", ""))
         header = jose_jwt.get_unverified_header(apple_id_token)
         # Find matching key
         key = next(k for k in jwks["keys"] if k["kid"] == header["kid"])
@@ -558,6 +559,7 @@ async def oauth_apple(
             algorithms=["RS256"],
             audience=apple_client_id,
             issuer="https://appleid.apple.com",
+            access_token=apple_access_token,
         )
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid Apple token")
