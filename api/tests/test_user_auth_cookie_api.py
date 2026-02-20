@@ -344,6 +344,61 @@ async def test_change_email_updates_user_and_sends_verification(client: AsyncCli
 
 
 @pytest.mark.asyncio
+async def test_delete_account_allows_empty_body_for_passwordless_user(client: AsyncClient, mock_db):
+    user_id = uuid.uuid4()
+    user = SimpleNamespace(
+        id=user_id,
+        email="oauth-only@test.local",
+        email_verified=True,
+        password_hash=None,
+        is_active=True,
+        token_version=0,
+    )
+    mock_db.get.return_value = user
+    token = create_access_token(user_id=str(user_id), token_type="user", token_version=0)
+    csrf = "csrf-test-token"
+
+    response = await client.delete(
+        "/v1/user/auth/me",
+        headers={
+            "Cookie": f"voidwire_user_token={token}; voidwire_csrf_token={csrf}",
+            "x-csrf-token": csrf,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["detail"] == "Account deleted"
+    mock_db.delete.assert_awaited_once_with(user)
+
+
+@pytest.mark.asyncio
+async def test_delete_account_requires_password_for_password_user(client: AsyncClient, mock_db):
+    user_id = uuid.uuid4()
+    user = SimpleNamespace(
+        id=user_id,
+        email="password-user@test.local",
+        email_verified=True,
+        password_hash="hashed-password",
+        is_active=True,
+        token_version=0,
+    )
+    mock_db.get.return_value = user
+    token = create_access_token(user_id=str(user_id), token_type="user", token_version=0)
+    csrf = "csrf-test-token"
+
+    response = await client.delete(
+        "/v1/user/auth/me",
+        headers={
+            "Cookie": f"voidwire_user_token={token}; voidwire_csrf_token={csrf}",
+            "x-csrf-token": csrf,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "password is required" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
 async def test_resend_verification_by_email_sends_for_unverified_user(client: AsyncClient, mock_db):
     user = SimpleNamespace(
         id=uuid.uuid4(),

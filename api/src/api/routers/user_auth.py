@@ -919,17 +919,18 @@ async def export_account_data(
 
 @router.delete("/me")
 async def delete_account(
-    req: DeleteAccountRequest,
+    req: DeleteAccountRequest | None = None,
     user: User = Depends(get_current_public_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
+    password = (req.password if req else None)
     if user.password_hash:
-        if not req.password:
+        if not password:
             raise HTTPException(
                 status_code=400,
                 detail="Password is required to delete this account",
             )
-        if not verify_password(req.password, user.password_hash):
+        if not verify_password(password, user.password_hash):
             raise HTTPException(status_code=401, detail="Invalid credentials")
 
     db.add(

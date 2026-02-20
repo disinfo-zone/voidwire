@@ -32,6 +32,10 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
         <section id="reading-section" class="reading-section" style="display: none;">
           <div id="reading-status" class="reading-status" style="display: none;"></div>
+          <div id="reading-tier-toggle" class="reading-tier-toggle" style="display: none;">
+            <button id="reading-tier-daily-btn" class="reading-tier-button" type="button">Daily</button>
+            <button id="reading-tier-weekly-btn" class="reading-tier-button" type="button">Weekly</button>
+          </div>
           <div id="reading-content" class="reading-content">
             <div class="loading">Tuning into the wire&hellip;</div>
           </div>
@@ -227,16 +231,25 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     template_version?: string;
   };
 
+  type ReadingTier = 'free' | 'pro';
+
   type DashboardLoadOptions = {
     preferredView?: 'reading' | 'settings';
     eagerChartLoad?: boolean;
   };
 
   let hasProfile = false;
+  let currentUserTier: ReadingTier = 'free';
   let canManageReadings = false;
   let activeJobId: string | null = null;
+  let activeJobTier: ReadingTier | 'auto' = 'auto';
   let readingPollTimer: number | null = null;
+  let companionJobId: string | null = null;
+  let companionJobTier: ReadingTier | null = null;
+  let companionPollTimer: number | null = null;
   let readingPollStartedAt = 0;
+  let readingsByTier: Record<ReadingTier, ReadingPayload | null> = { free: null, pro: null };
+  let activeReadingTier: ReadingTier | null = null;
   let cachedChart: Record<string, unknown> | null = null;
   let chartBrandDomain = 'voidwire.app';
   let natalChartLoaded = false;
@@ -866,6 +879,71 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     if (status) {
       status.textContent = message;
       (status as HTMLElement).style.display = message ? 'block' : 'none';
+    }
+  }
+
+  function resolvedReadingTier(value: unknown): ReadingTier {
+    return String(value || '').toLowerCase() === 'pro' ? 'pro' : 'free';
+  }
+
+  function updateReadingTierToggle() {
+    const container = document.getElementById('reading-tier-toggle');
+    const dailyBtn = document.getElementById('reading-tier-daily-btn') as HTMLButtonElement | null;
+    const weeklyBtn = document.getElementById('reading-tier-weekly-btn') as HTMLButtonElement | null;
+    if (!container || !dailyBtn || !weeklyBtn) return;
+
+    if (currentUserTier !== 'pro') {
+      container.style.display = 'none';
+      return;
+    }
+
+    const hasDaily = Boolean(readingsByTier.pro);
+    const hasWeekly = Boolean(readingsByTier.free);
+    container.style.display = 'flex';
+
+    dailyBtn.disabled = !hasDaily;
+    weeklyBtn.disabled = !hasWeekly;
+    weeklyBtn.textContent = hasWeekly ? 'Weekly' : 'Weekly · Syncing';
+
+    if (!activeReadingTier || !readingsByTier[activeReadingTier]) {
+      activeReadingTier = hasDaily ? 'pro' : hasWeekly ? 'free' : 'pro';
+    }
+
+    dailyBtn.classList.toggle('active', activeReadingTier === 'pro');
+    weeklyBtn.classList.toggle('active', activeReadingTier === 'free');
+  }
+
+  function setActiveReadingTier(tier: ReadingTier) {
+    activeReadingTier = tier;
+    updateReadingTierToggle();
+    const reading = readingsByTier[tier];
+    if (reading) {
+      renderReading(reading);
+      return;
+    }
+    if (tier === 'free') {
+      renderReadingMessage('Weekly reading is syncing in the background. It will appear shortly.');
+      updateReadingStatus('Syncing weekly reading...');
+      return;
+    }
+    renderReadingMessage('Attuning to your daily transmission...');
+  }
+
+  function syncRenderedReading() {
+    if (currentUserTier === 'pro') {
+      updateReadingTierToggle();
+      const preferred = activeReadingTier || 'pro';
+      const fallback = readingsByTier.pro ? 'pro' : readingsByTier.free ? 'free' : null;
+      if (fallback) {
+        setActiveReadingTier(readingsByTier[preferred] ? preferred : fallback);
+      } else {
+        renderReadingMessage('Attuning to your readings...');
+      }
+      return;
+    }
+    const single = readingsByTier.free || readingsByTier.pro;
+    if (single) {
+      renderReading(single);
     }
   }
 
@@ -2888,7 +2966,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         }
         const res = await authFetch('/v1/user/auth/me', {
           method: 'DELETE',
-          body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined,
+          body: JSON.stringify(body),
         });
         if (res.status === 400) {
           const message = await readApiErrorMessage(res, 'Could not delete account');
