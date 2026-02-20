@@ -573,10 +573,15 @@ import Background from '../components/Background.svelte';
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+    align-items: center;
   }
 
   .oauth-google-slot {
     min-height: 44px;
+    width: min(100%, 344px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .oauth-button {
@@ -588,6 +593,7 @@ import Background from '../components/Background.svelte';
     font-size: 0.75rem;
     cursor: pointer;
     transition: all 0.3s ease;
+    border-radius: 4px;
   }
 
   .oauth-button:hover {
@@ -600,7 +606,10 @@ import Background from '../components/Background.svelte';
     align-items: center;
     justify-content: center;
     gap: 0.6rem;
-    min-height: 44px;
+    width: min(100%, 344px);
+    min-height: 40px;
+    height: 40px;
+    padding: 0 12px;
     background: #fff;
     border-color: rgba(255, 255, 255, 0.9);
     color: #1f1f1f;
@@ -615,8 +624,12 @@ import Background from '../components/Background.svelte';
 
   .oauth-apple-logo {
     display: inline-flex;
-    width: 1rem;
-    height: 1rem;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 14px;
+    width: 14px;
+    height: 14px;
+    transform: translateY(-0.5px);
   }
 
   .oauth-apple-logo svg {
