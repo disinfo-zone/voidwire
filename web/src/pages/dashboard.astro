@@ -3350,25 +3350,13 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
   .view-toggle {
     display: flex;
-    position: relative;
-    width: min(100%, 20.5rem);
-    margin: 0.1rem auto 0;
+    width: min(100%, 19.5rem);
+    margin: 0.08rem auto 0;
     border: 1px solid var(--text-ghost);
-    border-radius: 2px;
-    background: linear-gradient(180deg, rgba(10, 16, 37, 0.68), rgba(7, 12, 30, 0.52));
-    box-shadow: 0 10px 28px rgba(3, 6, 18, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-    backdrop-filter: blur(2px);
-    -webkit-backdrop-filter: blur(2px);
+    border-radius: 1px;
+    background: rgba(8, 13, 31, 0.38);
+    box-shadow: 0 4px 12px rgba(3, 6, 18, 0.24);
     overflow: hidden;
-  }
-
-  .view-toggle::before,
-  .reading-tier-toggle::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 42%);
   }
 
   .view-toggle-button,
@@ -3381,11 +3369,11 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     background: transparent;
     border: none;
     color: var(--text-muted);
-    padding: 0.62rem 0.78rem;
-    min-height: 2.2rem;
+    padding: 0.56rem 0.72rem;
+    min-height: 2.02rem;
     font-family: var(--font-sans);
-    font-size: 0.59rem;
-    letter-spacing: 0.16em;
+    font-size: 0.58rem;
+    letter-spacing: 0.145em;
     font-weight: 500;
     line-height: 1;
     text-transform: uppercase;
@@ -3404,15 +3392,14 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
   .view-toggle-button:hover:not(:disabled):not(.active),
   .reading-tier-button:hover:not(:disabled):not(.active) {
     color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.03);
   }
 
   .view-toggle-button.active,
   .reading-tier-button.active {
     color: var(--accent);
-    background: linear-gradient(180deg, rgba(214, 175, 114, 0.24), rgba(214, 175, 114, 0.1));
-    box-shadow: inset 0 0 0 1px rgba(214, 175, 114, 0.34), inset 0 -12px 18px rgba(214, 175, 114, 0.06);
-    text-shadow: 0 0 10px rgba(214, 175, 114, 0.26);
+    background: rgba(214, 175, 114, 0.12);
+    box-shadow: inset 0 0 0 1px rgba(214, 175, 114, 0.28);
   }
 
   .view-toggle-button:disabled,
@@ -3451,18 +3438,22 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
   .reading-tier-toggle {
     display: none;
-    position: relative;
     justify-content: center;
     gap: 0;
-    width: min(100%, 20.5rem);
-    margin: 0.1rem auto 0.95rem;
+    width: min(100%, 17.5rem);
+    margin: 0.02rem auto 0.78rem;
     border: 1px solid var(--text-ghost);
-    border-radius: 2px;
-    background: linear-gradient(180deg, rgba(9, 15, 34, 0.62), rgba(7, 12, 29, 0.48));
-    box-shadow: 0 8px 22px rgba(3, 6, 18, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-    backdrop-filter: blur(2px);
-    -webkit-backdrop-filter: blur(2px);
+    border-radius: 1px;
+    background: rgba(8, 13, 31, 0.32);
+    box-shadow: 0 3px 10px rgba(3, 6, 18, 0.2);
     overflow: hidden;
+  }
+
+  .reading-tier-button {
+    min-height: 1.78rem;
+    padding: 0.42rem 0.5rem;
+    font-size: 0.53rem;
+    letter-spacing: 0.13em;
   }
 
   .reading-content :global(.loading),
@@ -4475,15 +4466,21 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
     .reading-tier-toggle {
       width: 100%;
-      margin-bottom: 0.75rem;
+      margin-bottom: 0.68rem;
     }
 
-    .view-toggle-button,
-    .reading-tier-button {
-      padding: 0.55rem 0.52rem;
-      min-height: 2.05rem;
+    .view-toggle-button {
+      padding: 0.52rem 0.5rem;
+      min-height: 1.92rem;
       letter-spacing: 0.13em;
       font-size: 0.55rem;
+    }
+
+    .reading-tier-button {
+      padding: 0.4rem 0.45rem;
+      min-height: 1.68rem;
+      letter-spacing: 0.115em;
+      font-size: 0.49rem;
     }
 
     .reading-content :global(.section-heading) {
