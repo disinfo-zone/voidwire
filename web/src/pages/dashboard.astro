@@ -680,10 +680,19 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     }
   }
 
+  function hasReadingOperatorAccess(): boolean {
+    const me = currentDashboardUser;
+    if (!me) return false;
+    if (typeof me.can_manage_readings === 'boolean') return me.can_manage_readings;
+    return Boolean(me.is_admin_user || me.is_test_user);
+  }
+
   function setReadingActionVisibility() {
     const readingActions = document.getElementById('reading-actions') as HTMLElement | null;
     if (!readingActions) return;
-    if (!canManageReadings) {
+    const canOperate = hasReadingOperatorAccess();
+    canManageReadings = canOperate;
+    if (!canOperate) {
       readingActions.innerHTML = '';
       readingActions.classList.remove('visible');
       return;
@@ -693,11 +702,11 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         '<button id="refresh-reading-btn" class="action-button">Refresh</button>' +
         '<button id="generate-reading-btn" class="action-button">Generate Latest</button>';
       document.getElementById('refresh-reading-btn')?.addEventListener('click', () => {
-        if (!canManageReadings) return;
+        if (!hasReadingOperatorAccess()) return;
         void startReadingFlow();
       });
       document.getElementById('generate-reading-btn')?.addEventListener('click', async () => {
-        if (!hasProfile || !canManageReadings) return;
+        if (!hasProfile || !hasReadingOperatorAccess()) return;
         stopReadingPolling();
         const targetTier: ReadingTier =
           currentUserTier === 'pro' ? activeReadingTier || 'pro' : 'free';
@@ -1126,6 +1135,8 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       if (!meRes.ok) return;
       const me = (await meRes.json()) as DashboardUser;
       currentDashboardUser = me;
+      canManageReadings = hasReadingOperatorAccess();
+      setReadingActionVisibility();
       renderAccountPanel(me);
     } catch {
       // Best effort: account panel can remain stale if refresh fails.
@@ -1190,7 +1201,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const safeCoverage = escapeHtml(reading.coverage_label || '');
     const safeWordCount = Number(reading.word_count) || 0;
     const safeTemplate = reading.template_version ? escapeHtml(reading.template_version) : '';
-    const showTemplate = canManageReadings && !!safeTemplate;
+    const showTemplate = hasReadingOperatorAccess() && !!safeTemplate;
 
     // Detach transit overlay before wiping innerHTML so it isn't destroyed
     const transitOverlay = document.getElementById('transit-overlay');
@@ -2791,7 +2802,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       void loadBrandDomain();
       hasProfile = !!me.has_profile;
       currentUserTier = me.tier === 'pro' ? 'pro' : 'free';
-      canManageReadings = Boolean(me.is_admin_user || me.is_test_user);
+      canManageReadings = hasReadingOperatorAccess();
       readingsByTier = { free: null, pro: null };
       activeReadingTier = currentUserTier === 'pro' ? 'pro' : 'free';
       stopReadingPolling();
