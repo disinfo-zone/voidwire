@@ -70,7 +70,7 @@
   const PLANET_GLYPHS: Record<string, string> = {
     Sun: `\u2609${VS15}`, Moon: `\u263D${VS15}`, Mercury: `\u263F${VS15}`, Venus: `\u2640${VS15}`,
     Mars: `\u2642${VS15}`, Jupiter: `\u2643${VS15}`, Saturn: `\u2644${VS15}`, Uranus: `\u2645${VS15}`,
-    Neptune: `\u2646${VS15}`, Pluto: `\u2647${VS15}`, Chiron: `\u26B7${VS15}`, 'North Node': `\u260A${VS15}`,
+    Neptune: `\u2646${VS15}`, Pluto: `\u2647${VS15}`, Chiron: `\u26B7${VS15}`, Lilith: `\u26B8${VS15}`, 'North Node': `\u260A${VS15}`,
     'Part Of Fortune': `\u2297${VS15}`,
   };
 

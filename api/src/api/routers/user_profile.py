@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, time
 from zoneinfo import ZoneInfo
 
-from ephemeris.natal import calculate_natal_chart
+from ephemeris.natal import calculate_natal_chart, chart_has_required_points
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -184,11 +184,8 @@ async def get_natal_chart(
         raise HTTPException(status_code=400, detail="No profile. Set birth data first.")
 
     chart = user.profile.natal_chart_json
-    # Recompute if chart is stale (e.g., missing part_of_fortune)
-    if not chart or not any(
-        p.get("body") == "part_of_fortune"
-        for p in (chart.get("positions") or [])
-    ):
+    # Recompute if chart is stale (missing required computed bodies/metadata).
+    if not chart_has_required_points(chart):
         chart = _compute_and_cache(user.profile)
         await db.commit()
 

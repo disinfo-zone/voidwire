@@ -52,6 +52,7 @@ const PLANET_GLYPHS: Record<string, { char: string; font: string }> = {
   Pluto: { char: '\u2647', font: GLYPH_FONT },
   'North Node': { char: '\u260A', font: GLYPH_FONT },
   Chiron: { char: '\u26B7', font: GLYPH_FONT },
+  Lilith: { char: '\u26B8', font: GLYPH_FONT_2 },
   'Part Of Fortune': { char: '\u2297', font: GLYPH_FONT_2 },
 };
 

@@ -37,6 +37,30 @@ class NatalAspect(BaseModel):
     significance: str = "moderate"
 
 
+class NatalCoordinates(BaseModel):
+    latitude: float
+    longitude: float
+
+
+class NatalCalculationMetadata(BaseModel):
+    ephemeris_engine: str = "swisseph"
+    zodiac: str = "tropical"
+    node_mode: str = "true"
+    lilith_mode: str = "mean_apogee"
+    house_system_requested: str = "placidus"
+    house_system_applied: str = "placidus"
+    house_system_code: str = "P"
+    birth_datetime_local: str
+    birth_datetime_utc: str
+    timezone: str
+    time_known: bool = False
+    birth_coordinates: NatalCoordinates
+    julian_day_ut: float
+    position_sources: dict[str, str] = Field(default_factory=dict)
+    unavailable_bodies: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class NatalChart(BaseModel):
     """Complete natal chart data."""
 
@@ -46,3 +70,4 @@ class NatalChart(BaseModel):
     house_signs: list[str] = Field(default_factory=list)
     house_system: str = "placidus"
     aspects: list[NatalAspect] = Field(default_factory=list)
+    calculation_metadata: NatalCalculationMetadata | None = None

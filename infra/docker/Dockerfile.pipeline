@@ -1,6 +1,8 @@
 FROM python:3.12-slim
 
 WORKDIR /app
+ARG SWISSEPH_EPHE_REF=master
+ENV SWISSEPH_EPHE_PATH=/opt/swisseph/ephe
 
 # Install system dependencies for pyswisseph
 RUN apt-get update && \
@@ -12,6 +14,13 @@ COPY pyproject.toml ./
 COPY shared/ shared/
 COPY ephemeris/ ephemeris/
 COPY pipeline/ pipeline/
+COPY infra/scripts/ infra/scripts/
+
+# Fetch asteroid files required for Swiss Chiron calculations.
+RUN python infra/scripts/fetch_swisseph_asteroids.py \
+    --dest "${SWISSEPH_EPHE_PATH}" \
+    --ref "${SWISSEPH_EPHE_REF}"
+RUN chmod +x infra/scripts/run_with_swisseph_sync.sh
 
 # Install dependencies
 RUN python -m pip install --no-cache-dir -e shared/ -e ephemeris/ -e pipeline/
@@ -20,4 +29,4 @@ RUN python -m pip install --no-cache-dir -e shared/ -e ephemeris/ -e pipeline/
 COPY alembic.ini ./
 COPY alembic/ alembic/
 
-CMD ["python", "-m", "pipeline"]
+CMD ["infra/scripts/run_with_swisseph_sync.sh", "python", "-m", "pipeline"]

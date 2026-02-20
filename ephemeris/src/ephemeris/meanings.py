@@ -69,6 +69,11 @@ DEFAULT_PLANETARY_KEYWORDS: dict[str, dict[str, Any]] = {
         "archetype": "The wound that teaches: where damage becomes expertise.",
         "domain_affinities": ["health", "social", "culture"],
     },
+    "lilith": {
+        "keywords": ["instinct", "shadow", "autonomy", "boundary", "defiance"],
+        "archetype": "Raw instinct and sovereignty: the untamed edge that resists domestication.",
+        "domain_affinities": ["social", "culture", "health"],
+    },
 }
 
 # Default aspect keywords for compositional fallback

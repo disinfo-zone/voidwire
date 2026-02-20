@@ -16,13 +16,14 @@ BODY_IDS: dict[str, int] = {
     "neptune": 8,  # SE_NEPTUNE
     "pluto": 9,  # SE_PLUTO
     "north_node": 11,  # SE_TRUE_NODE (true node, not mean)
+    "lilith": 12,  # SE_MEAN_APOG (Black Moon Lilith, mean apogee)
     "chiron": 15,  # SE_CHIRON
 }
 
 # Bodies to include in position calculations (all)
 ALL_BODIES = list(BODY_IDS.keys())
 
-# Bodies to check for aspects (exclude nodes, include Chiron)
+# Bodies to check for aspects (exclude nodes, include Chiron/Lilith)
 ASPECT_BODIES = [b for b in ALL_BODIES if b != "north_node"]
 
 # Zodiac signs in order
@@ -79,6 +80,7 @@ ORB_MODIFIERS: dict[str, float] = {
     "uranus": 0.6,
     "neptune": 0.6,
     "pluto": 0.6,
+    "lilith": 0.5,
     "chiron": 0.5,
     "north_node": 0.5,
 }

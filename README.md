@@ -74,6 +74,10 @@ uvicorn api.main:create_app --factory --reload --port 8000
 
 # In another terminal, run the pipeline once manually
 python -m pipeline --once
+
+# Optional: fetch Swiss asteroid files for accurate Chiron locally
+python infra/scripts/fetch_swisseph_asteroids.py --dest ./.swisseph/ephe --if-newer
+# Then set SWISSEPH_EPHE_PATH to that directory in your shell/.env
 ```
 
 ### Docker Compose (Production)
@@ -134,10 +138,18 @@ Local URLs:
 - `ASYNC_JOB_RETENTION_DAYS`: retention for completed/failed async user jobs before cleanup.
 - `ANALYTICS_RETENTION_DAYS`: retention for analytics events before cleanup.
 - `BILLING_RECONCILIATION_INTERVAL_HOURS`: cadence for scheduled billing reconciliation.
+- `SWISSEPH_EPHE_REF`: git ref used when Docker builds fetch Swiss asteroid files (`seas_*.se1`) for Chiron support.
+- `SWISSEPH_SYNC_INTERVAL_SECONDS`: runtime refresh cadence for asteroid files inside API/pipeline containers (`86400` = daily, `0` disables periodic sync).
 - `SKIP_MIGRATION_CHECK`: bypass API startup revision parity check (default `false`).
 - `USER_JWT_EXPIRE_MINUTES`: user auth cookie/JWT lifetime.
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PUBLISHABLE_KEY`: billing integration settings.
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY`: optional OAuth defaults (can be overridden in Admin > Site Settings > OAuth Sign-In).
+
+Swiss asteroid update behavior:
+- API and pipeline Docker images now fetch `seas_*.se1` during build and bake them into `/opt/swisseph/ephe`.
+- API and pipeline containers run a background sync loop at runtime (default daily) to pick up upstream updates.
+- Rebuild those images to pick up newer upstream asteroid files:
+  `docker compose build --no-cache voidwire-api voidwire-pipeline`
 
 ## Services
 

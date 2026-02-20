@@ -34,12 +34,16 @@ services:
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.api
+      args:
+        SWISSEPH_EPHE_REF: ${SWISSEPH_EPHE_REF:-master}
     container_name: voidwire-api
     restart: unless-stopped
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-voidwire}:${POSTGRES_PASSWORD:-voidwire}@voidwire-db:5432/${POSTGRES_DB:-voidwire}
       REDIS_URL: redis://voidwire-redis:6379/0
+      SWISSEPH_EPHE_REF: ${SWISSEPH_EPHE_REF:-master}
+      SWISSEPH_SYNC_INTERVAL_SECONDS: ${SWISSEPH_SYNC_INTERVAL_SECONDS:-86400}
     depends_on:
       voidwire-db:
         condition: service_healthy
@@ -51,12 +55,16 @@ services:
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.pipeline
+      args:
+        SWISSEPH_EPHE_REF: ${SWISSEPH_EPHE_REF:-master}
     container_name: voidwire-pipeline
     restart: unless-stopped
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-voidwire}:${POSTGRES_PASSWORD:-voidwire}@voidwire-db:5432/${POSTGRES_DB:-voidwire}
       REDIS_URL: redis://voidwire-redis:6379/0
+      SWISSEPH_EPHE_REF: ${SWISSEPH_EPHE_REF:-master}
+      SWISSEPH_SYNC_INTERVAL_SECONDS: ${SWISSEPH_SYNC_INTERVAL_SECONDS:-86400}
     depends_on:
       voidwire-db:
         condition: service_healthy

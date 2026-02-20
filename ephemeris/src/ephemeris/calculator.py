@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import UTC, date, datetime
 
 from voidwire.schemas.ephemeris import (
@@ -29,7 +30,8 @@ try:
     import swisseph as swe
 
     # Use tropical zodiac, geocentric
-    swe.set_ephe_path(None)  # Use built-in ephemeris
+    ephe_path = str(os.getenv("SWISSEPH_EPHE_PATH", "")).strip()
+    swe.set_ephe_path(ephe_path if ephe_path else None)
     _HAS_SWISSEPH = True
 except ImportError:
     _HAS_SWISSEPH = False
@@ -54,31 +56,30 @@ def _datetime_to_jd(dt: datetime) -> float:
     return int(365.25 * (y + 4716)) + int(30.6001 * (m + 1)) + d + b_term - 1524.5
 
 
-def _calculate_position(body_name: str, jd: float) -> dict:
-    """Calculate position for a single body at a Julian Day."""
+def _calculate_position(body_name: str, jd: float) -> dict | None:
+    """Calculate position for a single body at a Julian Day.
+
+    Returns None when the body is unavailable with Swiss + Moshier.
+    """
     body_id = BODY_IDS[body_name]
 
     if _HAS_SWISSEPH:
         # SEFLG_SPEED for speed calculation
         flags = swe.FLG_SWIEPH | swe.FLG_SPEED
         try:
-            result, ret_flags = swe.calc_ut(jd, body_id, flags)
+            result, _ = swe.calc_ut(jd, body_id, flags)
             longitude = result[0]
             speed = result[3]
         except Exception:
             # Fallback to Moshier (no external files needed)
             try:
                 flags = swe.FLG_MOSEPH | swe.FLG_SPEED
-                result, ret_flags = swe.calc_ut(jd, body_id, flags)
+                result, _ = swe.calc_ut(jd, body_id, flags)
                 longitude = result[0]
                 speed = result[3]
-            except Exception:
-                logger.warning("swisseph failed for %s, using placeholder", body_name)
-                import hashlib
-
-                h = int(hashlib.sha256(f"{body_name}{jd}".encode()).hexdigest()[:8], 16)
-                longitude = (h % 36000) / 100.0
-                speed = 1.0 if body_name in ("sun", "moon", "mercury", "venus") else 0.1
+            except Exception as exc:
+                logger.warning("swisseph failed for %s: %s", body_name, exc)
+                return None
     else:
         # Placeholder for when swisseph is not available
         # This produces deterministic but inaccurate positions
@@ -121,7 +122,10 @@ async def calculate_day(
     # Calculate all positions
     positions_raw: dict[str, dict] = {}
     for body_name in ALL_BODIES:
-        positions_raw[body_name] = _calculate_position(body_name, jd)
+        position = _calculate_position(body_name, jd)
+        if position is None:
+            continue
+        positions_raw[body_name] = position
 
     # Convert to Pydantic models
     positions = {name: PlanetPosition(**data) for name, data in positions_raw.items()}
@@ -149,9 +153,13 @@ async def calculate_day(
         )
 
     # Calculate lunar data
-    sun_lon = positions_raw["sun"]["longitude"]
-    moon_lon = positions_raw["moon"]["longitude"]
-    moon_speed = positions_raw["moon"]["speed_deg_day"]
+    sun_data = positions_raw.get("sun")
+    moon_data = positions_raw.get("moon")
+    if not sun_data or not moon_data:
+        raise RuntimeError("Sun and Moon positions are required for daily ephemeris")
+    sun_lon = sun_data["longitude"]
+    moon_lon = moon_data["longitude"]
+    moon_speed = moon_data["speed_deg_day"]
 
     phase_name, phase_pct = calculate_lunar_phase(sun_lon, moon_lon)
     void, void_starts = calculate_void_of_course(moon_lon, moon_speed, positions_raw, dt)
@@ -194,6 +202,8 @@ async def _detect_stations_and_ingresses(
     events = []
 
     for body_name in ALL_BODIES:
+        if body_name not in positions:
+            continue
         if body_name in ("sun", "moon", "north_node"):
             continue  # Sun/Moon don't go retrograde meaningfully
 

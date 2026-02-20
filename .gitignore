@@ -19,6 +19,7 @@ admin/dist/
 .env
 .env.local
 .env.*.local
+.swisseph/
 
 # IDE
 .vscode/

@@ -12,7 +12,11 @@ import time
 from datetime import UTC, date, datetime, timedelta
 
 from ephemeris import calculate_day
-from ephemeris.natal import calculate_natal_chart, calculate_transit_to_natal_aspects
+from ephemeris.natal import (
+    calculate_natal_chart,
+    calculate_transit_to_natal_aspects,
+    chart_has_required_points,
+)
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from voidwire.database import get_session
@@ -296,7 +300,7 @@ async def run_free_reading_batch(target_date: date | None = None) -> int:
             for user, profile in free_users:
                 try:
                     chart = profile.natal_chart_json
-                    if not chart:
+                    if not chart_has_required_points(chart):
                         chart = calculate_natal_chart(
                             birth_date=profile.birth_date,
                             birth_time=profile.birth_time,

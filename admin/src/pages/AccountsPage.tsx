@@ -82,6 +82,8 @@ type UserNatalChartPayload = {
   user_id: string;
   user_email: string;
   birth_city: string;
+  birth_latitude: number;
+  birth_longitude: number;
   birth_timezone: string;
   house_system: string;
   natal_chart_computed_at: string | null;
@@ -168,7 +170,17 @@ function buildNatalChartText(payload: UserNatalChartPayload): string {
   lines.push(`Generated: ${new Date().toISOString()}`);
   lines.push('');
   lines.push(`Birthplace: ${payload.birth_city}`);
+  if (Number.isFinite(Number(payload.birth_latitude)) && Number.isFinite(Number(payload.birth_longitude))) {
+    lines.push(`Coordinates: ${Number(payload.birth_latitude).toFixed(4)}, ${Number(payload.birth_longitude).toFixed(4)}`);
+  }
   lines.push(`Timezone: ${payload.birth_timezone}`);
+  const calcMeta = (chart as any).calculation_metadata;
+  if (calcMeta && typeof calcMeta === 'object') {
+    const zodiac = String(calcMeta.zodiac || '').trim();
+    const lilithMode = String(calcMeta.lilith_mode || '').trim();
+    if (zodiac) lines.push(`Zodiac: ${zodiac}`);
+    if (lilithMode) lines.push(`Lilith Mode: ${lilithMode}`);
+  }
   lines.push('');
 
   const sun = positions.find((pos) => normalizeToken(pos.body) === 'sun');

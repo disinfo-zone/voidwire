@@ -1141,12 +1141,15 @@ class TestAccountsAPI:
         fake_user.email = "chart@test.local"
         fake_profile = MagicMock()
         fake_profile.birth_city = "LaGrange, GA"
+        fake_profile.birth_latitude = 33.0393
+        fake_profile.birth_longitude = -85.0319
         fake_profile.birth_timezone = "America/New_York"
         fake_profile.house_system = "placidus"
         fake_profile.natal_chart_computed_at = datetime.now(UTC)
         fake_profile.natal_chart_json = {
             "positions": [
                 {"body": "sun", "sign": "Sagittarius", "degree": 3.9, "longitude": 243.9},
+                {"body": "lilith", "sign": "Pisces", "degree": 4.5, "longitude": 334.5},
                 {"body": "part_of_fortune", "sign": "Capricorn", "degree": 1.2, "longitude": 271.2},
             ],
             "angles": [{"name": "Ascendant", "sign": "Aries", "degree": 8.3, "longitude": 8.3}],
@@ -1154,6 +1157,10 @@ class TestAccountsAPI:
             "house_signs": [],
             "house_system": "placidus",
             "aspects": [],
+            "calculation_metadata": {
+                "position_sources": {"sun": "swisseph", "lilith": "swisseph"},
+                "unavailable_bodies": [],
+            },
         }
         fake_user.profile = fake_profile
         mock_db.get.return_value = fake_user
@@ -1163,6 +1170,8 @@ class TestAccountsAPI:
         body = resp.json()
         assert body["user_email"] == "chart@test.local"
         assert body["birth_city"] == "LaGrange, GA"
+        assert body["birth_latitude"] == fake_profile.birth_latitude
+        assert body["birth_longitude"] == fake_profile.birth_longitude
         assert body["birth_timezone"] == "America/New_York"
         assert body["chart"]["house_system"] == "placidus"
 

@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Literal
 
-from ephemeris.natal import calculate_natal_chart
+from ephemeris.natal import calculate_natal_chart, chart_has_required_points
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import delete, func, select, update
@@ -720,10 +720,7 @@ async def get_user_natal_chart(
 
     profile = target_user.profile
     chart = profile.natal_chart_json
-    if not chart or not any(
-        p.get("body") == "part_of_fortune"
-        for p in (chart.get("positions") or [])
-    ):
+    if not chart_has_required_points(chart):
         chart = calculate_natal_chart(
             birth_date=profile.birth_date,
             birth_time=profile.birth_time,
@@ -740,6 +737,8 @@ async def get_user_natal_chart(
         "user_id": str(target_user.id),
         "user_email": target_user.email,
         "birth_city": profile.birth_city,
+        "birth_latitude": profile.birth_latitude,
+        "birth_longitude": profile.birth_longitude,
         "birth_timezone": profile.birth_timezone,
         "house_system": profile.house_system,
         "natal_chart_computed_at": (

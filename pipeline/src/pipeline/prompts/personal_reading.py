@@ -22,6 +22,20 @@ PERSONAL_READING_PRO_TEMPLATE_PREFIX = "personal_reading_pro"
 TEMPLATE_TOKEN_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}")
 
 
+def _display_body(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    normalized = raw.lower().replace("-", "_")
+    aliases = {
+        "north_node": "North Node",
+        "part_of_fortune": "Part of Fortune",
+    }
+    if normalized in aliases:
+        return aliases[normalized]
+    return " ".join(chunk.capitalize() for chunk in normalized.split("_") if chunk)
+
+
 def _normalized_template_name(value: str | None, fallback: str) -> str:
     candidate = str(value or "").strip().lower()
     return candidate or fallback
@@ -54,7 +68,7 @@ def _format_natal_positions(positions: list[dict]) -> str:
     for p in positions:
         retro = " (R)" if p.get("retrograde") else ""
         house = f" in House {p['house']}" if p.get("house") else ""
-        lines.append(f"  {p['body'].title()}: {p['degree']:.1f}° {p['sign']}{retro}{house}")
+        lines.append(f"  {_display_body(p.get('body'))}: {p['degree']:.1f}° {p['sign']}{retro}{house}")
     return "\n".join(lines)
 
 
@@ -69,7 +83,7 @@ def _format_transit_aspects(aspects: list[dict]) -> str:
     for a in aspects:
         day_prefix = f"[{a['date']}] " if a.get("date") else ""
         lines.append(
-            f"  {day_prefix}Transit {a['transit_body'].title()} {a['type']} Natal {a['natal_body'].title()} "
+            f"  {day_prefix}Transit {_display_body(a.get('transit_body'))} {a['type']} Natal {_display_body(a.get('natal_body'))} "
             f"(orb: {a['orb_degrees']:.2f}°, {a['significance']})"
         )
     return "\n".join(lines[:15])
@@ -80,7 +94,7 @@ def _format_current_transits(positions: dict) -> str:
     for body, data in positions.items():
         retro = " (R)" if data.get("retrograde") else ""
         lines.append(
-            f"  {body.title()}: {data.get('degree', 0):.1f}° {data.get('sign', '?')}{retro}"
+            f"  {_display_body(body)}: {data.get('degree', 0):.1f}° {data.get('sign', '?')}{retro}"
         )
     return "\n".join(lines)
 
