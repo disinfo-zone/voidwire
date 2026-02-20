@@ -3349,29 +3349,75 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
   }
 
   .view-toggle {
-    display: inline-flex;
+    display: flex;
+    position: relative;
+    width: min(100%, 20.5rem);
+    margin: 0.1rem auto 0;
     border: 1px solid var(--text-ghost);
+    border-radius: 2px;
+    background: linear-gradient(180deg, rgba(10, 16, 37, 0.68), rgba(7, 12, 30, 0.52));
+    box-shadow: 0 10px 28px rgba(3, 6, 18, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    overflow: hidden;
   }
 
-  .view-toggle-button {
+  .view-toggle::before,
+  .reading-tier-toggle::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 42%);
+  }
+
+  .view-toggle-button,
+  .reading-tier-button {
+    flex: 1 1 0;
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     background: transparent;
     border: none;
     color: var(--text-muted);
-    padding: 0.55rem 1rem;
+    padding: 0.62rem 0.78rem;
+    min-height: 2.2rem;
     font-family: var(--font-sans);
-    font-size: 0.62rem;
-    letter-spacing: 0.14em;
+    font-size: 0.59rem;
+    letter-spacing: 0.16em;
+    font-weight: 500;
+    line-height: 1;
     text-transform: uppercase;
     cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: color 0.2s ease, background-color 0.2s ease, box-shadow 0.22s ease;
   }
 
-  .view-toggle-button.active {
+  .view-toggle-button + .view-toggle-button,
+  .reading-tier-button + .reading-tier-button {
+    border-left: 1px solid var(--text-ghost);
+  }
+
+  .view-toggle-button:hover:not(:disabled):not(.active),
+  .reading-tier-button:hover:not(:disabled):not(.active) {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .view-toggle-button.active,
+  .reading-tier-button.active {
     color: var(--accent);
-    background: var(--accent-glow);
+    background: linear-gradient(180deg, rgba(214, 175, 114, 0.24), rgba(214, 175, 114, 0.1));
+    box-shadow: inset 0 0 0 1px rgba(214, 175, 114, 0.34), inset 0 -12px 18px rgba(214, 175, 114, 0.06);
+    text-shadow: 0 0 10px rgba(214, 175, 114, 0.26);
   }
 
-  .view-toggle-button:disabled {
-    opacity: 0.4;
+  .view-toggle-button:disabled,
+  .reading-tier-button:disabled {
+    opacity: 0.45;
     cursor: not-allowed;
   }
 
@@ -3405,34 +3451,18 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
   .reading-tier-toggle {
     display: none;
+    position: relative;
     justify-content: center;
-    gap: 0.5rem;
-    margin: 0 0 0.75rem;
-    flex-wrap: wrap;
-  }
-
-  .reading-tier-button {
-    background: transparent;
+    gap: 0;
+    width: min(100%, 20.5rem);
+    margin: 0.1rem auto 0.95rem;
     border: 1px solid var(--text-ghost);
-    color: var(--text-muted);
-    font-family: var(--font-sans);
-    font-size: 0.58rem;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    padding: 0.45rem 0.8rem;
-    cursor: pointer;
-    transition: border-color 0.2s ease, color 0.2s ease, background-color 0.2s ease;
-  }
-
-  .reading-tier-button.active {
-    border-color: var(--accent);
-    color: var(--accent);
-    background: var(--accent-glow);
-  }
-
-  .reading-tier-button:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
+    border-radius: 2px;
+    background: linear-gradient(180deg, rgba(9, 15, 34, 0.62), rgba(7, 12, 29, 0.48));
+    box-shadow: 0 8px 22px rgba(3, 6, 18, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    overflow: hidden;
   }
 
   .reading-content :global(.loading),
@@ -4444,11 +4474,16 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     }
 
     .reading-tier-toggle {
-      gap: 0.4rem;
+      width: 100%;
+      margin-bottom: 0.75rem;
     }
 
+    .view-toggle-button,
     .reading-tier-button {
-      min-width: 8.5rem;
+      padding: 0.55rem 0.52rem;
+      min-height: 2.05rem;
+      letter-spacing: 0.13em;
+      font-size: 0.55rem;
     }
 
     .reading-content :global(.section-heading) {
