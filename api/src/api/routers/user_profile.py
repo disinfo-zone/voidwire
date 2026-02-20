@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.models import User, UserProfile
 
 from api.dependencies import get_current_public_user, get_db
+from api.services.birth_timezone import resolve_birth_timezone
 
 router = APIRouter()
 
@@ -137,7 +138,12 @@ async def set_birth_data(
     profile.birth_city = req.birth_city.strip()
     profile.birth_latitude = req.birth_latitude
     profile.birth_longitude = req.birth_longitude
-    profile.birth_timezone = req.birth_timezone.strip()
+    resolved_timezone, _ = resolve_birth_timezone(
+        latitude=req.birth_latitude,
+        longitude=req.birth_longitude,
+        fallback_timezone=req.birth_timezone,
+    )
+    profile.birth_timezone = resolved_timezone
     profile.house_system = req.house_system
     profile.updated_at = datetime.now(UTC)
 

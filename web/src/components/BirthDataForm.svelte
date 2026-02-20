@@ -227,7 +227,7 @@
   {/if}
 
   <div class="form-group">
-    <label for="timezone-override">Timezone (IANA)</label>
+    <label for="timezone-override">Timezone (IANA, auto-corrected from birth location on save)</label>
     <input type="text" id="timezone-override" bind:value={birthTimezone} placeholder="e.g. America/New_York" required />
   </div>
 

@@ -116,6 +116,43 @@ async def test_birth_data_rejects_invalid_timezone(user_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_birth_data_prefers_timezone_resolved_from_coordinates(user_client: AsyncClient):
+    chart = {
+        "positions": [],
+        "angles": [],
+        "house_cusps": [],
+        "house_signs": [],
+        "house_system": "placidus",
+        "aspects": [],
+    }
+    with (
+        patch(
+            "api.routers.user_profile.resolve_birth_timezone",
+            return_value=("America/New_York", True),
+        ),
+        patch("api.routers.user_profile.calculate_natal_chart", return_value=chart) as mock_calc,
+    ):
+        response = await user_client.put(
+            "/v1/user/profile/birth-data",
+            json={
+                "birth_date": "1992-11-25",
+                "birth_time": "14:42",
+                "birth_time_known": True,
+                "birth_city": "LaGrange, GA",
+                "birth_latitude": 33.0393,
+                "birth_longitude": -85.0319,
+                "birth_timezone": "America/Los_Angeles",
+                "house_system": "placidus",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["birth_timezone"] == "America/New_York"
+    assert mock_calc.call_args is not None
+    assert mock_calc.call_args.kwargs["birth_timezone"] == "America/New_York"
+
+
+@pytest.mark.asyncio
 async def test_checkout_rejects_untrusted_success_url(user_client: AsyncClient):
     with (
         patch("api.routers.user_subscription.get_settings", return_value=_stripe_settings()),
