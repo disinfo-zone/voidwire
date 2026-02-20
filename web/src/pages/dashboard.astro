@@ -2309,188 +2309,217 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     }
   }
 
-  document.getElementById('view-reading-btn')?.addEventListener('click', () => {
-    if (!hasProfile) return;
-    setView('reading');
-  });
+  function bindEventOnce(el: Element | null, type: string, key: string, handler: EventListener) {
+    if (!el) return;
+    const attr = `data-dash-bound-${key}`;
+    if (el.getAttribute(attr) === '1') return;
+    el.setAttribute(attr, '1');
+    el.addEventListener(type, handler);
+  }
 
-  document.getElementById('view-settings-btn')?.addEventListener('click', () => {
-    setView('settings');
-  });
+  function initDashboardBindings() {
+    const root = document.getElementById('dashboard-content');
+    if (!root) return;
 
+    const viewReadingBtn = document.getElementById('view-reading-btn');
+    bindEventOnce(viewReadingBtn, 'click', 'view-reading', () => {
+      if (!hasProfile) return;
+      setView('reading');
+    });
 
-  document.getElementById('toggle-birth-form')?.addEventListener('click', () => {
-    const birthFormWrapper = document.getElementById('birth-form-wrapper');
-    if (!birthFormWrapper) return;
-    birthFormWrapper.style.display = birthFormWrapper.style.display === 'none' ? 'block' : 'none';
-  });
+    const viewSettingsBtn = document.getElementById('view-settings-btn');
+    bindEventOnce(viewSettingsBtn, 'click', 'view-settings', () => {
+      setView('settings');
+    });
 
-  document.getElementById('export-chart-text-btn')?.addEventListener('click', async () => {
-    if (!cachedChart) {
-      await ensureNatalChartLoaded();
-      if (!cachedChart) return;
-    }
-    const btn = document.getElementById('export-chart-text-btn') as HTMLButtonElement | null;
-    try {
-      await navigator.clipboard.writeText(natalChartText(cachedChart));
-      if (btn) {
-        const original = btn.textContent;
-        btn.textContent = 'Copied!';
-        setTimeout(() => { btn.textContent = original; }, 2000);
+    const toggleBirthFormBtn = document.getElementById('toggle-birth-form');
+    bindEventOnce(toggleBirthFormBtn, 'click', 'toggle-birth-form', () => {
+      const birthFormWrapper = document.getElementById('birth-form-wrapper');
+      if (!birthFormWrapper) return;
+      birthFormWrapper.style.display = birthFormWrapper.style.display === 'none' ? 'block' : 'none';
+    });
+
+    const exportChartTextBtn = document.getElementById('export-chart-text-btn');
+    bindEventOnce(exportChartTextBtn, 'click', 'export-chart-text', async () => {
+      if (!cachedChart) {
+        await ensureNatalChartLoaded();
+        if (!cachedChart) return;
       }
-    } catch {
-      const stamp = new Date().toISOString().slice(0, 10);
-      downloadText(`voidwire-natal-chart-${stamp}.txt`, natalChartText(cachedChart));
-    }
-  });
-
-  document.getElementById('export-chart-image-btn')?.addEventListener('click', async () => {
-    if (!cachedChart) {
-      await ensureNatalChartLoaded();
-      if (!cachedChart) return;
-    }
-    const btn = document.getElementById('export-chart-image-btn') as HTMLButtonElement | null;
-    const original = btn?.textContent || 'Share Chart Image';
-    try {
-      if (btn) btn.textContent = 'Preparing\u2026';
-      const blob = await exportNatalChartImage(cachedChart);
-      const stamp = new Date().toISOString().slice(0, 10);
-      const filename = `voidwire-natal-chart-${stamp}.jpg`;
-      const file = new File([blob], filename, { type: 'image/jpeg' });
-      if (typeof navigator.share === 'function' && navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ title: 'My Natal Chart', files: [file] });
-      } else {
-        downloadBlob(filename, blob);
+      const btn = document.getElementById('export-chart-text-btn') as HTMLButtonElement | null;
+      try {
+        await navigator.clipboard.writeText(natalChartText(cachedChart));
+        if (btn) {
+          const original = btn.textContent;
+          btn.textContent = 'Copied!';
+          setTimeout(() => { btn.textContent = original; }, 2000);
+        }
+      } catch {
+        const stamp = new Date().toISOString().slice(0, 10);
+        downloadText(`voidwire-natal-chart-${stamp}.txt`, natalChartText(cachedChart));
       }
-    } catch (err) {
-      if ((err as any)?.name !== 'AbortError') {
-        alert(err instanceof Error ? err.message : 'Could not export chart image');
-      }
-    } finally {
-      if (btn) btn.textContent = original;
-    }
-  });
+    });
 
-  document.getElementById('export-account-btn')?.addEventListener('click', () => {
-    void exportAccountData();
-  });
-
-  // --- Collapsible section toggles ---
-  for (const toggle of document.querySelectorAll('.section-toggle')) {
-    const toggleEl = toggle as HTMLElement;
-    const targetId = toggleEl.getAttribute('data-target');
-    if (targetId) {
-      const body = document.getElementById(targetId);
-      if (body) {
-        const collapsed = body.classList.contains('collapsed');
-        toggleEl.classList.toggle('open', !collapsed);
-        toggleEl.setAttribute('aria-expanded', String(!collapsed));
-        body.hidden = collapsed;
+    const exportChartImageBtn = document.getElementById('export-chart-image-btn');
+    bindEventOnce(exportChartImageBtn, 'click', 'export-chart-image', async () => {
+      if (!cachedChart) {
+        await ensureNatalChartLoaded();
+        if (!cachedChart) return;
       }
+      const btn = document.getElementById('export-chart-image-btn') as HTMLButtonElement | null;
+      const original = btn?.textContent || 'Share Chart Image';
+      try {
+        if (btn) btn.textContent = 'Preparing...';
+        const blob = await exportNatalChartImage(cachedChart);
+        const stamp = new Date().toISOString().slice(0, 10);
+        const filename = `voidwire-natal-chart-${stamp}.jpg`;
+        const file = new File([blob], filename, { type: 'image/jpeg' });
+        if (typeof navigator.share === 'function' && navigator.canShare?.({ files: [file] })) {
+          await navigator.share({ title: 'My Natal Chart', files: [file] });
+        } else {
+          downloadBlob(filename, blob);
+        }
+      } catch (err) {
+        if ((err as any)?.name !== 'AbortError') {
+          alert(err instanceof Error ? err.message : 'Could not export chart image');
+        }
+      } finally {
+        if (btn) btn.textContent = original;
+      }
+    });
+
+    const exportAccountBtn = document.getElementById('export-account-btn');
+    bindEventOnce(exportAccountBtn, 'click', 'export-account', () => {
+      void exportAccountData();
+    });
+
+    for (const toggle of document.querySelectorAll('.section-toggle')) {
+      const toggleEl = toggle as HTMLElement;
+      const targetId = toggleEl.getAttribute('data-target');
+      if (targetId) {
+        const body = document.getElementById(targetId);
+        if (body) {
+          const collapsed = body.classList.contains('collapsed');
+          toggleEl.classList.toggle('open', !collapsed);
+          toggleEl.setAttribute('aria-expanded', String(!collapsed));
+          body.hidden = collapsed;
+        }
+      }
+      bindEventOnce(toggleEl, 'click', `section-toggle-${targetId || 'unknown'}`, () => {
+        const id = toggleEl.getAttribute('data-target');
+        if (!id) return;
+        const body = document.getElementById(id);
+        if (!body) return;
+        body.classList.toggle('collapsed');
+        const isCollapsed = body.classList.contains('collapsed');
+        toggleEl.classList.toggle('open', !isCollapsed);
+        toggleEl.setAttribute('aria-expanded', String(!isCollapsed));
+        body.hidden = isCollapsed;
+      });
     }
-    toggle.addEventListener('click', () => {
-      const targetId = toggle.getAttribute('data-target');
-      if (!targetId) return;
-      const body = document.getElementById(targetId);
-      if (!body) return;
-      body.classList.toggle('collapsed');
-      const isCollapsed = body.classList.contains('collapsed');
-      toggle.classList.toggle('open', !isCollapsed);
-      toggle.setAttribute('aria-expanded', String(!isCollapsed));
-      body.hidden = isCollapsed;
+
+    const deleteLink = document.getElementById('delete-account-link');
+    const deleteModal = document.getElementById('delete-account-modal');
+    const deleteConfirmInput = document.getElementById('delete-confirm-input') as HTMLInputElement | null;
+    const deleteConfirmBtn = document.getElementById('delete-confirm-btn') as HTMLButtonElement | null;
+    const deleteCancelBtn = document.getElementById('delete-cancel-btn');
+    const deleteError = document.getElementById('delete-error');
+    const deletePasswordRow = document.getElementById('delete-password-row');
+    const deletePasswordInput = document.getElementById('delete-password-input') as HTMLInputElement | null;
+
+    const showDeleteModal = () => {
+      if (deleteModal) deleteModal.style.display = 'flex';
+      if (deleteConfirmInput) { deleteConfirmInput.value = ''; deleteConfirmInput.focus(); }
+      if (deleteConfirmBtn) deleteConfirmBtn.disabled = true;
+      if (deleteError) deleteError.textContent = '';
+      if (deletePasswordRow) deletePasswordRow.style.display = 'none';
+      if (deletePasswordInput) deletePasswordInput.value = '';
+    };
+
+    const hideDeleteModal = () => {
+      if (deleteModal) deleteModal.style.display = 'none';
+      if (deleteConfirmInput) deleteConfirmInput.value = '';
+      if (deleteConfirmBtn) deleteConfirmBtn.disabled = true;
+      if (deleteError) deleteError.textContent = '';
+      if (deletePasswordRow) deletePasswordRow.style.display = 'none';
+      if (deletePasswordInput) deletePasswordInput.value = '';
+    };
+
+    bindEventOnce(deleteLink, 'click', 'delete-open', () => showDeleteModal());
+    bindEventOnce(deleteCancelBtn, 'click', 'delete-cancel', () => hideDeleteModal());
+    bindEventOnce(deleteModal, 'click', 'delete-overlay', (e: Event) => {
+      if (e.target === deleteModal) hideDeleteModal();
+    });
+    bindEventOnce(deleteConfirmInput, 'input', 'delete-confirm-input', () => {
+      if (deleteConfirmBtn && deleteConfirmInput) {
+        deleteConfirmBtn.disabled = deleteConfirmInput.value !== 'DELETE';
+      }
+    });
+    bindEventOnce(deleteConfirmBtn, 'click', 'delete-confirm', async () => {
+      if (!deleteConfirmInput || deleteConfirmInput.value !== 'DELETE') return;
+      if (deleteConfirmBtn) deleteConfirmBtn.disabled = true;
+      if (deleteError) deleteError.textContent = '';
+      try {
+        const body: Record<string, string> = {};
+        if (deletePasswordInput && deletePasswordInput.value) {
+          body.password = deletePasswordInput.value;
+        }
+        const res = await authFetch('/v1/user/auth/me', {
+          method: 'DELETE',
+          body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined,
+        });
+        if (res.status === 400) {
+          const data = await res.json().catch(() => ({}));
+          if (String(data?.detail || '').toLowerCase().includes('password')) {
+            if (deletePasswordRow) deletePasswordRow.style.display = 'block';
+            if (deletePasswordInput) deletePasswordInput.focus();
+            if (deleteError) deleteError.textContent = 'Password required to delete account.';
+            if (deleteConfirmBtn) deleteConfirmBtn.disabled = false;
+            return;
+          }
+          throw new Error(data?.detail || 'Could not delete account');
+        }
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.detail || 'Could not delete account');
+        }
+        clearToken();
+        window.location.href = '/';
+      } catch (err) {
+        if (deleteError) deleteError.textContent = err instanceof Error ? err.message : 'Could not delete account';
+        if (deleteConfirmBtn) deleteConfirmBtn.disabled = false;
+      }
+    });
+
+    const logoutBtn = document.getElementById('logout-button');
+    bindEventOnce(logoutBtn, 'click', 'logout', async () => {
+      try {
+        await authFetch('/v1/user/auth/logout', { method: 'POST' });
+      } catch {
+        // Always clear local legacy tokens regardless of network state.
+      }
+      clearToken();
+      window.location.href = '/login';
     });
   }
 
-  // --- Delete account modal ---
-  const deleteLink = document.getElementById('delete-account-link');
-  const deleteModal = document.getElementById('delete-account-modal');
-  const deleteConfirmInput = document.getElementById('delete-confirm-input') as HTMLInputElement | null;
-  const deleteConfirmBtn = document.getElementById('delete-confirm-btn') as HTMLButtonElement | null;
-  const deleteCancelBtn = document.getElementById('delete-cancel-btn');
-  const deleteError = document.getElementById('delete-error');
-  const deletePasswordRow = document.getElementById('delete-password-row');
-  const deletePasswordInput = document.getElementById('delete-password-input') as HTMLInputElement | null;
-
-  function showDeleteModal() {
-    if (deleteModal) deleteModal.style.display = 'flex';
-    if (deleteConfirmInput) { deleteConfirmInput.value = ''; deleteConfirmInput.focus(); }
-    if (deleteConfirmBtn) deleteConfirmBtn.disabled = true;
-    if (deleteError) deleteError.textContent = '';
-    if (deletePasswordRow) deletePasswordRow.style.display = 'none';
-    if (deletePasswordInput) deletePasswordInput.value = '';
+  function initDashboardPage() {
+    const root = document.getElementById('dashboard-content');
+    if (!root) return;
+    if (root.getAttribute('data-dashboard-init') === '1') return;
+    root.setAttribute('data-dashboard-init', '1');
+    initDashboardBindings();
+    void loadDashboard();
   }
 
-  function hideDeleteModal() {
-    if (deleteModal) deleteModal.style.display = 'none';
-    if (deleteConfirmInput) deleteConfirmInput.value = '';
-    if (deleteConfirmBtn) deleteConfirmBtn.disabled = true;
-    if (deleteError) deleteError.textContent = '';
-    if (deletePasswordRow) deletePasswordRow.style.display = 'none';
-    if (deletePasswordInput) deletePasswordInput.value = '';
+  const dashboardGlobal = window as Window & { __voidwireDashboardCleanupBound?: boolean };
+  if (!dashboardGlobal.__voidwireDashboardCleanupBound) {
+    dashboardGlobal.__voidwireDashboardCleanupBound = true;
+    document.addEventListener('astro:before-swap', () => { stopReadingPolling(); });
+    window.addEventListener('beforeunload', () => { stopReadingPolling(); });
   }
 
-  deleteLink?.addEventListener('click', () => showDeleteModal());
-  deleteCancelBtn?.addEventListener('click', () => hideDeleteModal());
-  deleteModal?.addEventListener('click', (e) => {
-    if (e.target === deleteModal) hideDeleteModal();
-  });
-
-  deleteConfirmInput?.addEventListener('input', () => {
-    if (deleteConfirmBtn) {
-      deleteConfirmBtn.disabled = deleteConfirmInput.value !== 'DELETE';
-    }
-  });
-
-  deleteConfirmBtn?.addEventListener('click', async () => {
-    if (!deleteConfirmInput || deleteConfirmInput.value !== 'DELETE') return;
-    if (deleteConfirmBtn) deleteConfirmBtn.disabled = true;
-    if (deleteError) deleteError.textContent = '';
-    try {
-      const body: Record<string, string> = {};
-      if (deletePasswordInput && deletePasswordInput.value) {
-        body.password = deletePasswordInput.value;
-      }
-      const res = await authFetch('/v1/user/auth/me', {
-        method: 'DELETE',
-        body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined,
-      });
-      if (res.status === 400) {
-        const data = await res.json().catch(() => ({}));
-        if (String(data?.detail || '').toLowerCase().includes('password')) {
-          if (deletePasswordRow) deletePasswordRow.style.display = 'block';
-          if (deletePasswordInput) deletePasswordInput.focus();
-          if (deleteError) deleteError.textContent = 'Password required to delete account.';
-          if (deleteConfirmBtn) deleteConfirmBtn.disabled = false;
-          return;
-        }
-        throw new Error(data?.detail || 'Could not delete account');
-      }
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.detail || 'Could not delete account');
-      }
-      clearToken();
-      window.location.href = '/';
-    } catch (err) {
-      if (deleteError) deleteError.textContent = err instanceof Error ? err.message : 'Could not delete account';
-      if (deleteConfirmBtn) deleteConfirmBtn.disabled = false;
-    }
-  });
-
-  document.getElementById('logout-button')?.addEventListener('click', async () => {
-    try {
-      await authFetch('/v1/user/auth/logout', { method: 'POST' });
-    } catch {
-      // Always clear local legacy tokens regardless of network state.
-    }
-    clearToken();
-    window.location.href = '/login';
-  });
-
-  window.addEventListener('beforeunload', () => {
-    stopReadingPolling();
-  });
-
+  initDashboardPage();
+  document.addEventListener('astro:page-load', initDashboardPage);
   // --- Custom tooltip system (works on hover + tap) ---
   (() => {
     const globalScope = window as Window & { __voidwireTipCleanup?: () => void };
@@ -2572,7 +2601,6 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     };
   })();
 
-  void loadDashboard();
 </script>
 
 <style>
@@ -3670,3 +3698,4 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     }
   }
 </style>
+
