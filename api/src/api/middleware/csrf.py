@@ -26,6 +26,7 @@ EXEMPT_PATH_PREFIXES = (
     "/v1/user/auth/forgot-password",
     "/v1/user/auth/reset-password",
     "/v1/user/auth/verify-email",
+    "/v1/user/auth/resend-verification/by-email",
 )
 
 

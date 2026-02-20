@@ -35,6 +35,7 @@ _AUTH_RATE_LIMITS: dict[str, int] = {
     "/v1/user/auth/reset-password": 8,
     "/v1/user/auth/verify-email": 8,
     "/v1/user/auth/resend-verification": 5,
+    "/v1/user/auth/resend-verification/by-email": 5,
 }
 
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}

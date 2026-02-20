@@ -261,3 +261,139 @@ async def test_oauth_apple_rejects_partial_configuration(client: AsyncClient):
         )
     assert response.status_code == 501
     assert "partially configured" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_change_email_requires_current_password_for_password_users(client: AsyncClient, mock_db):
+    user_id = uuid.uuid4()
+    user = SimpleNamespace(
+        id=user_id,
+        email="existing@test.local",
+        email_verified=True,
+        password_hash="hashed-password",
+        is_active=True,
+        token_version=0,
+    )
+    mock_db.get.return_value = user
+    duplicate_lookup = MagicMock()
+    duplicate_lookup.scalar.return_value = None
+    mock_db.execute.return_value = duplicate_lookup
+    token = create_access_token(user_id=str(user_id), token_type="user", token_version=0)
+    csrf = "csrf-test-token"
+
+    response = await client.put(
+        "/v1/user/auth/me/email",
+        headers={
+            "Cookie": f"voidwire_user_token={token}; voidwire_csrf_token={csrf}",
+            "x-csrf-token": csrf,
+        },
+        json={"new_email": "new-email@test.local"},
+    )
+
+    assert response.status_code == 400
+    assert "current password is required" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_change_email_updates_user_and_sends_verification(client: AsyncClient, mock_db):
+    user_id = uuid.uuid4()
+    user = SimpleNamespace(
+        id=user_id,
+        email="old@test.local",
+        email_verified=True,
+        password_hash="hashed-password",
+        is_active=True,
+        token_version=0,
+    )
+    mock_db.get.return_value = user
+    duplicate_lookup = MagicMock()
+    duplicate_lookup.scalar.return_value = None
+    mock_db.execute.return_value = duplicate_lookup
+    token = create_access_token(user_id=str(user_id), token_type="user", token_version=0)
+    csrf = "csrf-test-token"
+
+    with (
+        patch("api.routers.user_auth.verify_password", return_value=True),
+        patch(
+            "api.routers.user_auth._generate_verification_token",
+            new=AsyncMock(return_value="token-123"),
+        ) as token_mock,
+        patch(
+            "api.routers.user_auth._send_verification_email",
+            new=AsyncMock(return_value=True),
+        ) as send_mock,
+    ):
+        response = await client.put(
+            "/v1/user/auth/me/email",
+            headers={
+                "Cookie": f"voidwire_user_token={token}; voidwire_csrf_token={csrf}",
+                "x-csrf-token": csrf,
+            },
+            json={"new_email": "new-email@test.local", "current_password": "correct-password"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["email"] == "new-email@test.local"
+    assert body["email_verified"] is False
+    assert body["verification_sent"] is True
+    assert user.email == "new-email@test.local"
+    assert user.email_verified is False
+    token_mock.assert_awaited_once()
+    send_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_resend_verification_by_email_sends_for_unverified_user(client: AsyncClient, mock_db):
+    user = SimpleNamespace(
+        id=uuid.uuid4(),
+        email="user@test.local",
+        email_verified=False,
+        is_active=True,
+    )
+    mock_db.execute.return_value = _scalar_first_result(user)
+
+    with (
+        patch(
+            "api.routers.user_auth._generate_verification_token",
+            new=AsyncMock(return_value="token-123"),
+        ) as token_mock,
+        patch(
+            "api.routers.user_auth._send_verification_email",
+            new=AsyncMock(return_value=True),
+        ) as send_mock,
+    ):
+        response = await client.post(
+            "/v1/user/auth/resend-verification/by-email",
+            json={"email": "user@test.local"},
+        )
+
+    assert response.status_code == 200
+    assert "if your account exists" in response.json()["detail"].lower()
+    token_mock.assert_awaited_once()
+    send_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_resend_verification_by_email_is_generic_for_unknown_user(client: AsyncClient, mock_db):
+    mock_db.execute.return_value = _scalar_first_result(None)
+
+    with (
+        patch(
+            "api.routers.user_auth._generate_verification_token",
+            new=AsyncMock(return_value="token-123"),
+        ) as token_mock,
+        patch(
+            "api.routers.user_auth._send_verification_email",
+            new=AsyncMock(return_value=True),
+        ) as send_mock,
+    ):
+        response = await client.post(
+            "/v1/user/auth/resend-verification/by-email",
+            json={"email": "unknown@test.local"},
+        )
+
+    assert response.status_code == 200
+    assert "if your account exists" in response.json()["detail"].lower()
+    token_mock.assert_not_awaited()
+    send_mock.assert_not_awaited()

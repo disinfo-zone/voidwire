@@ -93,6 +93,53 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           </button>
           <div id="account-body" class="section-body collapsed">
             <div id="user-info" class="user-info"></div>
+            <div id="account-tools" class="account-tools" style="display: none;">
+              <div id="email-verification-notice" class="account-alert" style="display: none;"></div>
+
+              <div class="account-card">
+                <div class="account-card-title">Profile</div>
+                <form id="display-name-form" class="account-form">
+                  <label for="display-name-input">Display Name</label>
+                  <input id="display-name-input" type="text" maxlength="120" autocomplete="name" />
+                  <div id="display-name-message" class="account-message" style="display: none;"></div>
+                  <button id="display-name-submit" type="submit" class="action-button">Save Display Name</button>
+                </form>
+                <div class="chart-actions">
+                  <button id="logout-all-btn" type="button" class="action-button">Sign Out All Sessions</button>
+                </div>
+              </div>
+
+              <div class="account-card">
+                <div class="account-card-title">Email</div>
+                <form id="change-email-form" class="account-form">
+                  <label for="change-email-input">New Email</label>
+                  <input id="change-email-input" type="email" autocomplete="email" required />
+                  <div id="change-email-password-row" style="display: none;">
+                    <label for="change-email-password-input">Current Password</label>
+                    <input id="change-email-password-input" type="password" autocomplete="current-password" />
+                  </div>
+                  <div id="change-email-message" class="account-message" style="display: none;"></div>
+                  <div class="chart-actions">
+                    <button id="change-email-submit" type="submit" class="action-button">Update Email</button>
+                    <button id="resend-verification-btn" type="button" class="action-button">Resend Verification</button>
+                  </div>
+                </form>
+              </div>
+
+              <div id="password-card" class="account-card" style="display: none;">
+                <div class="account-card-title">Password</div>
+                <form id="change-password-form" class="account-form">
+                  <label for="current-password-input">Current Password</label>
+                  <input id="current-password-input" type="password" autocomplete="current-password" required />
+                  <label for="new-password-input">New Password</label>
+                  <input id="new-password-input" type="password" autocomplete="new-password" minlength="8" required />
+                  <label for="confirm-password-input">Confirm New Password</label>
+                  <input id="confirm-password-input" type="password" autocomplete="new-password" minlength="8" required />
+                  <div id="change-password-message" class="account-message" style="display: none;"></div>
+                  <button id="change-password-submit" type="submit" class="action-button">Change Password</button>
+                </form>
+              </div>
+            </div>
             <button id="delete-account-link" class="delete-account-link">Delete Account</button>
           </div>
 
@@ -157,6 +204,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     id: string;
     email: string;
     email_verified: boolean;
+    has_password?: boolean;
     display_name: string | null;
     has_profile: boolean;
     tier: 'free' | 'pro';
@@ -195,6 +243,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
   let natalChartLoadPromise: Promise<boolean> | null = null;
   let transitWheelCtorPromise: Promise<any> | null = null;
   let currentUserId: string | null = null;
+  let currentDashboardUser: DashboardUser | null = null;
   let natalProfileCacheKey: string | null = null;
   let birthDataRefreshPromise: Promise<void> | null = null;
   const SIGN_ORDER = [
@@ -817,6 +866,87 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     if (status) {
       status.textContent = message;
       (status as HTMLElement).style.display = message ? 'block' : 'none';
+    }
+  }
+
+  function setAccountMessage(id: string, message: string, isError = false) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (!message) {
+      el.textContent = '';
+      (el as HTMLElement).style.display = 'none';
+      el.classList.remove('account-message-error');
+      return;
+    }
+    el.textContent = message;
+    (el as HTMLElement).style.display = 'block';
+    el.classList.toggle('account-message-error', isError);
+  }
+
+  function renderAccountPanel(me: DashboardUser) {
+    const accountTools = document.getElementById('account-tools');
+    if (accountTools) {
+      (accountTools as HTMLElement).style.display = 'flex';
+    }
+    const userInfo = document.getElementById('user-info');
+    if (userInfo) {
+      const tier = me.tier === 'pro' ? 'pro' : 'free';
+      const roleTag = me.is_admin_user ? 'Admin' : me.is_test_user ? 'Test' : '';
+      userInfo.innerHTML = `
+        <div class="info-row"><span class="info-label">Email</span><span class="info-value">${escapeHtml(me.email)}</span></div>
+        <div class="info-row"><span class="info-label">Email Status</span><span class="info-value">${me.email_verified ? 'Verified' : 'Unverified'}</span></div>
+        <div class="info-row"><span class="info-label">Tier</span><span class="info-value tier-${tier}">${tier.toUpperCase()}</span></div>
+        ${roleTag ? `<div class="info-row"><span class="info-label">Privileges</span><span class="info-value">${escapeHtml(roleTag)}</span></div>` : ''}
+      `;
+    }
+
+    const displayNameInput = document.getElementById('display-name-input') as HTMLInputElement | null;
+    if (displayNameInput) {
+      displayNameInput.value = me.display_name || '';
+    }
+
+    const emailInput = document.getElementById('change-email-input') as HTMLInputElement | null;
+    if (emailInput) {
+      emailInput.value = '';
+      emailInput.placeholder = me.email;
+    }
+
+    const changeEmailPasswordRow = document.getElementById('change-email-password-row');
+    if (changeEmailPasswordRow) {
+      (changeEmailPasswordRow as HTMLElement).style.display = me.has_password ? 'block' : 'none';
+    }
+
+    const passwordCard = document.getElementById('password-card');
+    if (passwordCard) {
+      (passwordCard as HTMLElement).style.display = me.has_password ? 'block' : 'none';
+    }
+
+    const verificationNotice = document.getElementById('email-verification-notice');
+    if (verificationNotice) {
+      if (me.email_verified) {
+        verificationNotice.textContent = '';
+        (verificationNotice as HTMLElement).style.display = 'none';
+      } else {
+        verificationNotice.textContent = 'Your email is not verified yet. Verify it to secure recovery and account changes.';
+        (verificationNotice as HTMLElement).style.display = 'block';
+      }
+    }
+
+    const resendButton = document.getElementById('resend-verification-btn');
+    if (resendButton) {
+      (resendButton as HTMLElement).style.display = me.email_verified ? 'none' : 'inline-flex';
+    }
+  }
+
+  async function refreshAccountPanel() {
+    try {
+      const meRes = await authFetch('/v1/user/auth/me');
+      if (!meRes.ok) return;
+      const me = (await meRes.json()) as DashboardUser;
+      currentDashboardUser = me;
+      renderAccountPanel(me);
+    } catch {
+      // Best effort: account panel can remain stale if refresh fails.
     }
   }
 
@@ -2280,23 +2410,12 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
       const me = (await meRes.json()) as DashboardUser;
       currentUserId = me.id;
+      currentDashboardUser = me;
       void loadBrandDomain();
       hasProfile = !!me.has_profile;
       canManageReadings = Boolean(me.is_admin_user || me.is_test_user);
       setReadingActionVisibility();
-      const userInfo = document.getElementById('user-info');
-      if (userInfo) {
-        const tier = me.tier === 'pro' ? 'pro' : 'free';
-        const displayName = me.display_name ? escapeHtml(me.display_name) : '';
-        const roleTag = me.is_admin_user ? 'Admin' : me.is_test_user ? 'Test' : '';
-        userInfo.innerHTML = `
-          <div class="info-row"><span class="info-label">Email</span><span class="info-value">${escapeHtml(me.email)}</span></div>
-          ${displayName ? `<div class="info-row"><span class="info-label">Name</span><span class="info-value">${displayName}</span></div>` : ''}
-          <div class="info-row"><span class="info-label">Tier</span><span class="info-value tier-${tier}">${tier.toUpperCase()}</span></div>
-          ${roleTag ? `<div class="info-row"><span class="info-label">Privileges</span><span class="info-value">${escapeHtml(roleTag)}</span></div>` : ''}
-          <div class="info-row"><span class="info-label">Email Status</span><span class="info-value">${me.email_verified ? 'Verified' : 'Unverified'}</span></div>
-        `;
-      }
+      renderAccountPanel(me);
 
       const onboarding = document.getElementById('onboarding-message');
       const readingSection = document.getElementById('reading-section');
@@ -2457,6 +2576,177 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const exportAccountBtn = document.getElementById('export-account-btn');
     bindEventOnce(exportAccountBtn, 'click', 'export-account', () => {
       void exportAccountData();
+    });
+
+    const displayNameForm = document.getElementById('display-name-form') as HTMLFormElement | null;
+    bindEventOnce(displayNameForm, 'submit', 'display-name-form', async (evt: Event) => {
+      evt.preventDefault();
+      const input = document.getElementById('display-name-input') as HTMLInputElement | null;
+      const submit = document.getElementById('display-name-submit') as HTMLButtonElement | null;
+      if (!input) return;
+      const nextDisplayName = input.value.trim();
+      if (submit) submit.disabled = true;
+      setAccountMessage('display-name-message', '');
+      try {
+        const res = await authFetch('/v1/user/auth/me', {
+          method: 'PUT',
+          body: JSON.stringify({ display_name: nextDisplayName }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.detail || 'Could not update display name');
+        }
+        if (currentDashboardUser) {
+          currentDashboardUser.display_name = nextDisplayName || null;
+          renderAccountPanel(currentDashboardUser);
+        } else {
+          await refreshAccountPanel();
+        }
+        setAccountMessage('display-name-message', 'Display name updated.');
+      } catch (err) {
+        setAccountMessage(
+          'display-name-message',
+          err instanceof Error ? err.message : 'Could not update display name',
+          true,
+        );
+      } finally {
+        if (submit) submit.disabled = false;
+      }
+    });
+
+    const logoutAllBtn = document.getElementById('logout-all-btn') as HTMLButtonElement | null;
+    bindEventOnce(logoutAllBtn, 'click', 'logout-all', async () => {
+      const proceed = window.confirm('Sign out all active sessions on all devices?');
+      if (!proceed) return;
+      if (logoutAllBtn) logoutAllBtn.disabled = true;
+      try {
+        await authFetch('/v1/user/auth/logout-all', { method: 'POST' });
+      } catch {
+        // Best effort; local state is still cleared below.
+      }
+      clearToken();
+      window.location.href = '/login';
+    });
+
+    const changeEmailForm = document.getElementById('change-email-form') as HTMLFormElement | null;
+    bindEventOnce(changeEmailForm, 'submit', 'change-email-form', async (evt: Event) => {
+      evt.preventDefault();
+      const emailInput = document.getElementById('change-email-input') as HTMLInputElement | null;
+      const passwordInput = document.getElementById('change-email-password-input') as HTMLInputElement | null;
+      const submit = document.getElementById('change-email-submit') as HTMLButtonElement | null;
+      if (!emailInput || !currentDashboardUser) return;
+      const newEmail = emailInput.value.trim().toLowerCase();
+      if (!newEmail) {
+        setAccountMessage('change-email-message', 'Enter a new email address.', true);
+        return;
+      }
+      if (newEmail === currentDashboardUser.email.toLowerCase()) {
+        setAccountMessage('change-email-message', 'New email must be different.', true);
+        return;
+      }
+      const payload: Record<string, string> = { new_email: newEmail };
+      if (currentDashboardUser.has_password && passwordInput?.value.trim()) {
+        payload.current_password = passwordInput.value;
+      }
+      if (submit) submit.disabled = true;
+      setAccountMessage('change-email-message', '');
+      try {
+        const res = await authFetch('/v1/user/auth/me/email', {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.detail || 'Could not update email');
+        }
+        const data = await res.json().catch(() => ({}));
+        if (currentDashboardUser) {
+          currentDashboardUser.email = String(data?.email || newEmail);
+          currentDashboardUser.email_verified = Boolean(data?.email_verified);
+          renderAccountPanel(currentDashboardUser);
+        } else {
+          await refreshAccountPanel();
+        }
+        if (passwordInput) passwordInput.value = '';
+        setAccountMessage('change-email-message', String(data?.detail || 'Email updated.'));
+      } catch (err) {
+        setAccountMessage(
+          'change-email-message',
+          err instanceof Error ? err.message : 'Could not update email',
+          true,
+        );
+      } finally {
+        if (submit) submit.disabled = false;
+      }
+    });
+
+    const resendVerificationBtn = document.getElementById('resend-verification-btn') as HTMLButtonElement | null;
+    bindEventOnce(resendVerificationBtn, 'click', 'resend-verification', async () => {
+      if (resendVerificationBtn) resendVerificationBtn.disabled = true;
+      setAccountMessage('change-email-message', '');
+      try {
+        const res = await authFetch('/v1/user/auth/resend-verification', { method: 'POST' });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.detail || 'Could not send verification email');
+        }
+        const data = await res.json().catch(() => ({}));
+        setAccountMessage('change-email-message', String(data?.detail || 'Verification email sent.'));
+      } catch (err) {
+        setAccountMessage(
+          'change-email-message',
+          err instanceof Error ? err.message : 'Could not send verification email',
+          true,
+        );
+      } finally {
+        if (resendVerificationBtn) resendVerificationBtn.disabled = false;
+      }
+    });
+
+    const changePasswordForm = document.getElementById('change-password-form') as HTMLFormElement | null;
+    bindEventOnce(changePasswordForm, 'submit', 'change-password-form', async (evt: Event) => {
+      evt.preventDefault();
+      const currentPassword = document.getElementById('current-password-input') as HTMLInputElement | null;
+      const newPassword = document.getElementById('new-password-input') as HTMLInputElement | null;
+      const confirmPassword = document.getElementById('confirm-password-input') as HTMLInputElement | null;
+      const submit = document.getElementById('change-password-submit') as HTMLButtonElement | null;
+      if (!currentPassword || !newPassword || !confirmPassword) return;
+      const nextPassword = newPassword.value;
+      if (nextPassword.length < 8) {
+        setAccountMessage('change-password-message', 'Password must be at least 8 characters.', true);
+        return;
+      }
+      if (nextPassword !== confirmPassword.value) {
+        setAccountMessage('change-password-message', 'Passwords do not match.', true);
+        return;
+      }
+      if (submit) submit.disabled = true;
+      setAccountMessage('change-password-message', '');
+      try {
+        const res = await authFetch('/v1/user/auth/me/password', {
+          method: 'PUT',
+          body: JSON.stringify({
+            current_password: currentPassword.value,
+            new_password: nextPassword,
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.detail || 'Could not change password');
+        }
+        currentPassword.value = '';
+        newPassword.value = '';
+        confirmPassword.value = '';
+        setAccountMessage('change-password-message', 'Password changed successfully.');
+      } catch (err) {
+        setAccountMessage(
+          'change-password-message',
+          err instanceof Error ? err.message : 'Could not change password',
+          true,
+        );
+      } finally {
+        if (submit) submit.disabled = false;
+      }
     });
 
     for (const toggle of document.querySelectorAll('.section-toggle')) {
@@ -2878,6 +3168,76 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
+  }
+
+  .account-tools {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+
+  .account-card {
+    border: 1px solid var(--text-ghost);
+    padding: 0.8rem;
+    background: rgba(255, 255, 255, 0.01);
+  }
+
+  .account-card-title {
+    font-family: var(--font-sans);
+    font-size: 0.64rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.6rem;
+  }
+
+  .account-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+
+  .account-form label {
+    font-family: var(--font-sans);
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .account-form input {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--text-ghost);
+    color: var(--text-primary);
+    padding: 0.55rem 0.7rem;
+    font-family: var(--font-sans);
+    font-size: 0.8rem;
+  }
+
+  .account-form input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .account-message {
+    font-family: var(--font-sans);
+    font-size: 0.72rem;
+    color: #9dd7b3;
+  }
+
+  .account-message.account-message-error {
+    color: #c45;
+  }
+
+  .account-alert {
+    border: 1px solid rgba(214, 175, 114, 0.45);
+    background: rgba(214, 175, 114, 0.08);
+    color: var(--accent);
+    padding: 0.6rem 0.75rem;
+    font-family: var(--font-sans);
+    font-size: 0.72rem;
+    line-height: 1.45;
   }
 
   :global(.info-row) {

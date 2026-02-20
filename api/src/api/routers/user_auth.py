@@ -106,6 +106,15 @@ class VerifyEmailRequest(BaseModel):
     token: str = Field(min_length=32, max_length=256)
 
 
+class ResendVerificationByEmailRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        return _validated_email(value)
+
+
 class UpdateDisplayNameRequest(BaseModel):
     display_name: str = Field(max_length=120)
 
@@ -113,6 +122,16 @@ class UpdateDisplayNameRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str = Field(max_length=256)
     new_password: str = Field(max_length=256)
+
+
+class ChangeEmailRequest(BaseModel):
+    new_email: str = Field(min_length=3, max_length=320)
+    current_password: str | None = Field(default=None, max_length=256)
+
+    @field_validator("new_email")
+    @classmethod
+    def validate_new_email(cls, value: str) -> str:
+        return _validated_email(value)
 
 
 class DeleteAccountRequest(BaseModel):
@@ -285,9 +304,9 @@ async def _public_base_url(db: AsyncSession) -> str:
     return settings.site_url.rstrip("/")
 
 
-async def _send_verification_email(db: AsyncSession, user: User, raw_token: str) -> None:
+async def _send_verification_email(db: AsyncSession, user: User, raw_token: str) -> bool:
     base_url = await _public_base_url(db)
-    verify_link = f"{base_url}/login?verify_token={quote(raw_token)}"
+    verify_link = f"{base_url}/verify-email?token={quote(raw_token)}"
     subject, text_body, html_body = await load_rendered_email_template(
         db,
         template_key="verification",
@@ -310,6 +329,7 @@ async def _send_verification_email(db: AsyncSession, user: User, raw_token: str)
             user.id,
             _token_fingerprint(raw_token),
         )
+    return delivered
 
 
 async def _send_password_reset_email(db: AsyncSession, user: User, raw_token: str) -> None:
@@ -701,6 +721,20 @@ async def resend_verification(
     return {"detail": "Verification email sent"}
 
 
+@router.post("/resend-verification/by-email")
+async def resend_verification_by_email(
+    req: ResendVerificationByEmailRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    normalized_email = _normalize_email(req.email)
+    result = await db.execute(select(User).where(func.lower(User.email) == normalized_email))
+    user = result.scalars().first()
+    if user and user.is_active and not user.email_verified:
+        raw_token = await _generate_verification_token(user.id, db)
+        await _send_verification_email(db, user, raw_token)
+    return {"detail": "If your account exists and is unverified, a verification email has been sent."}
+
+
 @router.post("/logout")
 async def logout() -> JSONResponse:
     response = JSONResponse({"detail": "Logged out"})
@@ -732,6 +766,7 @@ async def me(
         "id": str(user.id),
         "email": user.email,
         "email_verified": user.email_verified,
+        "has_password": bool(getattr(user, "password_hash", None)),
         "display_name": user.display_name,
         "has_profile": user.profile is not None,
         "tier": tier,
@@ -768,6 +803,44 @@ async def change_password(
     user.password_hash = hash_password(req.new_password)
     user.token_version = int(user.token_version or 0) + 1
     return {"detail": "Password changed successfully"}
+
+
+@router.put("/me/email")
+async def change_email(
+    req: ChangeEmailRequest,
+    user: User = Depends(get_current_public_user),
+    db: AsyncSession = Depends(get_db),
+):
+    normalized_email = _normalize_email(req.new_email)
+    if normalized_email == _normalize_email(user.email):
+        raise HTTPException(status_code=400, detail="New email must be different")
+
+    if user.password_hash:
+        provided_password = (req.current_password or "").strip()
+        if not provided_password:
+            raise HTTPException(status_code=400, detail="Current password is required")
+        if not verify_password(provided_password, user.password_hash):
+            raise HTTPException(status_code=401, detail="Current password is incorrect")
+
+    existing = await db.execute(select(User.id).where(func.lower(User.email) == normalized_email))
+    existing_id = existing.scalar()
+    if existing_id and str(existing_id) != str(user.id):
+        raise HTTPException(status_code=409, detail="Email already registered")
+
+    user.email = normalized_email
+    user.email_verified = False
+    raw_token = await _generate_verification_token(user.id, db)
+    delivered = await _send_verification_email(db, user, raw_token)
+    return {
+        "detail": (
+            "Email updated. Verification link sent."
+            if delivered
+            else "Email updated, but verification email could not be sent. Use resend verification."
+        ),
+        "email": user.email,
+        "email_verified": user.email_verified,
+        "verification_sent": delivered,
+    }
 
 
 @router.get("/me/export")

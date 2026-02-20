@@ -1,0 +1,248 @@
+---
+import Base from '../layouts/Base.astro';
+import Background from '../components/Background.svelte';
+---
+
+<Base title="Verify Email">
+  <Background />
+
+  <header class="site-header">
+    <div class="site-title"><a href="/">VOIDWIRE</a></div>
+    <nav class="site-nav">
+      <a href="/archive">Archive</a>
+      <a href="/events">Events</a>
+      <a href="/about">About</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="verify-shell">
+      <div class="verify-card">
+        <h1 id="verify-title" class="verify-title">Verifying Email</h1>
+        <p id="verify-message" class="verify-message">Confirming your verification token...</p>
+        <div id="verify-error" class="verify-error" style="display: none;"></div>
+
+        <div id="resend-wrap" style="display: none;">
+          <form id="resend-form" class="resend-form">
+            <label for="resend-email">Resend Verification Email</label>
+            <input id="resend-email" type="email" autocomplete="email" placeholder="you@example.com" required />
+            <button id="resend-submit" type="submit" class="verify-button">Send Verification Email</button>
+          </form>
+          <div id="resend-message" class="verify-message" style="display: none;"></div>
+        </div>
+
+        <div class="verify-actions">
+          <a href="/login" class="verify-link">Go To Login</a>
+          <a href="/register" class="verify-link">Create Account</a>
+        </div>
+      </div>
+    </section>
+  </main>
+</Base>
+
+<script>
+  function initVerifyEmailPage() {
+    if (window.location.pathname !== '/verify-email') return;
+
+    const titleEl = document.getElementById('verify-title');
+    const messageEl = document.getElementById('verify-message');
+    const errorEl = document.getElementById('verify-error');
+    const resendWrap = document.getElementById('resend-wrap');
+    const resendForm = document.getElementById('resend-form');
+    const resendSubmit = document.getElementById('resend-submit') as HTMLButtonElement | null;
+    const resendEmailInput = document.getElementById('resend-email') as HTMLInputElement | null;
+    const resendMessage = document.getElementById('resend-message');
+    if (!titleEl || !messageEl || !errorEl || !resendWrap || !resendForm || !resendEmailInput || !resendMessage) return;
+
+    function showError(message: string) {
+      errorEl.textContent = message;
+      (errorEl as HTMLElement).style.display = 'block';
+    }
+
+    function clearError() {
+      errorEl.textContent = '';
+      (errorEl as HTMLElement).style.display = 'none';
+    }
+
+    function showResendForm(prefillEmail = '') {
+      if (prefillEmail) {
+        resendEmailInput.value = prefillEmail;
+      }
+      (resendWrap as HTMLElement).style.display = 'block';
+    }
+
+    async function verifyToken() {
+      const params = new URLSearchParams(window.location.search);
+      const token = (params.get('token') || '').trim();
+      const prefillEmail = (params.get('email') || '').trim();
+
+      if (!token) {
+        titleEl.textContent = 'Verification Link Required';
+        messageEl.textContent = 'This page needs a verification token from your email link.';
+        showResendForm(prefillEmail);
+        return;
+      }
+
+      try {
+        const res = await fetch('/v1/user/auth/verify-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token }),
+        });
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({}));
+          throw new Error(payload?.detail || 'Verification failed');
+        }
+        titleEl.textContent = 'Email Verified';
+        messageEl.textContent = 'Your email has been verified successfully. You can continue to login.';
+        clearError();
+      } catch (err) {
+        titleEl.textContent = 'Verification Failed';
+        messageEl.textContent = 'Your link may be expired or already used.';
+        showError(err instanceof Error ? err.message : 'Verification failed');
+        showResendForm(prefillEmail);
+      }
+    }
+
+    resendForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      clearError();
+      (resendMessage as HTMLElement).style.display = 'none';
+      const email = resendEmailInput.value.trim();
+      if (!email) {
+        showError('Enter an email address.');
+        return;
+      }
+      if (resendSubmit) resendSubmit.disabled = true;
+      try {
+        const res = await fetch('/v1/user/auth/resend-verification/by-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({}));
+          throw new Error(payload?.detail || 'Could not resend verification email');
+        }
+        const payload = await res.json().catch(() => ({}));
+        resendMessage.textContent = String(
+          payload?.detail || 'If your account exists and is unverified, a verification email has been sent.',
+        );
+        (resendMessage as HTMLElement).style.display = 'block';
+      } catch (err) {
+        showError(err instanceof Error ? err.message : 'Could not resend verification email');
+      } finally {
+        if (resendSubmit) resendSubmit.disabled = false;
+      }
+    });
+
+    void verifyToken();
+  }
+
+  document.addEventListener('astro:page-load', initVerifyEmailPage);
+  initVerifyEmailPage();
+</script>
+
+<style>
+  .verify-shell {
+    max-width: 560px;
+    margin: 2.5rem auto;
+    padding: 0 1.5rem;
+  }
+
+  .verify-card {
+    border: 1px solid var(--text-ghost);
+    padding: 1.35rem 1.2rem;
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .verify-title {
+    font-family: var(--font-sans);
+    font-size: 0.85rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.7rem;
+  }
+
+  .verify-message {
+    font-family: var(--font-sans);
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    line-height: 1.45;
+    margin-bottom: 0.75rem;
+  }
+
+  .verify-error {
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    color: #c45;
+    margin-bottom: 0.75rem;
+  }
+
+  .resend-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin: 0.8rem 0;
+  }
+
+  .resend-form label {
+    font-family: var(--font-sans);
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .resend-form input {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--text-ghost);
+    color: var(--text-primary);
+    padding: 0.7rem 0.85rem;
+    font-family: var(--font-sans);
+    font-size: 0.82rem;
+  }
+
+  .resend-form input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .verify-button {
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    padding: 0.72rem 0.9rem;
+    font-family: var(--font-sans);
+    font-size: 0.68rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  .verify-button:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  .verify-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.9rem;
+    flex-wrap: wrap;
+  }
+
+  .verify-link {
+    font-family: var(--font-sans);
+    font-size: 0.72rem;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    text-decoration: none;
+  }
+
+  .verify-link:hover {
+    text-decoration: underline;
+  }
+</style>
