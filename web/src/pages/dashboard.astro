@@ -883,6 +883,72 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     el.classList.toggle('account-message-error', isError);
   }
 
+  function formatApiErrorDetail(detail: unknown): string {
+    if (typeof detail === 'string') {
+      const value = detail.trim();
+      return value;
+    }
+    if (Array.isArray(detail)) {
+      const messages = detail
+        .map((item) => {
+          if (typeof item === 'string') return item.trim();
+          if (!item || typeof item !== 'object') return '';
+          const obj = item as Record<string, unknown>;
+          const msg = typeof obj.msg === 'string' ? obj.msg.trim() : '';
+          if (!msg) return '';
+          const loc = Array.isArray(obj.loc) ? obj.loc.filter(Boolean).join('.') : '';
+          return loc ? `${loc}: ${msg}` : msg;
+        })
+        .filter(Boolean);
+      return messages.join('; ');
+    }
+    if (detail && typeof detail === 'object') {
+      const payload = detail as Record<string, unknown>;
+      if (typeof payload.message === 'string' && payload.message.trim()) {
+        return payload.message.trim();
+      }
+      if (typeof payload.error === 'string' && payload.error.trim()) {
+        return payload.error.trim();
+      }
+      const flattened = Object.entries(payload)
+        .map(([key, value]) => {
+          if (typeof value === 'string') {
+            const v = value.trim();
+            return v ? `${key}: ${v}` : '';
+          }
+          if (typeof value === 'number' || typeof value === 'boolean') {
+            return `${key}: ${String(value)}`;
+          }
+          return '';
+        })
+        .filter(Boolean);
+      return flattened.join('; ');
+    }
+    return '';
+  }
+
+  async function readApiErrorMessage(response: Response, fallback: string): Promise<string> {
+    try {
+      const data = await response.clone().json().catch(() => null);
+      if (data && typeof data === 'object') {
+        const payload = data as Record<string, unknown>;
+        const fromDetail = formatApiErrorDetail(payload.detail);
+        if (fromDetail) return fromDetail;
+        const fromPayload = formatApiErrorDetail(payload);
+        if (fromPayload) return fromPayload;
+      }
+    } catch {
+      // Fall through to text body parsing.
+    }
+    try {
+      const raw = (await response.text()).trim();
+      if (raw) return raw;
+    } catch {
+      // Ignore text parse failures.
+    }
+    return fallback;
+  }
+
   function renderAccountPanel(me: DashboardUser) {
     const accountTools = document.getElementById('account-tools');
     if (accountTools) {
@@ -2825,19 +2891,18 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
           body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined,
         });
         if (res.status === 400) {
-          const data = await res.json().catch(() => ({}));
-          if (String(data?.detail || '').toLowerCase().includes('password')) {
+          const message = await readApiErrorMessage(res, 'Could not delete account');
+          if (message.toLowerCase().includes('password')) {
             if (deletePasswordRow) deletePasswordRow.style.display = 'block';
             if (deletePasswordInput) deletePasswordInput.focus();
-            if (deleteError) deleteError.textContent = 'Password required to delete account.';
+            if (deleteError) deleteError.textContent = message;
             if (deleteConfirmBtn) deleteConfirmBtn.disabled = false;
             return;
           }
-          throw new Error(data?.detail || 'Could not delete account');
+          throw new Error(message);
         }
         if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data?.detail || 'Could not delete account');
+          throw new Error(await readApiErrorMessage(res, 'Could not delete account'));
         }
         clearToken();
         window.location.href = '/';
