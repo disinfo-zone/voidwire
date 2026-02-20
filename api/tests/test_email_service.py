@@ -90,3 +90,51 @@ async def test_send_transactional_email_uses_smtp_provider():
         )
     assert delivered is True
     to_thread_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_send_transactional_email_raise_on_error_for_disabled_delivery():
+    with patch(
+        "api.services.email_service.load_smtp_config",
+        new=AsyncMock(return_value={"enabled": False}),
+    ):
+        with pytest.raises(RuntimeError, match="disabled"):
+            await send_transactional_email(
+                AsyncMock(),
+                to_email="qa@example.com",
+                subject="Subject",
+                text_body="Body",
+                raise_on_error=True,
+            )
+
+
+@pytest.mark.asyncio
+async def test_send_transactional_email_raise_on_error_returns_provider_message():
+    with (
+        patch(
+            "api.services.email_service.load_smtp_config",
+            new=AsyncMock(
+                return_value={
+                    "enabled": True,
+                    "provider": "resend",
+                    "from_email": "noreply@example.com",
+                    "from_name": "Voidwire",
+                    "reply_to": "",
+                    "resend_api_key": "re_test_123",
+                    "resend_api_base_url": "https://api.resend.com",
+                }
+            ),
+        ),
+        patch(
+            "api.services.email_service._send_resend_email_async",
+            new=AsyncMock(side_effect=RuntimeError("Resend API request failed (400): Invalid from address")),
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="Invalid from address"):
+            await send_transactional_email(
+                AsyncMock(),
+                to_email="qa@example.com",
+                subject="Subject",
+                text_body="Body",
+                raise_on_error=True,
+            )

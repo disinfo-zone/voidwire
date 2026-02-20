@@ -136,6 +136,24 @@ def email_delivery_is_configured(config: dict[str, Any]) -> bool:
     return smtp_is_configured(config)
 
 
+def _provider_configuration_error(config: dict[str, Any], provider: str) -> str | None:
+    normalized = _normalize_provider(provider)
+    if normalized == "resend":
+        if not _normalize_text(config.get("from_email")):
+            return "Resend email delivery requires from_email."
+        if not _normalize_text(config.get("resend_api_key")):
+            return "Resend email delivery requires resend_api_key."
+        return None
+
+    if not _normalize_text(config.get("host")):
+        return "SMTP email delivery requires host."
+    if not _normalize_text(config.get("from_email")):
+        return "SMTP email delivery requires from_email."
+    if _coerce_port(config.get("port")) <= 0:
+        return "SMTP email delivery requires a valid port."
+    return None
+
+
 def _response_payload(config: dict[str, Any]) -> dict[str, Any]:
     password_plain = ""
     resend_api_key_plain = ""
@@ -363,18 +381,26 @@ async def send_transactional_email(
     subject: str,
     text_body: str,
     html_body: str | None = None,
+    raise_on_error: bool = False,
 ) -> bool:
     config = await load_smtp_config(session, include_secret_password=True)
     enabled = _coerce_bool(config.get("enabled"), False)
     provider = _normalize_provider(config.get("provider"))
     if not enabled:
+        message = "Email delivery is disabled."
         logger.info("Email delivery is disabled; skipping transactional email send")
+        if raise_on_error:
+            raise RuntimeError(message)
         return False
-    if not email_delivery_is_configured(config):
+    configuration_error = _provider_configuration_error(config, provider)
+    if configuration_error:
         logger.warning(
-            "Email delivery is enabled but provider '%s' is not fully configured",
+            "Email delivery is enabled but provider '%s' is not fully configured: %s",
             provider,
+            configuration_error,
         )
+        if raise_on_error:
+            raise RuntimeError(configuration_error)
         return False
 
     try:
@@ -411,10 +437,13 @@ async def send_transactional_email(
                 html_body=html_body,
             )
         return True
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "Failed sending transactional email via provider '%s' to %s",
             provider,
             to_email,
         )
+        if raise_on_error:
+            message = str(exc).strip() or "Email delivery failed."
+            raise RuntimeError(message) from exc
         return False

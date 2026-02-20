@@ -191,13 +191,17 @@ async def send_test_email(
         template_key="test_email",
         context={"site_name": "Voidwire"},
     )
-    delivered = await send_transactional_email(
-        db,
-        to_email=req.to_email,
-        subject=subject,
-        text_body=text_body,
-        html_body=html_body,
-    )
+    try:
+        delivered = await send_transactional_email(
+            db,
+            to_email=req.to_email,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+            raise_on_error=True,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not delivered:
         raise HTTPException(status_code=400, detail="Test email failed to send")
     db.add(

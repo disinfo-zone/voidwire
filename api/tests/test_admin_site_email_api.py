@@ -128,6 +128,20 @@ async def test_send_smtp_test_email(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_send_smtp_test_email_returns_provider_error(client: AsyncClient):
+    with patch(
+        "api.routers.admin_site.send_transactional_email",
+        new=AsyncMock(side_effect=RuntimeError("Resend API request failed (400): Invalid from address")),
+    ):
+        response = await client.post(
+            "/admin/site/email/smtp/test",
+            json={"to_email": "qa@example.com"},
+        )
+    assert response.status_code == 400
+    assert "Invalid from address" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_get_oauth_config(client: AsyncClient):
     payload = {
         "google": {"enabled": True, "client_id": "google-client", "is_configured": True},
