@@ -10,6 +10,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.models import AdminUser, AsyncJob, AuditLog, DiscountCode, Subscription, User
 
@@ -30,7 +31,7 @@ from api.services.stripe_service import (
     set_promotion_code_active,
 )
 from api.services.stripe_config import resolve_stripe_runtime_config
-from api.services.subscription_service import has_active_pro_override
+from api.services.subscription_service import get_user_tier, has_active_pro_override
 
 router = APIRouter()
 ACTIVE_SUBSCRIPTION_STATUSES = ("active", "trialing")
@@ -440,8 +441,30 @@ async def delete_user(
             detail={"email": user.email},
         )
     )
-    await db.delete(user)
-    return {"status": "deleted", "user_id": str(user_id)}
+    try:
+        await db.delete(user)
+        # Flush before returning so callers never receive a false success.
+        await db.flush()
+        return {"status": "deleted", "user_id": str(user_id)}
+    except IntegrityError:
+        await db.rollback()
+        persisted = await db.get(User, user_id)
+        if not persisted:
+            return {"status": "deleted", "user_id": str(user_id)}
+        persisted.is_active = False
+        persisted.token_version = int(persisted.token_version or 0) + 1
+        await db.flush()
+        db.add(
+            AuditLog(
+                user_id=admin.id,
+                action="user.deactivate_fallback",
+                target_type="user",
+                target_id=str(user_id),
+                detail={"reason": "delete_integrity_fallback"},
+            )
+        )
+        await db.flush()
+        return {"status": "deactivated", "user_id": str(user_id)}
 
 
 @router.get("/admin-users")
@@ -556,9 +579,12 @@ async def update_user_pro_override(
             },
         )
     )
+    await db.flush()
+    tier = await get_user_tier(user, db)
     return {
         "status": "ok",
         "user_id": str(user.id),
+        "tier": tier,
         "pro_override": user.pro_override,
         "pro_override_reason": user.pro_override_reason,
         "pro_override_until": (

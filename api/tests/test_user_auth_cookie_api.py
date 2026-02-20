@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from api.middleware.auth import create_access_token
 from httpx import AsyncClient
+from sqlalchemy.exc import IntegrityError
 from voidwire.models import User
 
 
@@ -368,7 +369,9 @@ async def test_delete_account_allows_empty_body_for_passwordless_user(client: As
 
     assert response.status_code == 200
     assert response.json()["detail"] == "Account deleted"
+    assert response.json()["mode"] == "hard"
     mock_db.delete.assert_awaited_once_with(user)
+    mock_db.flush.assert_awaited()
 
 
 @pytest.mark.asyncio
@@ -396,6 +399,59 @@ async def test_delete_account_requires_password_for_password_user(client: AsyncC
 
     assert response.status_code == 400
     assert "password is required" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_delete_account_falls_back_to_soft_delete_on_integrity_error(
+    client: AsyncClient,
+    mock_db,
+):
+    user_id = uuid.uuid4()
+    user = SimpleNamespace(
+        id=user_id,
+        email="soft-delete@test.local",
+        email_verified=True,
+        password_hash=None,
+        google_id="google-123",
+        apple_id="apple-123",
+        display_name="Soft Delete User",
+        pro_override=True,
+        pro_override_reason="manual",
+        pro_override_until=datetime(2026, 12, 31, tzinfo=UTC),
+        token_version=1,
+        is_active=True,
+    )
+    mock_db.get.side_effect = [user, user]
+    mock_db.flush.side_effect = [
+        IntegrityError("DELETE FROM users", {}, Exception("fk violation")),
+        None,
+        None,
+    ]
+    token = create_access_token(user_id=str(user_id), token_type="user", token_version=1)
+    csrf = "csrf-test-token"
+
+    response = await client.delete(
+        "/v1/user/auth/me",
+        headers={
+            "Cookie": f"voidwire_user_token={token}; voidwire_csrf_token={csrf}",
+            "x-csrf-token": csrf,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["detail"] == "Account deleted"
+    assert response.json()["mode"] == "soft"
+    assert user.is_active is False
+    assert user.email.startswith("deleted+")
+    assert user.google_id is None
+    assert user.apple_id is None
+    assert user.display_name is None
+    assert user.pro_override is False
+    assert user.pro_override_reason is None
+    assert user.pro_override_until is None
+    mock_db.delete.assert_awaited_once_with(user)
+    mock_db.rollback.assert_awaited_once()
+    assert mock_db.execute.await_count >= 6
 
 
 @pytest.mark.asyncio

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import re
@@ -42,6 +43,15 @@ EVENT_PROSE_TEMPLATE_CANDIDATES = (
     "starter_synthesis_event_prose",
 )
 TEMPLATE_TOKEN_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}")
+TIMEKEEPING_LEDE_PATTERNS = (
+    re.compile(r"^\s*(?:at|as of|by)\s+[^.!\n]{0,140}\b(?:utc|gmt|zulu|universal time|universal timekeeping)\b", re.IGNORECASE),
+    re.compile(r"^\s*(?:at|as of|by)\s+[^.!\n]{0,120}\b(?:hour|hours|minute|minutes)\b[^.!\n]{0,80}\b(?:time|timekeeping)\b", re.IGNORECASE),
+    re.compile(r"^\s*(?:at|as of|by)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm|utc|gmt)?\b", re.IGNORECASE),
+)
+LEDE_REWRITE_MAX_TOKENS = 140
+LEDE_FALLBACK_SENTENCE = (
+    "The pattern is already in motion, and the next decision sets the tone for what follows."
+)
 
 
 def _approx_tokens(text: str) -> int:
@@ -250,6 +260,236 @@ def _count_entity_mentions(text_lower: str, entity: str) -> int:
         return 0
     pattern = re.compile(rf"(?<![a-z0-9]){re.escape(entity.lower())}(?![a-z0-9])")
     return len(pattern.findall(text_lower))
+
+
+def _leading_excerpt(text: Any, max_chars: int = 220) -> str:
+    value = str(text or "").strip()
+    if not value:
+        return ""
+    first_para = value.split("\n\n", 1)[0].strip()
+    return first_para[:max_chars]
+
+
+def _has_forbidden_timekeeping_lede(text: Any) -> bool:
+    lede = _leading_excerpt(text)
+    if not lede:
+        return False
+    for pattern in TIMEKEEPING_LEDE_PATTERNS:
+        if pattern.search(lede):
+            return True
+    return False
+
+
+def _split_opening_sentence(text: Any) -> tuple[str, str]:
+    value = str(text or "").strip()
+    if not value:
+        return "", ""
+    sentence_match = re.search(r"[.!?](?=\s|$)", value)
+    if sentence_match is not None:
+        end = sentence_match.end()
+        return value[:end].strip(), value[end:]
+    first_line, has_newline, remaining = value.partition("\n")
+    if has_newline:
+        return first_line.strip(), remaining
+    return value, ""
+
+
+def _normalize_opening_sentence(text: Any) -> str:
+    opening = " ".join(str(text or "").strip().split())
+    if not opening:
+        return ""
+    if opening[-1] not in ".!?":
+        opening = f"{opening}."
+    return opening
+
+
+def _compose_body_with_opening(opening: str, remainder: str) -> str:
+    lead = _normalize_opening_sentence(opening)
+    if not lead:
+        return str(remainder or "").strip()
+    tail = str(remainder or "")
+    if not tail:
+        return lead
+    if tail[0].isspace():
+        return f"{lead}{tail}".strip()
+    return f"{lead} {tail}".strip()
+
+
+def _validate_opening_rewrite(data: Any) -> None:
+    if not isinstance(data, dict):
+        raise ValueError("Opening rewrite must be a JSON object")
+    opening = _normalize_opening_sentence(data.get("opening", ""))
+    if not opening:
+        raise ValueError("Opening rewrite missing opening")
+    if "\n" in opening:
+        raise ValueError("Opening rewrite must be one sentence")
+    if len(opening.split()) < 8:
+        raise ValueError("Opening rewrite too short")
+    if _has_forbidden_timekeeping_lede(opening):
+        raise ValueError("Opening rewrite still uses timekeeping language")
+
+
+async def _rewrite_opening_sentence(
+    *,
+    client: Any,
+    slot: str,
+    date_context: date,
+    title: str,
+    opening: str,
+    remainder: str,
+    banned_phrases: list[str] | None,
+) -> str | None:
+    banned_text = ", ".join(
+        [str(p).strip() for p in (banned_phrases or []) if str(p).strip()][:20]
+    )
+    prompt = (
+        "Rewrite only the opening sentence for this astrology reading.\n"
+        'Return ONLY JSON: {"opening":"..."}\n'
+        "Rules:\n"
+        "- 12 to 28 words.\n"
+        "- Start directly with interpretation (no timestamps, UTC, clock-time, or timekeeping phrasing).\n"
+        "- Keep the tone aligned with the current passage.\n"
+        "- Avoid names, organizations, and countries.\n"
+        "- Do not use exclamation marks.\n"
+        f"- Date context: {date_context.isoformat()}.\n"
+        f"- Title: {title or '(none)'}\n"
+        f"- Current opening: {opening}\n"
+        f"- Continuation excerpt: {_leading_excerpt(remainder, max_chars=220)}\n"
+        f"- Phrases to avoid: {banned_text or '(none)'}\n"
+    )
+    data = await generate_with_validation(
+        client,
+        slot,
+        [{"role": "user", "content": prompt}],
+        _validate_opening_rewrite,
+        temperature=0.3,
+        max_tokens=LEDE_REWRITE_MAX_TOKENS,
+        repair_retry=True,
+    )
+    rewritten = _normalize_opening_sentence(data.get("opening", ""))
+    return rewritten or None
+
+
+async def _repair_forbidden_timekeeping_ledes(
+    *,
+    result: dict[str, Any],
+    client: Any,
+    date_context: date,
+    mention_policy: dict[str, Any] | None,
+    guarded_entities: list[str] | None,
+    banned_phrases: list[str] | None,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    if not isinstance(result, dict):
+        return result, None
+
+    repaired = copy.deepcopy(result)
+    touched: list[dict[str, Any]] = []
+
+    standard = repaired.get("standard_reading")
+    if isinstance(standard, dict):
+        standard_body = str(standard.get("body", ""))
+        if _has_forbidden_timekeeping_lede(standard_body):
+            touched.append(
+                {
+                    "path": "standard_reading.body",
+                    "container": standard,
+                    "key": "body",
+                    "title": str(standard.get("title", "")),
+                }
+            )
+
+    extended = repaired.get("extended_reading")
+    if isinstance(extended, dict):
+        sections = extended.get("sections") or []
+        if isinstance(sections, list) and sections:
+            first_section = sections[0]
+            if isinstance(first_section, dict):
+                section_body = str(first_section.get("body", ""))
+                if _has_forbidden_timekeeping_lede(section_body):
+                    touched.append(
+                        {
+                            "path": "extended_reading.sections[0].body",
+                            "container": first_section,
+                            "key": "body",
+                            "title": str(first_section.get("heading", "")),
+                        }
+                    )
+
+    if not touched:
+        return repaired, {"applied": False}
+
+    metadata: dict[str, Any] = {"applied": True, "changes": []}
+    for target in touched:
+        container = target["container"]
+        key = target["key"]
+        original_text = str(container.get(key, ""))
+        opening, remainder = _split_opening_sentence(original_text)
+        rewritten_opening: str | None = None
+        method = "llm_rewrite"
+        if opening:
+            try:
+                rewritten_opening = await _rewrite_opening_sentence(
+                    client=client,
+                    slot="synthesis",
+                    date_context=date_context,
+                    title=target.get("title", ""),
+                    opening=opening,
+                    remainder=remainder,
+                    banned_phrases=banned_phrases,
+                )
+            except Exception as exc:
+                method = "deterministic_fallback"
+                logger.warning("Opening sentence rewrite failed for %s: %s", target["path"], exc)
+
+        if not rewritten_opening:
+            method = "deterministic_fallback"
+            rewritten_opening = LEDE_FALLBACK_SENTENCE
+
+        candidate = _compose_body_with_opening(rewritten_opening, remainder)
+        if _has_forbidden_timekeeping_lede(candidate):
+            method = "deterministic_fallback"
+            candidate = _compose_body_with_opening(LEDE_FALLBACK_SENTENCE, remainder)
+
+        container[key] = candidate
+        metadata["changes"].append({"path": target["path"], "method": method})
+
+    try:
+        _validate_prose(
+            repaired,
+            mention_policy=mention_policy,
+            guarded_entities=guarded_entities,
+        )
+    except Exception as exc:
+        logger.warning("Opening sentence repair violated prose constraints; using deterministic fallback")
+        for change in metadata["changes"]:
+            path = change.get("path")
+            if path == "standard_reading.body":
+                standard = repaired.get("standard_reading")
+                if isinstance(standard, dict):
+                    _, remainder = _split_opening_sentence(standard.get("body", ""))
+                    standard["body"] = _compose_body_with_opening(LEDE_FALLBACK_SENTENCE, remainder)
+                    change["method"] = "deterministic_fallback"
+            elif path == "extended_reading.sections[0].body":
+                extended = repaired.get("extended_reading")
+                if isinstance(extended, dict):
+                    sections = extended.get("sections") or []
+                    if isinstance(sections, list) and sections and isinstance(sections[0], dict):
+                        _, remainder = _split_opening_sentence(sections[0].get("body", ""))
+                        sections[0]["body"] = _compose_body_with_opening(
+                            LEDE_FALLBACK_SENTENCE, remainder
+                        )
+                        change["method"] = "deterministic_fallback"
+        try:
+            _validate_prose(
+                repaired,
+                mention_policy=mention_policy,
+                guarded_entities=guarded_entities,
+            )
+        except Exception:
+            logger.warning("Opening sentence repair fallback failed validation: %s", exc)
+            return result, {"applied": True, "reverted": True, "reason": str(exc)}
+
+    return repaired, metadata
 
 
 def _is_mention_policy_error(exc: Exception) -> bool:
@@ -545,6 +785,8 @@ async def run_synthesis_stage(
     prose_retries = 1 if fast_mode else ss.prose_retries
     result = None
     relaxed_guard_used = False
+    result_mention_policy = mention_policy
+    result_guarded_entities = guarded_entities
     for attempt in range(prose_retries):
         temperature = max(ss.prose_temp_min, ss.prose_temp_start - attempt * ss.prose_temp_step)
         try:
@@ -601,6 +843,8 @@ async def run_synthesis_stage(
                         temperature=temperature,
                         repair_retry=False,
                     )
+                    result_mention_policy = {}
+                    result_guarded_entities = []
                     break
                 except asyncio.CancelledError:
                     logger.warning(
@@ -676,12 +920,28 @@ async def run_synthesis_stage(
                 temperature=ss.fallback_temp,
                 repair_retry=not fast_mode,
             )
+            result_mention_policy = fallback_policy
+            result_guarded_entities = []
         except asyncio.CancelledError:
             logger.warning("Synthesis pass_b fallback cancelled")
             await client.close()
             raise
         except Exception as e:
             logger.warning("Sky-only fallback failed: %s", e)
+
+    if result is not None:
+        repair_policy = {} if relaxed_guard_used else result_mention_policy
+        repair_guarded_entities = [] if relaxed_guard_used else result_guarded_entities
+        result, lede_repair_meta = await _repair_forbidden_timekeeping_ledes(
+            result=result,
+            client=client,
+            date_context=date_context,
+            mention_policy=repair_policy,
+            guarded_entities=repair_guarded_entities,
+            banned_phrases=ss.banned_phrases,
+        )
+        if isinstance(lede_repair_meta, dict) and lede_repair_meta.get("applied"):
+            prompt_payloads["lede_repair"] = lede_repair_meta
 
     await client.close()
 
@@ -727,6 +987,7 @@ def _validate_prose(
     guarded_entities: list[str] | None = None,
 ) -> None:
     _validate_prose_structure(data)
+
     policy = mention_policy or {}
     explicit_allowed = bool(policy.get("explicit_allowed", False))
     try:

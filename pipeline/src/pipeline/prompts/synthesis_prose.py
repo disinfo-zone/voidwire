@@ -23,14 +23,18 @@ def build_prose_prompt(
 ) -> str:
     std_range = standard_word_range or [400, 600]
     ext_range = extended_word_range or [1200, 1800]
-    banned = banned_phrases or [
+    default_banned = [
         "buckle up",
         "wild ride",
         "cosmic",
         "universe has plans",
         "energy",
         "vibe",
+        "universal timekeeping",
+        "by universal timekeeping",
     ]
+    user_banned = [str(p).strip() for p in (banned_phrases or []) if str(p).strip()]
+    banned = list(dict.fromkeys(default_banned + user_banned))
     plan_str = json.dumps(interpretive_plan, indent=2) if interpretive_plan else "(no plan)"
     titles = ephemeris_data.get("recent_titles", [])
     titles_str = ", ".join(f'"{t}"' for t in titles) if titles else "(none)"
@@ -94,6 +98,7 @@ HARD CONSTRAINTS (violation = rejection):
 - Do NOT address the reader as "you." Do not give advice or prescriptions.
 - No emojis, ever.
 - Use proper em-dashes (\u2014) for parenthetical asides, never hyphens or en-dashes.
+- Do not open with a timestamp, clock-time declaration, or timekeeping formula (for example: "At ... by universal timekeeping"). Begin directly with interpretation.
 - Use cultural signals as subtext and allusion, not direct commentary.
 - Do not use reportorial framing ("according to", "reported that", "headlines say", "news says").
 - Standard reading body: {std_range[0]}\u2013{std_range[1]} words.

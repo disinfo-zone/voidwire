@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import uuid
+from datetime import date
 from types import SimpleNamespace
 
+import pytest
+
 from pipeline.stages.synthesis_stage import (
+    _has_forbidden_timekeeping_lede,
     _find_active_template,
     _prepare_signal_context,
     _prepare_thread_context,
+    _repair_forbidden_timekeeping_ledes,
     _render_prompt_template,
+    _validate_prose,
 )
 
 
@@ -89,3 +95,115 @@ def test_prepare_thread_context_limits_rows() -> None:
     assert len(prepared) == 1
     assert prepared[0]["id"] == "1"
     assert prepared[0]["appearances"] == 3
+
+
+def test_validate_prose_allows_timekeeping_opening_for_post_repair_step() -> None:
+    payload = {
+        "standard_reading": {
+            "title": "Signal Check",
+            "body": "At seventeen minutes before the sixth hour by universal timekeeping, the pressure folds inward and hardens into pattern.",
+            "word_count": 140,
+        },
+        "extended_reading": {
+            "title": "Deep Cut",
+            "subtitle": "Sub",
+            "sections": [{"heading": "Arc", "body": "Pattern continues."}],
+            "word_count": 220,
+        },
+        "transit_annotations": [],
+    }
+
+    _validate_prose(payload, mention_policy=None, guarded_entities=[])
+
+
+def test_validate_prose_allows_direct_interpretive_opening() -> None:
+    payload = {
+        "standard_reading": {
+            "title": "Signal Check",
+            "body": "Pressure builds where memory and strategy collide, forcing old narratives into a sharper frame.",
+            "word_count": 140,
+        },
+        "extended_reading": {
+            "title": "Deep Cut",
+            "subtitle": "Sub",
+            "sections": [{"heading": "Arc", "body": "Pattern continues through institutions and language."}],
+            "word_count": 220,
+        },
+        "transit_annotations": [],
+    }
+
+    _validate_prose(payload, mention_policy=None, guarded_entities=[])
+
+
+@pytest.mark.asyncio
+async def test_repair_forbidden_timekeeping_opening_with_llm_rewrite() -> None:
+    class DummyClient:
+        async def generate(self, _slot, _messages, **_kwargs):
+            return (
+                '{"opening":"Pressure gathers where old routines can no longer hold, and the day asks '
+                'for precise choices before momentum hardens."}'
+            )
+
+    payload = {
+        "standard_reading": {
+            "title": "Signal Check",
+            "body": (
+                "At seventeen minutes before the sixth hour by universal timekeeping, the pressure "
+                "folds inward and hardens into pattern. The rest of the reading continues here."
+            ),
+            "word_count": 140,
+        },
+        "extended_reading": {"title": "", "subtitle": "", "sections": [], "word_count": 0},
+        "transit_annotations": [],
+    }
+
+    repaired, metadata = await _repair_forbidden_timekeeping_ledes(
+        result=payload,
+        client=DummyClient(),
+        date_context=date(2026, 2, 20),
+        mention_policy={},
+        guarded_entities=[],
+        banned_phrases=[],
+    )
+
+    new_body = repaired["standard_reading"]["body"]
+    assert isinstance(metadata, dict)
+    assert metadata.get("applied") is True
+    assert metadata.get("changes")
+    assert not _has_forbidden_timekeeping_lede(new_body)
+    assert new_body.startswith("Pressure gathers where old routines can no longer hold")
+
+
+@pytest.mark.asyncio
+async def test_repair_forbidden_timekeeping_opening_falls_back_when_llm_fails() -> None:
+    class FailingClient:
+        async def generate(self, _slot, _messages, **_kwargs):
+            raise RuntimeError("LLM unavailable")
+
+    payload = {
+        "standard_reading": {
+            "title": "Signal Check",
+            "body": (
+                "At 05:43 UTC, old pressure returns to the surface and pulls harder than expected. "
+                "The rest of the reading continues here."
+            ),
+            "word_count": 140,
+        },
+        "extended_reading": {"title": "", "subtitle": "", "sections": [], "word_count": 0},
+        "transit_annotations": [],
+    }
+
+    repaired, metadata = await _repair_forbidden_timekeeping_ledes(
+        result=payload,
+        client=FailingClient(),
+        date_context=date(2026, 2, 20),
+        mention_policy={},
+        guarded_entities=[],
+        banned_phrases=[],
+    )
+
+    new_body = repaired["standard_reading"]["body"]
+    assert isinstance(metadata, dict)
+    assert metadata.get("applied") is True
+    assert metadata.get("changes")[0]["method"] == "deterministic_fallback"
+    assert not _has_forbidden_timekeeping_lede(new_body)

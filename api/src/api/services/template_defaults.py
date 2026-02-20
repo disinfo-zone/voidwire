@@ -37,6 +37,7 @@ HARD CONSTRAINTS:
 - No emojis.
 - Keep tone precise, unsentimental, and allusion-first.
 - Never address the reader directly as "you".
+- Do not start with a timestamp or timekeeping declaration; open directly with interpretation.
 - Standard reading body target: {{standard_word_range}} words.
 - Extended reading target: {{extended_word_range}} words.
 - Avoid banned phrases: {{banned_phrases}}
@@ -148,6 +149,7 @@ HARD CONSTRAINTS:
 - No emojis.
 - Never address the reader directly as "you".
 - The event in EVENT CONTEXT must be the central frame from opening to close.
+- Do not start with a timestamp or timekeeping declaration; open directly with interpretation.
 - Signals and threads may color the reading but cannot displace the event as primary.
 - Standard reading body target: {{standard_word_range}} words.
 - Extended reading target: {{extended_word_range}} words.
@@ -384,7 +386,7 @@ def _build_starter_celestial_weather_template() -> PromptTemplate:
 def _build_starter_prose_template() -> PromptTemplate:
     return PromptTemplate(
         template_name=STARTER_PROSE_TEMPLATE_NAME,
-        version=1,
+        version=2,
         is_active=True,
         content=STARTER_PROSE_TEMPLATE_CONTENT,
         variables_used=STARTER_PROSE_TEMPLATE_VARIABLES,
@@ -393,7 +395,7 @@ def _build_starter_prose_template() -> PromptTemplate:
             "style_notes": "image-rich but concrete",
         },
         author="system",
-        notes="Auto-generated starter prose template for first-time setup.",
+        notes="v2: forbids timekeeping-led openings; open directly with interpretation.",
     )
 
 
@@ -416,7 +418,7 @@ def _build_starter_plan_template() -> PromptTemplate:
 def _build_starter_event_prose_template() -> PromptTemplate:
     return PromptTemplate(
         template_name=STARTER_EVENT_PROSE_TEMPLATE_NAME,
-        version=1,
+        version=2,
         is_active=True,
         content=STARTER_EVENT_PROSE_TEMPLATE_CONTENT,
         variables_used=STARTER_EVENT_PROSE_TEMPLATE_VARIABLES,
@@ -425,7 +427,7 @@ def _build_starter_event_prose_template() -> PromptTemplate:
             "style_notes": "event-first framing; keep signals secondary",
         },
         author="system",
-        notes="Auto-generated starter prose template for event-linked readings.",
+        notes="v2: forbids timekeeping-led openings; keep event framing immediate.",
     )
 
 

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
 from httpx import AsyncClient
+from sqlalchemy.exc import IntegrityError
 
 # ──────────────────────────────────────────────
 # Auth
@@ -633,7 +634,7 @@ class TestTemplatesAPI:
         resp = await client.get("/admin/templates/")
         assert resp.status_code == 200
         body = resp.json()
-        assert len(body) == 6
+        assert len(body) == 7
         by_name = {t["template_name"]: t for t in body}
         assert "starter_synthesis_prose" in by_name
         assert "synthesis_plan" in by_name
@@ -641,18 +642,21 @@ class TestTemplatesAPI:
         assert "starter_synthesis_event_plan" in by_name
         assert "starter_personal_reading_free" in by_name
         assert "starter_personal_reading_pro" in by_name
-        assert by_name["starter_synthesis_prose"]["version"] == 1
+        assert "starter_celestial_weather" in by_name
+        assert by_name["starter_synthesis_prose"]["version"] == 2
         assert by_name["synthesis_plan"]["version"] == 1
-        assert by_name["starter_synthesis_event_prose"]["version"] == 1
+        assert by_name["starter_synthesis_event_prose"]["version"] == 2
         assert by_name["starter_synthesis_event_plan"]["version"] == 1
         assert by_name["starter_personal_reading_free"]["version"] == 1
         assert by_name["starter_personal_reading_pro"]["version"] == 1
+        assert by_name["starter_celestial_weather"]["version"] == 2
         assert by_name["starter_synthesis_prose"]["is_active"] is True
         assert by_name["synthesis_plan"]["is_active"] is True
         assert by_name["starter_synthesis_event_prose"]["is_active"] is True
         assert by_name["starter_synthesis_event_plan"]["is_active"] is True
         assert by_name["starter_personal_reading_free"]["is_active"] is True
         assert by_name["starter_personal_reading_pro"]["is_active"] is True
+        assert by_name["starter_celestial_weather"]["is_active"] is True
 
     async def test_get_not_found(self, client: AsyncClient):
         resp = await client.get(f"/admin/templates/{uuid.uuid4()}")
@@ -925,6 +929,8 @@ class TestAccountsAPI:
         fake_user.pro_override = False
         fake_user.pro_override_reason = None
         fake_user.pro_override_until = None
+        fake_user.is_active = True
+        fake_user.token_version = 0
         mock_db.get.return_value = fake_user
 
         resp = await client.patch(
@@ -933,8 +939,10 @@ class TestAccountsAPI:
         )
         assert resp.status_code == 200
         assert resp.json()["pro_override"] is True
+        assert resp.json()["tier"] == "pro"
         assert fake_user.pro_override is True
         assert fake_user.pro_override_reason == "manual QA"
+        mock_db.flush.assert_awaited()
 
     async def test_create_user(self, client: AsyncClient, mock_db):
         existing_result = MagicMock()
@@ -1011,6 +1019,29 @@ class TestAccountsAPI:
         assert resp.status_code == 200
         assert resp.json()["status"] == "deleted"
         mock_db.delete.assert_awaited_once_with(fake_user)
+        mock_db.flush.assert_awaited()
+
+    async def test_delete_user_falls_back_to_deactivation_on_integrity_error(
+        self, client: AsyncClient, mock_db
+    ):
+        fake_user = MagicMock()
+        fake_user.id = uuid.uuid4()
+        fake_user.email = "delete-fallback@test.local"
+        fake_user.is_active = True
+        fake_user.token_version = 2
+        mock_db.get.side_effect = [fake_user, fake_user]
+        mock_db.flush.side_effect = [
+            IntegrityError("DELETE FROM users", {}, Exception("fk violation")),
+            None,
+            None,
+        ]
+
+        resp = await client.delete(f"/admin/accounts/users/{fake_user.id}")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "deactivated"
+        assert fake_user.is_active is False
+        assert fake_user.token_version == 3
+        mock_db.rollback.assert_awaited_once()
 
     async def test_list_personal_reading_jobs(self, client: AsyncClient, mock_db):
         job = MagicMock()

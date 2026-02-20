@@ -12,15 +12,18 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.config import Settings, get_settings
 from voidwire.models import (
     AnalyticsEvent,
+    AsyncJob,
     EmailVerificationToken,
     PasswordResetToken,
     PersonalReading,
     Subscription,
     User,
+    UserProfile,
 )
 
 from api.dependencies import CSRF_COOKIE_NAME, get_current_public_user, get_db
@@ -924,6 +927,7 @@ async def delete_account(
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     password = (req.password if req else None)
+    user_id = user.id
     if user.password_hash:
         if not password:
             raise HTTPException(
@@ -933,13 +937,68 @@ async def delete_account(
         if not verify_password(password, user.password_hash):
             raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    db.add(
-        AnalyticsEvent(
-            event_type="user.account.delete",
-            metadata_json={"user_id": str(user.id)},
+    deletion_mode = "hard"
+    try:
+        await db.delete(user)
+        # Flush before returning so constraint failures cannot happen after a 200 response.
+        await db.flush()
+    except IntegrityError as exc:
+        # Fallback for legacy/misaligned FK constraints: scrub + deactivate account
+        # and purge user-linked data explicitly.
+        await db.rollback()
+        deletion_mode = "soft"
+        persisted_user = await db.get(User, user_id)
+        if persisted_user is not None:
+            await db.execute(
+                delete(UserProfile).where(UserProfile.user_id == user_id)
+            )
+            await db.execute(
+                delete(Subscription).where(Subscription.user_id == user_id)
+            )
+            await db.execute(
+                delete(PersonalReading).where(PersonalReading.user_id == user_id)
+            )
+            await db.execute(
+                delete(EmailVerificationToken).where(EmailVerificationToken.user_id == user_id)
+            )
+            await db.execute(
+                delete(PasswordResetToken).where(PasswordResetToken.user_id == user_id)
+            )
+            await db.execute(delete(AsyncJob).where(AsyncJob.user_id == user_id))
+
+            persisted_user.is_active = False
+            persisted_user.token_version = int(persisted_user.token_version or 0) + 1
+            persisted_user.password_hash = None
+            persisted_user.google_id = None
+            persisted_user.apple_id = None
+            persisted_user.display_name = None
+            persisted_user.pro_override = False
+            persisted_user.pro_override_reason = None
+            persisted_user.pro_override_until = None
+            persisted_user.email_verified = False
+            persisted_user.email = f"deleted+{str(user_id).replace('-', '')}@voidwire.local"
+            await db.flush()
+
+        db.add(
+            AnalyticsEvent(
+                event_type="user.account.delete",
+                metadata_json={
+                    "user_id": str(user_id),
+                    "mode": deletion_mode,
+                    "reason": str(exc)[:300],
+                },
+            )
         )
-    )
-    await db.delete(user)
-    response = JSONResponse({"detail": "Account deleted"})
+        await db.flush()
+    else:
+        db.add(
+            AnalyticsEvent(
+                event_type="user.account.delete",
+                metadata_json={"user_id": str(user_id), "mode": deletion_mode},
+            )
+        )
+        await db.flush()
+
+    response = JSONResponse({"detail": "Account deleted", "mode": deletion_mode})
     _clear_user_auth_cookie(response)
     return response
