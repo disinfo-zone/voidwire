@@ -1082,6 +1082,90 @@ class TestAccountsAPI:
         assert body[0]["status"] == "failed"
         assert body[0]["user_email"] == "job-user@test.local"
 
+    async def test_regenerate_user_readings_for_pro_user(self, client: AsyncClient, mock_db):
+        fake_user = MagicMock()
+        fake_user.id = uuid.uuid4()
+        fake_user.email = "regen-pro@test.local"
+        fake_user.is_active = True
+        fake_user.profile = MagicMock()
+        mock_db.get.return_value = fake_user
+
+        weekly_job = MagicMock()
+        weekly_job.id = uuid.uuid4()
+        weekly_job.user_id = fake_user.id
+        weekly_job.job_type = "personal_reading.generate"
+        weekly_job.status = "queued"
+        weekly_job.payload = {"tier": "free", "target_date": date.today().isoformat()}
+        weekly_job.result = None
+        weekly_job.error_message = None
+        weekly_job.attempts = 0
+        weekly_job.created_at = datetime.now(UTC)
+        weekly_job.started_at = None
+        weekly_job.finished_at = None
+
+        daily_job = MagicMock()
+        daily_job.id = uuid.uuid4()
+        daily_job.user_id = fake_user.id
+        daily_job.job_type = "personal_reading.generate"
+        daily_job.status = "queued"
+        daily_job.payload = {"tier": "pro", "target_date": date.today().isoformat()}
+        daily_job.result = None
+        daily_job.error_message = None
+        daily_job.attempts = 0
+        daily_job.created_at = datetime.now(UTC)
+        daily_job.started_at = None
+        daily_job.finished_at = None
+
+        with (
+            patch("api.routers.admin_accounts.get_user_tier", new=AsyncMock(return_value="pro")),
+            patch(
+                "api.routers.admin_accounts.enqueue_personal_reading_job",
+                new=AsyncMock(side_effect=[weekly_job, daily_job]),
+            ) as enqueue_mock,
+        ):
+            resp = await client.post(f"/admin/accounts/users/{fake_user.id}/readings/regenerate")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "queued"
+        assert body["tier"] == "pro"
+        assert body["queued_tiers"] == ["free", "pro"]
+        assert enqueue_mock.await_count == 2
+        assert enqueue_mock.await_args_list[0].kwargs["tier"] == "free"
+        assert enqueue_mock.await_args_list[0].kwargs["force_refresh"] is True
+        assert enqueue_mock.await_args_list[1].kwargs["tier"] == "pro"
+
+    async def test_get_user_natal_chart(self, client: AsyncClient, mock_db):
+        fake_user = MagicMock()
+        fake_user.id = uuid.uuid4()
+        fake_user.email = "chart@test.local"
+        fake_profile = MagicMock()
+        fake_profile.birth_city = "LaGrange, GA"
+        fake_profile.birth_timezone = "America/New_York"
+        fake_profile.house_system = "placidus"
+        fake_profile.natal_chart_computed_at = datetime.now(UTC)
+        fake_profile.natal_chart_json = {
+            "positions": [
+                {"body": "sun", "sign": "Sagittarius", "degree": 3.9, "longitude": 243.9},
+                {"body": "part_of_fortune", "sign": "Capricorn", "degree": 1.2, "longitude": 271.2},
+            ],
+            "angles": [{"name": "Ascendant", "sign": "Aries", "degree": 8.3, "longitude": 8.3}],
+            "house_cusps": [8.3, 15.3, 12.1, 5.0, 28.6, 27.8, 188.3, 195.3, 192.1, 185.0, 178.6, 177.8],
+            "house_signs": [],
+            "house_system": "placidus",
+            "aspects": [],
+        }
+        fake_user.profile = fake_profile
+        mock_db.get.return_value = fake_user
+
+        resp = await client.get(f"/admin/accounts/users/{fake_user.id}/natal-chart")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["user_email"] == "chart@test.local"
+        assert body["birth_city"] == "LaGrange, GA"
+        assert body["birth_timezone"] == "America/New_York"
+        assert body["chart"]["house_system"] == "placidus"
+
     async def test_create_discount_code(self, client: AsyncClient, mock_db):
         existing_result = MagicMock()
         existing_result.scalars.return_value.first.return_value = None

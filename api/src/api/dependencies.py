@@ -163,7 +163,12 @@ def _required_admin_level(path: str, method: str) -> int:
             return ROLE_LEVELS["admin"]
         if path == "/admin/accounts/users" and method_upper == "POST":
             return ROLE_LEVELS["admin"]
-        if path.startswith("/admin/accounts/users/") and method_upper in {"PATCH", "PUT", "DELETE"}:
+        if path.startswith("/admin/accounts/users/") and method_upper in {
+            "PATCH",
+            "PUT",
+            "DELETE",
+            "POST",
+        }:
             return ROLE_LEVELS["admin"]
         return ROLE_LEVELS["support"]
 

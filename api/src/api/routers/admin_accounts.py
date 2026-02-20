@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Literal
 
+from ephemeris.natal import calculate_natal_chart
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import delete, func, select, update
@@ -29,6 +30,7 @@ from api.dependencies import get_db, require_admin
 from api.middleware.auth import hash_password
 from api.services.async_job_service import (
     ASYNC_JOB_TYPE_PERSONAL_READING,
+    enqueue_personal_reading_job,
     serialize_async_job,
 )
 from api.services.billing_reconciliation import run_billing_reconciliation
@@ -636,6 +638,114 @@ async def update_user_pro_override(
         "pro_override_until": (
             user.pro_override_until.isoformat() if user.pro_override_until else None
         ),
+    }
+
+
+@router.post("/users/{user_id}/readings/regenerate")
+async def regenerate_user_readings(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: AdminUser = Depends(require_admin),
+):
+    target_user = await db.get(User, user_id)
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not target_user.is_active:
+        raise HTTPException(status_code=400, detail="Cannot regenerate readings for inactive user")
+    if not target_user.profile:
+        raise HTTPException(status_code=400, detail="User profile is missing")
+
+    tier = await get_user_tier(target_user, db)
+    target_date = date.today()
+
+    jobs = [
+        await enqueue_personal_reading_job(
+            db,
+            user_id=target_user.id,
+            tier="free",
+            target_date=target_date,
+            force_refresh=True,
+        )
+    ]
+    if tier == "pro":
+        jobs.append(
+            await enqueue_personal_reading_job(
+                db,
+                user_id=target_user.id,
+                tier="pro",
+                target_date=target_date,
+                force_refresh=True,
+            )
+        )
+
+    serialized_jobs = [serialize_async_job(job) for job in jobs]
+    queued_tiers = [str((job.payload or {}).get("tier", "")) for job in jobs]
+    db.add(
+        AuditLog(
+            user_id=admin.id,
+            action="user.readings.regenerate",
+            target_type="user",
+            target_id=str(target_user.id),
+            detail={
+                "target_date": target_date.isoformat(),
+                "queued_tiers": queued_tiers,
+                "force_refresh": True,
+                "job_ids": [str(job.id) for job in jobs],
+            },
+        )
+    )
+    await db.flush()
+
+    return {
+        "status": "queued",
+        "user_id": str(target_user.id),
+        "tier": tier,
+        "queued_tiers": queued_tiers,
+        "jobs": serialized_jobs,
+    }
+
+
+@router.get("/users/{user_id}/natal-chart")
+async def get_user_natal_chart(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(require_admin),
+):
+    del user
+    target_user = await db.get(User, user_id)
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not target_user.profile:
+        raise HTTPException(status_code=400, detail="User profile is missing")
+
+    profile = target_user.profile
+    chart = profile.natal_chart_json
+    if not chart or not any(
+        p.get("body") == "part_of_fortune"
+        for p in (chart.get("positions") or [])
+    ):
+        chart = calculate_natal_chart(
+            birth_date=profile.birth_date,
+            birth_time=profile.birth_time,
+            birth_latitude=profile.birth_latitude,
+            birth_longitude=profile.birth_longitude,
+            birth_timezone=profile.birth_timezone,
+            house_system=profile.house_system,
+        )
+        profile.natal_chart_json = chart
+        profile.natal_chart_computed_at = datetime.now(UTC)
+        await db.flush()
+
+    return {
+        "user_id": str(target_user.id),
+        "user_email": target_user.email,
+        "birth_city": profile.birth_city,
+        "birth_timezone": profile.birth_timezone,
+        "house_system": profile.house_system,
+        "natal_chart_computed_at": (
+            profile.natal_chart_computed_at.isoformat() if profile.natal_chart_computed_at else None
+        ),
+        "chart": chart,
     }
 
 

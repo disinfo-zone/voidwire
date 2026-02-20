@@ -46,6 +46,183 @@ type ReadingJob = {
   finished_at: string | null;
 };
 
+type NatalChartPosition = {
+  body: string;
+  sign: string;
+  degree: number;
+  longitude: number;
+  house: number | null;
+  retrograde: boolean;
+};
+
+type NatalChartAngle = {
+  name: string;
+  sign: string;
+  degree: number;
+  longitude: number;
+};
+
+type NatalChartAspect = {
+  body1: string;
+  body2: string;
+  type: string;
+  orb_degrees: number;
+  applying: boolean;
+};
+
+type NatalChart = {
+  positions: NatalChartPosition[];
+  angles: NatalChartAngle[];
+  house_cusps: number[];
+  house_system: string;
+  aspects: NatalChartAspect[];
+};
+
+type UserNatalChartPayload = {
+  user_id: string;
+  user_email: string;
+  birth_city: string;
+  birth_timezone: string;
+  house_system: string;
+  natal_chart_computed_at: string | null;
+  chart: NatalChart;
+};
+
+const SIGN_GLYPHS: Record<string, string> = {
+  Aries: '♈',
+  Taurus: '♉',
+  Gemini: '♊',
+  Cancer: '♋',
+  Leo: '♌',
+  Virgo: '♍',
+  Libra: '♎',
+  Scorpio: '♏',
+  Sagittarius: '♐',
+  Capricorn: '♑',
+  Aquarius: '♒',
+  Pisces: '♓',
+};
+
+const SIGN_ORDER = [
+  'Aries',
+  'Taurus',
+  'Gemini',
+  'Cancer',
+  'Leo',
+  'Virgo',
+  'Libra',
+  'Scorpio',
+  'Sagittarius',
+  'Capricorn',
+  'Aquarius',
+  'Pisces',
+];
+
+const BODY_GLYPHS: Record<string, string> = {
+  sun: '☉',
+  moon: '☽',
+  mercury: '☿',
+  venus: '♀',
+  mars: '♂',
+  jupiter: '♃',
+  saturn: '♄',
+  uranus: '♅',
+  neptune: '♆',
+  pluto: '♇',
+  north_node: '☊',
+  lilith: '⚸',
+  chiron: '⚷',
+  part_of_fortune: '⊗',
+};
+
+function normalizeToken(value: string): string {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, '_');
+}
+
+function formatBodyLabel(value: string): string {
+  const normalized = normalizeToken(value);
+  if (normalized === 'north_node') return 'North Node';
+  if (normalized === 'part_of_fortune') return 'Part of Fortune';
+  return normalized
+    .split('_')
+    .filter(Boolean)
+    .map((chunk) => chunk.charAt(0).toUpperCase() + chunk.slice(1))
+    .join(' ');
+}
+
+function buildNatalChartText(payload: UserNatalChartPayload): string {
+  const chart = payload.chart || {
+    positions: [],
+    angles: [],
+    aspects: [],
+    house_cusps: [],
+    house_system: payload.house_system || 'placidus',
+  };
+  const positions = Array.isArray(chart.positions) ? chart.positions : [];
+  const angles = Array.isArray(chart.angles) ? chart.angles : [];
+  const aspects = Array.isArray(chart.aspects) ? chart.aspects : [];
+  const houseCusps = Array.isArray(chart.house_cusps) ? chart.house_cusps : [];
+
+  const lines: string[] = [];
+  lines.push('VOIDWIRE — Natal Chart');
+  lines.push(`Generated: ${new Date().toISOString()}`);
+  lines.push('');
+  lines.push(`Birthplace: ${payload.birth_city}`);
+  lines.push(`Timezone: ${payload.birth_timezone}`);
+  lines.push('');
+
+  const sun = positions.find((pos) => normalizeToken(pos.body) === 'sun');
+  const moon = positions.find((pos) => normalizeToken(pos.body) === 'moon');
+  const asc = angles.find((angle) => normalizeToken(angle.name) === 'ascendant');
+
+  if (sun || moon || asc) {
+    lines.push('Core Signature:');
+    if (sun) lines.push(`  Sun: ${(Number(sun.degree) || 0).toFixed(1)}° ${sun.sign}${sun.house ? ` (House ${sun.house})` : ''}`);
+    if (moon) lines.push(`  Moon: ${(Number(moon.degree) || 0).toFixed(1)}° ${moon.sign}${moon.house ? ` (House ${moon.house})` : ''}`);
+    if (asc) lines.push(`  Ascendant: ${(Number(asc.degree) || 0).toFixed(1)}° ${asc.sign}`);
+    lines.push('');
+  }
+
+  lines.push('Placements:');
+  const sortedPositions = [...positions].sort((a, b) => Number(a.longitude || 0) - Number(b.longitude || 0));
+  for (const pos of sortedPositions) {
+    const houseLabel = Number.isFinite(Number(pos.house)) ? ` · House ${pos.house}` : '';
+    const retroLabel = pos.retrograde ? ' (R)' : '';
+    lines.push(`  ${formatBodyLabel(pos.body)}: ${(Number(pos.degree) || 0).toFixed(1)}° ${pos.sign}${houseLabel}${retroLabel}`);
+  }
+
+  if (angles.length > 0) {
+    lines.push('');
+    lines.push('Angles:');
+    for (const angle of angles) {
+      lines.push(`  ${angle.name}: ${(Number(angle.degree) || 0).toFixed(1)}° ${angle.sign}`);
+    }
+  }
+
+  if (aspects.length > 0) {
+    lines.push('');
+    lines.push('Aspects:');
+    for (const aspect of aspects) {
+      lines.push(
+        `  ${formatBodyLabel(aspect.body1)} ${aspect.type} ${formatBodyLabel(aspect.body2)} (${(Number(aspect.orb_degrees) || 0).toFixed(1)}°, ${aspect.applying ? 'applying' : 'separating'})`,
+      );
+    }
+  }
+
+  if (houseCusps.length >= 12) {
+    lines.push('');
+    lines.push(`House Cusps (${chart.house_system || payload.house_system || 'placidus'}):`);
+    houseCusps.slice(0, 12).forEach((value, idx) => {
+      const normalized = ((Number(value) % 360) + 360) % 360;
+      const sign = SIGN_ORDER[Math.floor(normalized / 30)] || '';
+      const degreeInSign = normalized % 30;
+      lines.push(`  House ${idx + 1}: ${degreeInSign.toFixed(1)}° ${sign}`);
+    });
+  }
+
+  return lines.join('\n');
+}
+
 function toInputDateTime(value: string | null): string {
   if (!value) return '';
   const parsed = new Date(value);
@@ -69,7 +246,12 @@ export default function AccountsPage() {
   const [loadingAdminUsers, setLoadingAdminUsers] = useState(true);
   const [loadingReadingJobs, setLoadingReadingJobs] = useState(true);
   const [runningRetentionCleanup, setRunningRetentionCleanup] = useState(false);
+  const [regeneratingReadingsUserId, setRegeneratingReadingsUserId] = useState<string | null>(null);
   const [readingJobStatusFilter, setReadingJobStatusFilter] = useState<'all' | 'queued' | 'running' | 'completed' | 'failed'>('all');
+  const [expandedChartUserId, setExpandedChartUserId] = useState<string | null>(null);
+  const [loadingChartUserId, setLoadingChartUserId] = useState<string | null>(null);
+  const [copyingChartUserId, setCopyingChartUserId] = useState<string | null>(null);
+  const [chartsByUserId, setChartsByUserId] = useState<Record<string, UserNatalChartPayload>>({});
   const [query, setQuery] = useState('');
   const [creatingUser, setCreatingUser] = useState(false);
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
@@ -262,6 +444,177 @@ export default function AccountsPage() {
     } finally {
       setRunningRetentionCleanup(false);
     }
+  }
+
+  async function regenerateUserReadings(targetUser: AccountUser) {
+    setRegeneratingReadingsUserId(targetUser.id);
+    try {
+      const result = await apiPost(`/admin/accounts/users/${targetUser.id}/readings/regenerate`, {});
+      const queuedTiers = Array.isArray(result?.queued_tiers)
+        ? result.queued_tiers.filter((tier: unknown) => typeof tier === 'string')
+        : [];
+      const tierLabel = queuedTiers.length > 0
+        ? queuedTiers.map((tier: string) => tier.toUpperCase()).join(' + ')
+        : (targetUser.tier === 'pro' ? 'FREE + PRO' : 'FREE');
+      toast.success(`Queued ${tierLabel} regeneration for ${targetUser.email}`);
+      await loadReadingJobs();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setRegeneratingReadingsUserId(null);
+    }
+  }
+
+  async function toggleUserChart(userId: string) {
+    if (expandedChartUserId === userId) {
+      setExpandedChartUserId(null);
+      return;
+    }
+    setLoadingChartUserId(userId);
+    try {
+      const payload = await apiGet(`/admin/accounts/users/${userId}/natal-chart`);
+      setChartsByUserId((prev) => ({ ...prev, [userId]: payload as UserNatalChartPayload }));
+      setExpandedChartUserId(userId);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setLoadingChartUserId(null);
+    }
+  }
+
+  async function copyUserChart(userId: string) {
+    const payload = chartsByUserId[userId];
+    if (!payload) {
+      toast.error('Load the chart first.');
+      return;
+    }
+
+    setCopyingChartUserId(userId);
+    try {
+      const text = buildNatalChartText(payload);
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'absolute';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      toast.success('Natal chart copied');
+    } catch (e: any) {
+      toast.error(e.message || 'Could not copy chart');
+    } finally {
+      setCopyingChartUserId(null);
+    }
+  }
+
+  function renderChartPanel(userId: string) {
+    const payload = chartsByUserId[userId];
+    const chart = payload?.chart;
+    if (!payload || !chart) {
+      return <div className="text-xs text-text-muted">Chart data is unavailable.</div>;
+    }
+
+    const positions = [...(Array.isArray(chart.positions) ? chart.positions : [])].sort(
+      (a, b) => Number(a?.longitude || 0) - Number(b?.longitude || 0),
+    );
+    const aspects = Array.isArray(chart.aspects) ? chart.aspects : [];
+    const houseCusps = Array.isArray(chart.house_cusps) ? chart.house_cusps : [];
+    const asc = (Array.isArray(chart.angles) ? chart.angles : []).find((angle) => angle.name === 'Ascendant');
+    const mc = (Array.isArray(chart.angles) ? chart.angles : []).find((angle) => angle.name === 'Midheaven');
+
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="text-xs text-accent">Natal Chart</div>
+          <button
+            onClick={() => void copyUserChart(userId)}
+            disabled={copyingChartUserId === userId}
+            className="text-xs px-2 py-1 bg-surface border border-text-ghost rounded text-text-secondary hover:text-text-primary disabled:opacity-50"
+          >
+            {copyingChartUserId === userId ? 'Copying...' : 'Copy Chart'}
+          </button>
+        </div>
+        <div className="text-[11px] text-text-muted">
+          {payload.birth_city} · {payload.birth_timezone} · {payload.house_system}
+          {payload.natal_chart_computed_at ? ` · computed ${new Date(payload.natal_chart_computed_at).toLocaleString()}` : ''}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+          <div className="bg-surface border border-text-ghost rounded p-2">
+            <div className="text-text-muted mb-1">Ascendant</div>
+            <div className="text-text-primary">
+              {asc ? `${(Number(asc.degree) || 0).toFixed(1)}° ${SIGN_GLYPHS[asc.sign] || ''} ${asc.sign}` : '-'}
+            </div>
+          </div>
+          <div className="bg-surface border border-text-ghost rounded p-2">
+            <div className="text-text-muted mb-1">Midheaven</div>
+            <div className="text-text-primary">
+              {mc ? `${(Number(mc.degree) || 0).toFixed(1)}° ${SIGN_GLYPHS[mc.sign] || ''} ${mc.sign}` : '-'}
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+          {positions.map((pos, index) => {
+            const bodyKey = normalizeToken(pos.body);
+            const glyph = BODY_GLYPHS[bodyKey] || '';
+            const signGlyph = SIGN_GLYPHS[pos.sign] || '';
+            const houseLabel = Number.isFinite(Number(pos.house)) ? ` · H${pos.house}` : '';
+            return (
+              <div
+                key={`${pos.body}-${index}`}
+                className="bg-surface border border-text-ghost rounded px-2 py-1.5 text-xs text-text-primary flex items-center justify-between gap-2"
+              >
+                <span className="truncate">
+                  <span className="text-accent mr-1">{glyph}</span>
+                  {formatBodyLabel(pos.body)}
+                </span>
+                <span className="text-text-muted whitespace-nowrap">
+                  {(Number(pos.degree) || 0).toFixed(1)}° {signGlyph} {pos.sign}
+                  {houseLabel}
+                  {pos.retrograde ? ' ℞' : ''}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        {houseCusps.length >= 12 && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+            {houseCusps.slice(0, 12).map((value, idx) => {
+              const normalized = ((Number(value) % 360) + 360) % 360;
+              const signIndex = Math.floor(normalized / 30);
+              const sign = SIGN_ORDER[signIndex] || '';
+              const degreeInSign = normalized % 30;
+              return (
+                <div key={`house-cusp-${idx}`} className="bg-surface border border-text-ghost rounded p-2 text-[11px]">
+                  <div className="text-text-muted">House {idx + 1}</div>
+                  <div className="text-text-primary">
+                    {degreeInSign.toFixed(1)}° {SIGN_GLYPHS[sign] || ''} {sign}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {aspects.length > 0 && (
+          <div className="bg-surface border border-text-ghost rounded p-2">
+            <div className="text-xs text-text-muted mb-2">Aspects</div>
+            <div className="space-y-1">
+              {aspects.slice(0, 10).map((aspect, idx) => (
+                <div key={`aspect-${idx}`} className="text-[11px] text-text-secondary">
+                  {formatBodyLabel(aspect.body1)} {aspect.type} {formatBodyLabel(aspect.body2)} · orb {(Number(aspect.orb_degrees) || 0).toFixed(1)}°
+                  {aspect.applying ? ' applying' : ' separating'}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
   }
 
   function startEditOverride(user: AccountUser) {
@@ -486,6 +839,28 @@ export default function AccountsPage() {
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <button
+                      onClick={() => void regenerateUserReadings(user)}
+                      disabled={regeneratingReadingsUserId === user.id}
+                      className="text-xs px-3 py-1 bg-surface border border-text-ghost rounded text-text-secondary hover:text-text-primary disabled:opacity-50"
+                    >
+                      {regeneratingReadingsUserId === user.id
+                        ? 'Queueing...'
+                        : user.tier === 'pro'
+                          ? 'Regenerate Daily + Weekly'
+                          : 'Regenerate Weekly'}
+                    </button>
+                    <button
+                      onClick={() => void toggleUserChart(user.id)}
+                      disabled={loadingChartUserId === user.id}
+                      className="text-xs px-3 py-1 bg-surface border border-text-ghost rounded text-text-secondary hover:text-text-primary disabled:opacity-50"
+                    >
+                      {loadingChartUserId === user.id
+                        ? 'Loading Chart...'
+                        : expandedChartUserId === user.id
+                          ? 'Hide Chart'
+                          : 'View Chart'}
+                    </button>
+                    <button
                       onClick={() => startEditUser(user)}
                       className="text-xs px-3 py-1 bg-surface border border-text-ghost rounded text-text-secondary hover:text-text-primary"
                     >
@@ -505,6 +880,12 @@ export default function AccountsPage() {
                     </button>
                   </div>
                 </div>
+
+                {expandedChartUserId === user.id && (
+                  <div className="mt-3 bg-surface border border-text-ghost rounded p-3">
+                    {renderChartPanel(user.id)}
+                  </div>
+                )}
 
                 {editingAccountId === user.id && (
                   <div className="mt-3 bg-surface border border-text-ghost rounded p-3 space-y-2">
