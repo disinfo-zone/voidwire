@@ -58,7 +58,6 @@ import Background from '../components/Background.svelte';
           </button>
         </div>
       </div>
-      <p id="oauth-note" class="oauth-note" style="display: none;"></p>
 
       <p class="auth-link">Don't have an account? <a href="/register">Register</a></p>
     </div>
@@ -84,63 +83,58 @@ import Background from '../components/Background.svelte';
 <script>
   import { setToken } from '../utils/auth';
 
-  const form = document.getElementById('login-form') as HTMLFormElement;
-  const errorEl = document.getElementById('error-message') as HTMLDivElement;
-  const queryMessageEl = document.getElementById('query-message') as HTMLDivElement;
-  const resetPanel = document.getElementById('reset-panel') as HTMLDivElement;
-  const resetForm = document.getElementById('reset-form') as HTMLFormElement;
-  const oauthSectionEl = document.getElementById('oauth-section') as HTMLDivElement | null;
-  const googleButtonMount = document.getElementById('oauth-google-button') as HTMLDivElement | null;
-  const appleButtonEl = document.getElementById('oauth-apple-button') as HTMLButtonElement | null;
-  const oauthNoteEl = document.getElementById('oauth-note') as HTMLParagraphElement | null;
-  const params = new URLSearchParams(window.location.search);
-  const verifyToken = params.get('verify_token');
-  const resetToken = params.get('reset_token');
-  let oauthInFlight = false;
-
   type OAuthProviders = {
     google?: { enabled?: boolean; client_id?: string };
     apple?: { enabled?: boolean; client_id?: string };
   };
 
-  function showAuthError(message: string): void {
-    errorEl.textContent = message;
-    errorEl.style.display = 'block';
-  }
-
-  function clearAuthError(): void {
-    errorEl.style.display = 'none';
-  }
-
-  function loadExternalScript(src: string): Promise<void> {
+  function loadExternalScript(src: string, isReady: () => boolean): Promise<void> {
     return new Promise((resolve, reject) => {
+      if (isReady()) {
+        resolve();
+        return;
+      }
       const selector = `script[data-oauth-src="${src}"]`;
-      const existing = document.querySelector(selector) as HTMLScriptElement | null;
-      if (existing) {
-        if (existing.dataset.loaded === 'true') {
+      let script = document.querySelector(selector) as HTMLScriptElement | null;
+
+      const resolveWhenReady = () => {
+        if (isReady()) {
+          if (script) {
+            script.dataset.loaded = 'true';
+          }
           resolve();
           return;
         }
-        existing.addEventListener('load', () => resolve(), { once: true });
-        existing.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)), {
+        window.setTimeout(() => {
+          if (isReady()) {
+            if (script) {
+              script.dataset.loaded = 'true';
+            }
+            resolve();
+            return;
+          }
+          reject(new Error(`Failed to initialize ${src}`));
+        }, 100);
+      };
+
+      if (script) {
+        if (script.dataset.loaded === 'true') {
+          resolveWhenReady();
+          return;
+        }
+        script.addEventListener('load', resolveWhenReady, { once: true });
+        script.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)), {
           once: true,
         });
         return;
       }
 
-      const script = document.createElement('script');
+      script = document.createElement('script');
       script.src = src;
       script.async = true;
       script.defer = true;
       script.dataset.oauthSrc = src;
-      script.addEventListener(
-        'load',
-        () => {
-          script.dataset.loaded = 'true';
-          resolve();
-        },
-        { once: true },
-      );
+      script.addEventListener('load', resolveWhenReady, { once: true });
       script.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)), {
         once: true,
       });
@@ -163,245 +157,272 @@ import Background from '../components/Background.svelte';
     window.location.href = '/dashboard';
   }
 
-  async function handleQueryTokens() {
-    if (verifyToken) {
-      try {
-        const res = await fetch('/v1/user/auth/verify-email', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: verifyToken }),
-        });
-        if (!res.ok) {
-          const payload = await res.json().catch(() => ({}));
-          throw new Error(payload?.detail || 'Verification failed');
+  function initLoginPage(): void {
+    if (window.location.pathname !== '/login') return;
+
+    const form = document.getElementById('login-form') as HTMLFormElement | null;
+    const errorEl = document.getElementById('error-message') as HTMLDivElement | null;
+    const queryMessageEl = document.getElementById('query-message') as HTMLDivElement | null;
+    const resetPanel = document.getElementById('reset-panel') as HTMLDivElement | null;
+    const resetForm = document.getElementById('reset-form') as HTMLFormElement | null;
+    const oauthSectionEl = document.getElementById('oauth-section') as HTMLDivElement | null;
+    const googleButtonMount = document.getElementById('oauth-google-button') as HTMLDivElement | null;
+    const appleButtonEl = document.getElementById('oauth-apple-button') as HTMLButtonElement | null;
+    const forgotLink = document.getElementById('forgot-password-link') as HTMLAnchorElement | null;
+    const forgotModal = document.getElementById('forgot-modal') as HTMLDivElement | null;
+    const forgotForm = document.getElementById('forgot-form') as HTMLFormElement | null;
+    const forgotCancel = document.getElementById('forgot-cancel') as HTMLButtonElement | null;
+    const forgotMessage = document.getElementById('forgot-message') as HTMLDivElement | null;
+    if (!form || !errorEl || !queryMessageEl || !resetPanel) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const verifyToken = params.get('verify_token');
+    const resetToken = params.get('reset_token');
+    let oauthInFlight = false;
+
+    function showAuthError(message: string): void {
+      errorEl.textContent = message;
+      errorEl.style.display = 'block';
+    }
+
+    function clearAuthError(): void {
+      errorEl.style.display = 'none';
+    }
+
+    async function handleQueryTokens() {
+      if (verifyToken) {
+        try {
+          const res = await fetch('/v1/user/auth/verify-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: verifyToken }),
+          });
+          if (!res.ok) {
+            const payload = await res.json().catch(() => ({}));
+            throw new Error(payload?.detail || 'Verification failed');
+          }
+          queryMessageEl.textContent = 'Email verified successfully. You can now log in.';
+          queryMessageEl.style.display = 'block';
+        } catch (err) {
+          queryMessageEl.textContent = err instanceof Error ? err.message : 'Verification failed';
+          queryMessageEl.style.display = 'block';
         }
-        queryMessageEl.textContent = 'Email verified successfully. You can now log in.';
-        queryMessageEl.style.display = 'block';
-      } catch (err) {
-        queryMessageEl.textContent = err instanceof Error ? err.message : 'Verification failed';
-        queryMessageEl.style.display = 'block';
+      }
+
+      if (resetToken) {
+        resetPanel.style.display = 'block';
       }
     }
 
-    if (resetToken) {
-      resetPanel.style.display = 'block';
+    async function setupGoogleOauth(clientId: string): Promise<void> {
+      if (!googleButtonMount) return;
+      await loadExternalScript(
+        'https://accounts.google.com/gsi/client',
+        () => Boolean((window as any).google?.accounts?.id),
+      );
+      const googleApi = (window as any).google;
+      if (!googleApi?.accounts?.id) {
+        throw new Error('Google OAuth SDK failed to load');
+      }
+      googleButtonMount.style.display = 'block';
+      googleButtonMount.innerHTML = '';
+      googleApi.accounts.id.initialize({
+        client_id: clientId,
+        callback: async (response: any) => {
+          const credential = String(response?.credential || '').trim();
+          if (!credential) {
+            showAuthError('Google sign-in did not return a credential');
+            return;
+          }
+          if (oauthInFlight) return;
+          oauthInFlight = true;
+          clearAuthError();
+          try {
+            await completeOauthLogin('/v1/user/auth/oauth/google', { id_token: credential });
+          } catch (err) {
+            showAuthError(err instanceof Error ? err.message : 'Google sign-in failed');
+          } finally {
+            oauthInFlight = false;
+          }
+        },
+      });
+      googleApi.accounts.id.renderButton(googleButtonMount, {
+        theme: 'outline',
+        size: 'large',
+        text: 'continue_with',
+        width: 320,
+      });
     }
-  }
 
-  void handleQueryTokens();
-
-  async function setupGoogleOauth(clientId: string): Promise<void> {
-    if (!googleButtonMount) return;
-    await loadExternalScript('https://accounts.google.com/gsi/client');
-    const googleApi = (window as any).google;
-    if (!googleApi?.accounts?.id) {
-      throw new Error('Google OAuth SDK failed to load');
-    }
-    googleButtonMount.style.display = 'block';
-    googleButtonMount.innerHTML = '';
-    googleApi.accounts.id.initialize({
-      client_id: clientId,
-      callback: async (response: any) => {
-        const credential = String(response?.credential || '').trim();
-        if (!credential) {
-          showAuthError('Google sign-in did not return a credential');
-          return;
-        }
+    async function setupAppleOauth(clientId: string): Promise<void> {
+      if (!appleButtonEl) return;
+      await loadExternalScript(
+        'https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js',
+        () => Boolean((window as any).AppleID?.auth),
+      );
+      const appleApi = (window as any).AppleID;
+      if (!appleApi?.auth) {
+        throw new Error('Apple OAuth SDK failed to load');
+      }
+      appleApi.auth.init({
+        clientId,
+        scope: 'name email',
+        redirectURI: `${window.location.origin}/login`,
+        usePopup: true,
+      });
+      appleButtonEl.style.display = 'block';
+      appleButtonEl.onclick = async () => {
         if (oauthInFlight) return;
         oauthInFlight = true;
         clearAuthError();
         try {
-          await completeOauthLogin('/v1/user/auth/oauth/google', { id_token: credential });
-        } catch (err) {
-          showAuthError(err instanceof Error ? err.message : 'Google sign-in failed');
+          const authResponse = await appleApi.auth.signIn();
+          const code = String(authResponse?.authorization?.code || '').trim();
+          if (!code) {
+            throw new Error('Apple sign-in did not return an authorization code');
+          }
+          await completeOauthLogin('/v1/user/auth/oauth/apple', { authorization_code: code });
+        } catch (err: any) {
+          if (String(err?.error || '').toLowerCase() === 'popup_closed_by_user') {
+            showAuthError('Apple sign-in was cancelled');
+          } else {
+            showAuthError(err instanceof Error ? err.message : 'Apple sign-in failed');
+          }
         } finally {
           oauthInFlight = false;
         }
-      },
-    });
-    googleApi.accounts.id.renderButton(googleButtonMount, {
-      theme: 'outline',
-      size: 'large',
-      text: 'continue_with',
-      width: 320,
-    });
-  }
-
-  async function setupAppleOauth(clientId: string): Promise<void> {
-    if (!appleButtonEl) return;
-    await loadExternalScript(
-      'https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js',
-    );
-    const appleApi = (window as any).AppleID;
-    if (!appleApi?.auth) {
-      throw new Error('Apple OAuth SDK failed to load');
+      };
     }
-    appleApi.auth.init({
-      clientId,
-      scope: 'name email',
-      redirectURI: `${window.location.origin}/login`,
-      usePopup: true,
-    });
-    appleButtonEl.style.display = 'block';
-    appleButtonEl.addEventListener('click', async () => {
-      if (oauthInFlight) return;
-      oauthInFlight = true;
-      clearAuthError();
+
+    async function loadOauthState() {
       try {
-        const authResponse = await appleApi.auth.signIn();
-        const code = String(authResponse?.authorization?.code || '').trim();
-        if (!code) {
-          throw new Error('Apple sign-in did not return an authorization code');
+        const res = await fetch('/v1/user/auth/oauth/providers');
+        if (!res.ok) return;
+        const providers = (await res.json()) as OAuthProviders;
+        const googleEnabled = Boolean(providers?.google?.enabled);
+        const appleEnabled = Boolean(providers?.apple?.enabled);
+        if (!googleEnabled && !appleEnabled) return;
+        if (oauthSectionEl) {
+          oauthSectionEl.style.display = 'block';
         }
-        await completeOauthLogin('/v1/user/auth/oauth/apple', { authorization_code: code });
-      } catch (err: any) {
-        if (String(err?.error || '').toLowerCase() === 'popup_closed_by_user') {
-          showAuthError('Apple sign-in was cancelled');
-        } else {
-          showAuthError(err instanceof Error ? err.message : 'Apple sign-in failed');
+        if (googleEnabled) {
+          const googleClientId = String(providers?.google?.client_id || '').trim();
+          if (googleClientId) {
+            await setupGoogleOauth(googleClientId);
+          } else {
+            showAuthError('Google OAuth is enabled but missing client ID');
+          }
         }
-      } finally {
-        oauthInFlight = false;
-      }
-    });
-  }
-
-  async function loadOauthState() {
-    try {
-      const res = await fetch('/v1/user/auth/oauth/providers');
-      if (!res.ok) return;
-      const providers = (await res.json()) as OAuthProviders;
-      const labels: string[] = [];
-      const googleEnabled = Boolean(providers?.google?.enabled);
-      const appleEnabled = Boolean(providers?.apple?.enabled);
-      if (googleEnabled) {
-        labels.push('Google');
-      }
-      if (appleEnabled) {
-        labels.push('Apple');
-      }
-      if (labels.length === 0) return;
-      if (oauthSectionEl) {
-        oauthSectionEl.style.display = 'block';
-      }
-      if (oauthNoteEl) {
-        oauthNoteEl.textContent = `OAuth sign-in enabled: ${labels.join(', ')}`;
-        oauthNoteEl.style.display = 'block';
-      }
-      if (googleEnabled) {
-        const googleClientId = String(providers?.google?.client_id || '').trim();
-        if (googleClientId) {
-          await setupGoogleOauth(googleClientId);
-        } else {
-          showAuthError('Google OAuth is enabled but missing client ID');
+        if (appleEnabled) {
+          const appleClientId = String(providers?.apple?.client_id || '').trim();
+          if (appleClientId) {
+            await setupAppleOauth(appleClientId);
+          } else {
+            showAuthError('Apple OAuth is enabled but missing client ID');
+          }
         }
+      } catch {
+        // Leave OAuth section hidden when provider status cannot be loaded.
       }
-      if (appleEnabled) {
-        const appleClientId = String(providers?.apple?.client_id || '').trim();
-        if (appleClientId) {
-          await setupAppleOauth(appleClientId);
-        } else {
-          showAuthError('Apple OAuth is enabled but missing client ID');
-        }
-      }
-    } catch {
-      // Leave OAuth note hidden when provider status cannot be loaded.
     }
-  }
 
-  void loadOauthState();
+    void handleQueryTokens();
+    void loadOauthState();
 
-  form?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    errorEl.style.display = 'none';
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      clearAuthError();
 
-    const email = (document.getElementById('email') as HTMLInputElement).value;
-    const password = (document.getElementById('password') as HTMLInputElement).value;
+      const email = (document.getElementById('email') as HTMLInputElement).value;
+      const password = (document.getElementById('password') as HTMLInputElement).value;
 
-    try {
-      const res = await fetch('/v1/user/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
+      try {
+        const res = await fetch('/v1/user/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
 
-      if (!res.ok) {
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.detail || 'Login failed');
+        }
+
         const data = await res.json();
-        throw new Error(data.detail || 'Login failed');
+        setToken(data.access_token);
+        window.location.href = '/dashboard';
+      } catch (err) {
+        showAuthError(err instanceof Error ? err.message : 'Login failed');
       }
+    };
 
-      const data = await res.json();
-      setToken(data.access_token);
-      window.location.href = '/dashboard';
-    } catch (err) {
-      errorEl.textContent = err instanceof Error ? err.message : 'Login failed';
-      errorEl.style.display = 'block';
-    }
-  });
-
-  // Forgot password modal
-  const forgotLink = document.getElementById('forgot-password-link');
-  const forgotModal = document.getElementById('forgot-modal') as HTMLDivElement;
-  const forgotForm = document.getElementById('forgot-form') as HTMLFormElement;
-  const forgotCancel = document.getElementById('forgot-cancel');
-  const forgotMessage = document.getElementById('forgot-message') as HTMLDivElement;
-
-  forgotLink?.addEventListener('click', (e) => {
-    e.preventDefault();
-    forgotModal.style.display = 'flex';
-  });
-
-  forgotCancel?.addEventListener('click', () => {
-    forgotModal.style.display = 'none';
-  });
-
-  forgotForm?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const email = (document.getElementById('forgot-email') as HTMLInputElement).value;
-
-    await fetch('/v1/user/auth/forgot-password', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
-    });
-
-    forgotMessage.textContent = 'If that email exists, a reset link has been sent.';
-    forgotMessage.style.display = 'block';
-  });
-
-  resetForm?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    if (!resetToken) return;
-
-    const newPassword = (document.getElementById('reset-password') as HTMLInputElement).value;
-    if (newPassword.length < 8) {
-      queryMessageEl.textContent = 'Password must be at least 8 characters.';
-      queryMessageEl.style.display = 'block';
-      return;
+    if (forgotLink && forgotModal) {
+      forgotLink.onclick = (e) => {
+        e.preventDefault();
+        forgotModal.style.display = 'flex';
+      };
     }
 
-    try {
-      const res = await fetch('/v1/user/auth/reset-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: resetToken, new_password: newPassword }),
-      });
-      if (!res.ok) {
-        const payload = await res.json().catch(() => ({}));
-        throw new Error(payload?.detail || 'Password reset failed');
-      }
-      queryMessageEl.textContent = 'Password reset successfully. Log in with your new password.';
-      queryMessageEl.style.display = 'block';
-      resetPanel.style.display = 'none';
-      const clean = new URL(window.location.href);
-      clean.searchParams.delete('reset_token');
-      window.history.replaceState({}, '', clean.toString());
-    } catch (err) {
-      queryMessageEl.textContent = err instanceof Error ? err.message : 'Password reset failed';
-      queryMessageEl.style.display = 'block';
+    if (forgotCancel && forgotModal) {
+      forgotCancel.onclick = () => {
+        forgotModal.style.display = 'none';
+      };
     }
-  });
 
+    if (forgotForm && forgotMessage) {
+      forgotForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const email = (document.getElementById('forgot-email') as HTMLInputElement).value;
+
+        await fetch('/v1/user/auth/forgot-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+
+        forgotMessage.textContent = 'If that email exists, a reset link has been sent.';
+        forgotMessage.style.display = 'block';
+      };
+    }
+
+    if (resetForm) {
+      resetForm.onsubmit = async (e) => {
+        e.preventDefault();
+        if (!resetToken) return;
+
+        const newPassword = (document.getElementById('reset-password') as HTMLInputElement).value;
+        if (newPassword.length < 8) {
+          queryMessageEl.textContent = 'Password must be at least 8 characters.';
+          queryMessageEl.style.display = 'block';
+          return;
+        }
+
+        try {
+          const res = await fetch('/v1/user/auth/reset-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: resetToken, new_password: newPassword }),
+          });
+          if (!res.ok) {
+            const payload = await res.json().catch(() => ({}));
+            throw new Error(payload?.detail || 'Password reset failed');
+          }
+          queryMessageEl.textContent = 'Password reset successfully. Log in with your new password.';
+          queryMessageEl.style.display = 'block';
+          resetPanel.style.display = 'none';
+          const clean = new URL(window.location.href);
+          clean.searchParams.delete('reset_token');
+          window.history.replaceState({}, '', clean.toString());
+        } catch (err) {
+          queryMessageEl.textContent = err instanceof Error ? err.message : 'Password reset failed';
+          queryMessageEl.style.display = 'block';
+        }
+      };
+    }
+  }
+
+  document.addEventListener('astro:page-load', initLoginPage);
+  initLoginPage();
 </script>
 
 <style>
@@ -567,14 +588,6 @@ import Background from '../components/Background.svelte';
 
   .auth-link a {
     color: var(--accent);
-  }
-
-  .oauth-note {
-    font-family: var(--font-sans);
-    font-size: 0.7rem;
-    color: var(--text-muted);
-    text-align: center;
-    margin: 1rem 0 0;
   }
 
   .modal {
