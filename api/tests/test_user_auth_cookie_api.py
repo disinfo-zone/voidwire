@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -342,6 +343,63 @@ async def test_change_email_updates_user_and_sends_verification(client: AsyncCli
     assert user.email_verified is False
     token_mock.assert_awaited_once()
     send_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_verify_email_is_idempotent_for_already_used_token(client: AsyncClient, mock_db):
+    raw_token = "a" * 64
+    token_record = SimpleNamespace(
+        user_id=uuid.uuid4(),
+        token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
+        used_at=datetime.now(UTC),
+        expires_at=datetime(2027, 1, 1, tzinfo=UTC),
+    )
+    user = SimpleNamespace(
+        id=token_record.user_id,
+        email="verified@test.local",
+        is_active=True,
+        email_verified=True,
+    )
+    mock_db.execute.return_value = _scalar_first_result(token_record)
+    mock_db.get.return_value = user
+
+    response = await client.post(
+        "/v1/user/auth/verify-email",
+        json={"token": raw_token},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["detail"] == "Email already verified"
+    assert user.email_verified is True
+
+
+@pytest.mark.asyncio
+async def test_verify_email_accepts_wrapped_token_input(client: AsyncClient, mock_db):
+    raw_token = "b" * 64
+    token_record = SimpleNamespace(
+        user_id=uuid.uuid4(),
+        token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
+        used_at=None,
+        expires_at=datetime(2027, 1, 1, tzinfo=UTC),
+    )
+    user = SimpleNamespace(
+        id=token_record.user_id,
+        email="unverified@test.local",
+        is_active=True,
+        email_verified=False,
+    )
+    mock_db.execute.return_value = _scalar_first_result(token_record)
+    mock_db.get.return_value = user
+
+    response = await client.post(
+        "/v1/user/auth/verify-email",
+        json={"token": f"<{raw_token}>"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["detail"] == "Email verified successfully"
+    assert user.email_verified is True
+    assert token_record.used_at is not None
 
 
 @pytest.mark.asyncio

@@ -41,8 +41,13 @@ import Background from '../components/Background.svelte';
 </Base>
 
 <script>
+  const VERIFY_EMAIL_PAGE_INIT_KEY = '__voidwireVerifyEmailInitKey';
+
   function initVerifyEmailPage() {
     if (window.location.pathname !== '/verify-email') return;
+    const initKey = `${window.location.pathname}${window.location.search}`;
+    if ((window as any)[VERIFY_EMAIL_PAGE_INIT_KEY] === initKey) return;
+    (window as any)[VERIFY_EMAIL_PAGE_INIT_KEY] = initKey;
 
     const titleEl = document.getElementById('verify-title');
     const messageEl = document.getElementById('verify-message');
@@ -73,7 +78,7 @@ import Background from '../components/Background.svelte';
 
     async function verifyToken() {
       const params = new URLSearchParams(window.location.search);
-      const token = (params.get('token') || '').trim();
+      const token = (params.get('token') || '').trim().replace(/^[<>"']+|[<>"']+$/g, '');
       const prefillEmail = (params.get('email') || '').trim();
 
       if (!token) {

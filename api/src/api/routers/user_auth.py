@@ -104,9 +104,19 @@ class ResetPasswordRequest(BaseModel):
     token: str = Field(min_length=32, max_length=256)
     new_password: str = Field(max_length=256)
 
+    @field_validator("token")
+    @classmethod
+    def validate_token(cls, value: str) -> str:
+        return _normalize_raw_token(value)
+
 
 class VerifyEmailRequest(BaseModel):
     token: str = Field(min_length=32, max_length=256)
+
+    @field_validator("token")
+    @classmethod
+    def validate_token(cls, value: str) -> str:
+        return _normalize_raw_token(value)
 
 
 class ResendVerificationByEmailRequest(BaseModel):
@@ -217,6 +227,12 @@ def _hash_token(raw: str) -> str:
 
 def _normalize_email(email: str) -> str:
     return email.strip().lower()
+
+
+def _normalize_raw_token(value: str) -> str:
+    token = str(value or "").strip()
+    # Defensive cleanup for email clients that wrap query params in punctuation.
+    return token.strip("\"'<>")
 
 
 def _token_fingerprint(raw: str) -> str:
@@ -666,7 +682,7 @@ async def reset_password(req: ResetPasswordRequest, db: AsyncSession = Depends(g
     if len(req.new_password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
-    token_hash = _hash_token(req.token)
+    token_hash = _hash_token(_normalize_raw_token(req.token))
     result = await db.execute(
         select(PasswordResetToken).where(
             PasswordResetToken.token_hash == token_hash,
@@ -691,12 +707,12 @@ async def reset_password(req: ResetPasswordRequest, db: AsyncSession = Depends(g
 
 @router.post("/verify-email")
 async def verify_email(req: VerifyEmailRequest, db: AsyncSession = Depends(get_db)):
-    token_hash = _hash_token(req.token)
+    token_hash = _hash_token(_normalize_raw_token(req.token))
+    now = datetime.now(UTC)
     result = await db.execute(
         select(EmailVerificationToken).where(
             EmailVerificationToken.token_hash == token_hash,
-            EmailVerificationToken.used_at.is_(None),
-            EmailVerificationToken.expires_at > datetime.now(UTC),
+            EmailVerificationToken.expires_at > now,
         )
     )
     token_record = result.scalars().first()
@@ -704,12 +720,16 @@ async def verify_email(req: VerifyEmailRequest, db: AsyncSession = Depends(get_d
         raise HTTPException(status_code=400, detail="Invalid or expired token")
 
     user = await db.get(User, token_record.user_id)
-    if not user:
+    if not user or not user.is_active:
         raise HTTPException(status_code=400, detail="Invalid or expired token")
 
+    if token_record.used_at is None:
+        token_record.used_at = now
+    already_verified = bool(user.email_verified)
     user.email_verified = True
-    token_record.used_at = datetime.now(UTC)
 
+    if already_verified:
+        return {"detail": "Email already verified"}
     return {"detail": "Email verified successfully"}
 
 

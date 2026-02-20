@@ -88,6 +88,7 @@ import Background from '../components/Background.svelte';
 
 <script>
   import { setToken } from '../utils/auth';
+  const LOGIN_PAGE_INIT_KEY = '__voidwireLoginInitKey';
 
   type OAuthProviders = {
     google?: { enabled?: boolean; client_id?: string };
@@ -165,6 +166,9 @@ import Background from '../components/Background.svelte';
 
   function initLoginPage(): void {
     if (window.location.pathname !== '/login') return;
+    const initKey = `${window.location.pathname}${window.location.search}`;
+    if ((window as any)[LOGIN_PAGE_INIT_KEY] === initKey) return;
+    (window as any)[LOGIN_PAGE_INIT_KEY] = initKey;
 
     const form = document.getElementById('login-form') as HTMLFormElement | null;
     const errorEl = document.getElementById('error-message') as HTMLDivElement | null;
@@ -182,7 +186,7 @@ import Background from '../components/Background.svelte';
     if (!form || !errorEl || !queryMessageEl || !resetPanel) return;
 
     const params = new URLSearchParams(window.location.search);
-    const verifyToken = params.get('verify_token');
+    const verifyToken = (params.get('verify_token') || '').trim().replace(/^[<>"']+|[<>"']+$/g, '');
     const resetToken = params.get('reset_token');
     let oauthInFlight = false;
 
