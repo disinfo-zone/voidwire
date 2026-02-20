@@ -20,7 +20,6 @@ from voidwire.models import (
     BatchRun,
     LLMConfig,
     PersonalReading,
-    Subscription,
     User,
     UserProfile,
 )
@@ -147,7 +146,7 @@ def _validate_reading_json(data: dict) -> None:
 # ---------------------------------------------------------------------------
 
 async def run_free_reading_batch(target_date: date | None = None) -> int:
-    """Generate free weekly readings for all eligible non-pro users.
+    """Generate free weekly readings for all eligible users.
 
     Returns the number of readings generated.
     """
@@ -200,17 +199,12 @@ async def run_free_reading_batch(target_date: date | None = None) -> int:
                 logger.info("personal readings disabled via pipeline settings; skipping free batch")
                 return 0
 
-            # ---- Identify free users (active, has profile, not pro, no pro_override) ----
-            pro_sub_ids = select(Subscription.user_id).where(
-                Subscription.status.in_(("active", "trialing"))
-            )
+            # ---- Identify eligible users (active + profile), including pro users ----
             result = await session.execute(
                 select(User, UserProfile)
                 .join(UserProfile, UserProfile.user_id == User.id)
                 .where(
                     User.is_active,
-                    User.pro_override.is_(False),
-                    User.id.notin_(pro_sub_ids),
                 )
             )
             user_profile_pairs: list[tuple[User, UserProfile]] = list(result.all())
@@ -222,7 +216,7 @@ async def run_free_reading_batch(target_date: date | None = None) -> int:
             free_users = list(deduped.values())
 
             if not free_users:
-                logger.info("No eligible free users with profiles; skipping free batch")
+                logger.info("No eligible users with profiles; skipping free batch")
                 return 0
 
             eligible_count = len(free_users)

@@ -34,6 +34,19 @@ async def _can_force_refresh_reading(user: User, db: AsyncSession) -> bool:
     )
 
 
+def _resolve_requested_tier(*, requested_tier: str, subscription_tier: str) -> str:
+    normalized_request = str(requested_tier or "auto").strip().lower() or "auto"
+    if normalized_request not in {"auto", "free", "pro"}:
+        raise HTTPException(status_code=400, detail="tier must be one of: auto, free, pro")
+
+    effective_subscription_tier = "pro" if str(subscription_tier).strip().lower() == "pro" else "free"
+    if normalized_request == "auto":
+        return effective_subscription_tier
+    if normalized_request == "pro" and effective_subscription_tier != "pro":
+        raise HTTPException(status_code=403, detail="Pro reading access requires a pro subscription")
+    return normalized_request
+
+
 def _coverage_window(reading: PersonalReading) -> tuple[date, date]:
     if reading.tier == "free":
         start = reading.date_context - timedelta(days=reading.date_context.weekday())
@@ -79,19 +92,24 @@ def _reading_payload(
 
 @router.get("/personal")
 async def get_current_personal_reading(
+    tier: str = Query(default="auto"),
     user: User = Depends(get_current_public_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get current personal reading. Daily for pro, weekly for free."""
+    """Get current personal reading for requested tier (auto/free/pro)."""
     if not user.profile:
         raise HTTPException(
             status_code=400,
             detail="Complete your birth data profile first",
         )
 
-    tier = await get_user_tier(user, db)
+    subscription_tier = await get_user_tier(user, db)
+    effective_tier = _resolve_requested_tier(
+        requested_tier=tier,
+        subscription_tier=subscription_tier,
+    )
 
-    if tier == "pro":
+    if effective_tier == "pro":
         reading = await PersonalReadingService.get_or_generate_pro_reading(user, db)
     else:
         reading = await PersonalReadingService.get_or_generate_free_reading(user, db)
@@ -108,6 +126,7 @@ async def get_current_personal_reading(
 
 @router.get("/personal/current")
 async def get_current_personal_reading_without_generation(
+    tier: str = Query(default="auto"),
     user: User = Depends(get_current_public_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -117,7 +136,11 @@ async def get_current_personal_reading_without_generation(
             detail="Complete your birth data profile first",
         )
 
-    tier = await get_user_tier(user, db)
+    subscription_tier = await get_user_tier(user, db)
+    effective_tier = _resolve_requested_tier(
+        requested_tier=tier,
+        subscription_tier=subscription_tier,
+    )
     include_template_version = await _can_force_refresh_reading(user, db)
     today = date.today()
     target_week = today.isocalendar()
@@ -125,14 +148,14 @@ async def get_current_personal_reading_without_generation(
         select(PersonalReading)
         .where(
             PersonalReading.user_id == user.id,
-            PersonalReading.tier == tier,
+            PersonalReading.tier == effective_tier,
         )
         .order_by(PersonalReading.created_at.desc())
         .limit(20)
     )
     candidates = result.scalars().all()
     for reading in candidates:
-        if tier == "free":
+        if effective_tier == "free":
             iso = reading.date_context.isocalendar()
             if (iso[0], iso[1]) == (target_week[0], target_week[1]):
                 return _reading_payload(
@@ -161,8 +184,6 @@ async def enqueue_personal_reading_generation(
         )
 
     requested_tier = str(req.tier or "auto").strip().lower() or "auto"
-    if requested_tier not in {"auto", "free", "pro"}:
-        raise HTTPException(status_code=400, detail="tier must be one of: auto, free, pro")
     force_refresh = bool(req.force_refresh)
     if force_refresh and not await _can_force_refresh_reading(user, db):
         raise HTTPException(
@@ -170,9 +191,11 @@ async def enqueue_personal_reading_generation(
             detail="Force refresh is only available for admin/test users",
         )
 
-    tier = requested_tier
-    if tier == "auto":
-        tier = await get_user_tier(user, db)
+    subscription_tier = await get_user_tier(user, db)
+    tier = _resolve_requested_tier(
+        requested_tier=requested_tier,
+        subscription_tier=subscription_tier,
+    )
 
     job = await enqueue_personal_reading_job(
         db,

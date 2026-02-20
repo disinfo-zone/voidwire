@@ -242,12 +242,13 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
   let currentUserTier: ReadingTier = 'free';
   let canManageReadings = false;
   let activeJobId: string | null = null;
-  let activeJobTier: ReadingTier | 'auto' = 'auto';
+  let activeJobTier: ReadingTier | null = null;
   let readingPollTimer: number | null = null;
   let companionJobId: string | null = null;
   let companionJobTier: ReadingTier | null = null;
   let companionPollTimer: number | null = null;
   let readingPollStartedAt = 0;
+  let companionPollStartedAt = 0;
   let readingsByTier: Record<ReadingTier, ReadingPayload | null> = { free: null, pro: null };
   let activeReadingTier: ReadingTier | null = null;
   let cachedChart: Record<string, unknown> | null = null;
@@ -697,18 +698,25 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       document.getElementById('generate-reading-btn')?.addEventListener('click', async () => {
         if (!hasProfile || !canManageReadings) return;
         stopReadingPolling();
-        activeJobId = null;
+        const targetTier: ReadingTier =
+          currentUserTier === 'pro' ? activeReadingTier || 'pro' : 'free';
         updateReadingStatus('Requesting a fresh transmission\u2026');
         renderReadingMessage('Clearing the channel for a new transmission\u2026');
         try {
-          activeJobId = await enqueueOrReuseReadingJob({ forceRefresh: true, reuseActive: false });
-          readingPollStartedAt = Date.now();
-          await pollReadingJob();
-          if (activeJobId) {
-            readingPollTimer = window.setInterval(() => {
-              void pollReadingJob();
-            }, 4000);
+          const jobId = await enqueueOrReuseReadingJob({
+            tier: targetTier,
+            forceRefresh: true,
+            reuseActive: false,
+          });
+          if (targetTier === 'free') {
+            readingsByTier.free = null;
+          } else {
+            readingsByTier.pro = null;
           }
+          if (currentUserTier === 'pro') {
+            setActiveReadingTier(targetTier);
+          }
+          startPrimaryReadingPolling(jobId, targetTier);
         } catch (err) {
           renderReadingMessage(err instanceof Error ? err.message : 'The reading could not be channeled');
           updateReadingStatus('The signal was lost in the void.');
@@ -872,6 +880,9 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     if (view === 'settings' && hasProfile) {
       void ensureNatalChartLoaded();
     }
+    if (view === 'reading') {
+      updateReadingTierToggle();
+    }
   }
 
   function updateReadingStatus(message: string) {
@@ -924,6 +935,15 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     if (tier === 'free') {
       renderReadingMessage('Weekly reading is syncing in the background. It will appear shortly.');
       updateReadingStatus('Syncing weekly reading...');
+      if (!companionJobId && hasProfile && currentUserTier === 'pro') {
+        enqueueOrReuseReadingJob({ tier: 'free' })
+          .then((jobId) => {
+            startCompanionReadingPolling(jobId, 'free');
+          })
+          .catch((err) => {
+            console.warn('Could not start weekly sync', err);
+          });
+      }
       return;
     }
     renderReadingMessage('Attuning to your daily transmission...');
@@ -1094,12 +1114,33 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     }
   }
 
-  function stopReadingPolling() {
+  function readingTierLabel(tier: ReadingTier): string {
+    return tier === 'pro' ? 'daily' : 'weekly';
+  }
+
+  function stopPrimaryReadingPolling() {
     if (readingPollTimer !== null) {
       window.clearInterval(readingPollTimer);
       readingPollTimer = null;
     }
     activeJobId = null;
+    activeJobTier = null;
+    readingPollStartedAt = 0;
+  }
+
+  function stopCompanionReadingPolling() {
+    if (companionPollTimer !== null) {
+      window.clearInterval(companionPollTimer);
+      companionPollTimer = null;
+    }
+    companionJobId = null;
+    companionJobTier = null;
+    companionPollStartedAt = 0;
+  }
+
+  function stopReadingPolling() {
+    stopPrimaryReadingPolling();
+    stopCompanionReadingPolling();
   }
 
   function downloadBlob(filename: string, blob: Blob) {
@@ -1162,22 +1203,29 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     readingContent.innerHTML = `<p class="muted">${escapeHtml(message)}</p>`;
   }
 
-  async function fetchCurrentReading(): Promise<ReadingPayload | null> {
-    const readingRes = await authFetch('/v1/user/readings/personal/current');
+  async function fetchCurrentReading(tier: ReadingTier | 'auto' = 'auto'): Promise<ReadingPayload | null> {
+    const readingRes = await authFetch(
+      `/v1/user/readings/personal/current?tier=${encodeURIComponent(tier)}`,
+    );
     if (readingRes.status === 404) return null;
     if (readingRes.status === 503) {
-      renderReadingMessage('Personal reading LLM slot is not configured yet. Ask your admin to configure personal_free/personal_pro.');
-      updateReadingStatus('Reading generation unavailable.');
-      throw new Error('Reading generation unavailable');
+      throw new Error(
+        `Personal ${readingTierLabel(resolvedReadingTier(tier))} reading generation is unavailable. Configure personal_free/personal_pro.`,
+      );
     }
     if (!readingRes.ok) {
       const data = await readingRes.json().catch(() => ({}));
       throw new Error(data?.detail || 'Could not load reading');
     }
-    return await readingRes.json();
+    return (await readingRes.json()) as ReadingPayload;
   }
 
-  async function enqueueOrReuseReadingJob(options?: { forceRefresh?: boolean; reuseActive?: boolean }) {
+  async function enqueueOrReuseReadingJob(options?: {
+    tier?: ReadingTier | 'auto';
+    forceRefresh?: boolean;
+    reuseActive?: boolean;
+  }) {
+    const tier = options?.tier || 'auto';
     const forceRefresh = Boolean(options?.forceRefresh);
     const reuseActive = options?.reuseActive !== false;
     if (reuseActive) {
@@ -1186,12 +1234,15 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         const jobs = await jobsRes.json();
         if (Array.isArray(jobs)) {
           const today = new Date().toISOString().slice(0, 10);
+          const expectedTier = tier === 'auto' ? null : tier;
           const active = jobs.find((job: any) => {
             const jobForce = Boolean(job?.payload?.force_refresh);
+            const jobTier = resolvedReadingTier(job?.payload?.tier);
             return (
               (job.status === 'queued' || job.status === 'running') &&
               String(job?.payload?.target_date || '') === today &&
-              jobForce === forceRefresh
+              jobForce === forceRefresh &&
+              (expectedTier === null || expectedTier === jobTier)
             );
           });
           if (active?.id) return String(active.id);
@@ -1200,7 +1251,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     }
     const createRes = await authFetch('/v1/user/readings/personal/jobs', {
       method: 'POST',
-      body: JSON.stringify({ tier: 'auto', force_refresh: forceRefresh }),
+      body: JSON.stringify({ tier, force_refresh: forceRefresh }),
     });
     if (!createRes.ok) {
       const data = await createRes.json().catch(() => ({}));
@@ -1211,8 +1262,9 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     return String(job.id);
   }
 
-  async function pollReadingJob() {
-    if (!activeJobId) return;
+  async function pollPrimaryReadingJob() {
+    if (!activeJobId || !activeJobTier) return;
+    const tier = activeJobTier;
     const elapsed = Math.max(Math.round((Date.now() - readingPollStartedAt) / 1000), 1);
     const statusRes = await authFetch(`/v1/user/readings/personal/jobs/${activeJobId}`);
     if (!statusRes.ok) {
@@ -1222,21 +1274,29 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const job = await statusRes.json();
     const jobStatus = String(job?.status || 'queued');
     if (jobStatus === 'queued' || jobStatus === 'running') {
-      updateReadingStatus(`Channeling the celestial signal\u2026 ${elapsed}s elapsed. Deep readings may take a few minutes.`);
+      updateReadingStatus(
+        `Channeling your ${readingTierLabel(tier)} transmission\u2026 ${elapsed}s elapsed. Deep readings may take a few minutes.`,
+      );
       return;
     }
     if (jobStatus === 'failed') {
-      stopReadingPolling();
+      stopPrimaryReadingPolling();
       const message = String(job?.error_message || 'The reading could not be channeled');
       renderReadingMessage(message);
       updateReadingStatus('The signal was lost in the void.');
       return;
     }
     if (jobStatus === 'completed') {
-      stopReadingPolling();
-      const reading = await fetchCurrentReading();
+      stopPrimaryReadingPolling();
+      const reading = await fetchCurrentReading(tier);
       if (reading) {
-        renderReading(reading);
+        readingsByTier[tier] = reading;
+        syncRenderedReading();
+        if (companionJobId && companionJobTier === 'free' && !readingsByTier.free && activeReadingTier === 'free') {
+          updateReadingStatus('Syncing weekly reading...');
+        } else {
+          updateReadingStatus('');
+        }
       } else {
         renderReadingMessage('The transmission has arrived but has not yet materialized. Refresh in a moment.');
         updateReadingStatus('Transmission received. Awaiting materialization.');
@@ -1244,32 +1304,145 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     }
   }
 
+  async function pollCompanionReadingJob() {
+    if (!companionJobId || !companionJobTier) return;
+    const tier = companionJobTier;
+    const elapsed = Math.max(Math.round((Date.now() - companionPollStartedAt) / 1000), 1);
+    const statusRes = await authFetch(`/v1/user/readings/personal/jobs/${companionJobId}`);
+    if (!statusRes.ok) return;
+
+    const job = await statusRes.json();
+    const jobStatus = String(job?.status || 'queued');
+    if (jobStatus === 'queued' || jobStatus === 'running') {
+      if (activeReadingTier === tier && !readingsByTier[tier]) {
+        updateReadingStatus(`Syncing ${readingTierLabel(tier)} reading\u2026 ${elapsed}s elapsed.`);
+      }
+      return;
+    }
+    if (jobStatus === 'failed') {
+      stopCompanionReadingPolling();
+      if (activeReadingTier === tier && !readingsByTier[tier]) {
+        renderReadingMessage('Weekly reading sync failed. Try refreshing in a moment.');
+        updateReadingStatus('Weekly sync failed.');
+      }
+      return;
+    }
+    if (jobStatus === 'completed') {
+      stopCompanionReadingPolling();
+      const reading = await fetchCurrentReading(tier);
+      if (reading) {
+        readingsByTier[tier] = reading;
+        syncRenderedReading();
+      }
+      if (!activeJobId) {
+        updateReadingStatus('');
+      }
+    }
+  }
+
+  function startPrimaryReadingPolling(jobId: string, tier: ReadingTier) {
+    stopPrimaryReadingPolling();
+    activeJobId = jobId;
+    activeJobTier = tier;
+    readingPollStartedAt = Date.now();
+    void pollPrimaryReadingJob();
+    readingPollTimer = window.setInterval(() => {
+      void pollPrimaryReadingJob();
+    }, 4000);
+  }
+
+  function startCompanionReadingPolling(jobId: string, tier: ReadingTier) {
+    stopCompanionReadingPolling();
+    companionJobId = jobId;
+    companionJobTier = tier;
+    companionPollStartedAt = Date.now();
+    void pollCompanionReadingJob();
+    companionPollTimer = window.setInterval(() => {
+      void pollCompanionReadingJob();
+    }, 4000);
+  }
+
   async function startReadingFlow() {
     if (!hasProfile) return;
     updateReadingStatus('Scanning the celestial wire\u2026');
     try {
-      const reading = await fetchCurrentReading();
-      if (reading) {
-        renderReading(reading);
-        stopReadingPolling();
+      stopReadingPolling();
+      readingsByTier = { free: null, pro: null };
+      activeReadingTier = currentUserTier === 'pro' ? 'pro' : 'free';
+      updateReadingTierToggle();
+
+      if (currentUserTier === 'pro') {
+        const [dailyResult, weeklyResult] = await Promise.allSettled([
+          fetchCurrentReading('pro'),
+          fetchCurrentReading('free'),
+        ]);
+
+        if (dailyResult.status === 'fulfilled' && dailyResult.value) {
+          readingsByTier.pro = dailyResult.value;
+        }
+        if (weeklyResult.status === 'fulfilled' && weeklyResult.value) {
+          readingsByTier.free = weeklyResult.value;
+        }
+
+        const dailyError = dailyResult.status === 'rejected' ? dailyResult.reason : null;
+        const weeklyError = weeklyResult.status === 'rejected' ? weeklyResult.reason : null;
+
+        if (!readingsByTier.pro && dailyError && !readingsByTier.free) {
+          throw dailyError;
+        }
+
+        syncRenderedReading();
+
+        if (!readingsByTier.pro) {
+          renderReadingMessage('Attuning to your daily transmission\u2026');
+          const dailyJobId = await enqueueOrReuseReadingJob({ tier: 'pro' });
+          startPrimaryReadingPolling(dailyJobId, 'pro');
+          updateReadingStatus('Awaiting celestial alignment\u2026');
+        } else {
+          updateReadingStatus('');
+        }
+
+        if (!readingsByTier.free) {
+          if (weeklyError) {
+            console.warn('Weekly reading fetch failed', weeklyError);
+          }
+          try {
+            const weeklyJobId = await enqueueOrReuseReadingJob({ tier: 'free' });
+            startCompanionReadingPolling(weeklyJobId, 'free');
+            if (activeReadingTier === 'free') {
+              renderReadingMessage('Weekly reading is syncing in the background. It will appear shortly.');
+              updateReadingStatus('Syncing weekly reading...');
+            }
+          } catch (err) {
+            console.warn('Could not enqueue weekly reading sync', err);
+            if (!readingsByTier.pro && activeReadingTier === 'free') {
+              throw err;
+            }
+          }
+        }
         return;
       }
 
       const readingContent = document.getElementById('reading-content');
+      const freeReading = await fetchCurrentReading('free');
+      if (freeReading) {
+        readingsByTier.free = freeReading;
+        syncRenderedReading();
+        updateReadingStatus('');
+        return;
+      }
       if (readingContent) {
         readingContent.innerHTML = '<div class="loading">Attuning to your natal frequency\u2026</div>';
       }
-      stopReadingPolling();
-      activeJobId = await enqueueOrReuseReadingJob();
-      readingPollStartedAt = Date.now();
+      const freeJobId = await enqueueOrReuseReadingJob({ tier: 'free' });
       updateReadingStatus('Awaiting celestial alignment\u2026');
-      await pollReadingJob();
-      if (activeJobId) {
-        readingPollTimer = window.setInterval(() => {
-          void pollReadingJob();
-        }, 4000);
-      }
+      startPrimaryReadingPolling(freeJobId, 'free');
     } catch (err) {
+      if (readingsByTier.pro || readingsByTier.free) {
+        syncRenderedReading();
+        updateReadingStatus(err instanceof Error ? err.message : 'Could not load all readings.');
+        return;
+      }
       renderReadingMessage(err instanceof Error ? err.message : 'Could not load reading');
       updateReadingStatus('Could not load reading.');
     }
@@ -2557,7 +2730,12 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       currentDashboardUser = me;
       void loadBrandDomain();
       hasProfile = !!me.has_profile;
+      currentUserTier = me.tier === 'pro' ? 'pro' : 'free';
       canManageReadings = Boolean(me.is_admin_user || me.is_test_user);
+      readingsByTier = { free: null, pro: null };
+      activeReadingTier = currentUserTier === 'pro' ? 'pro' : 'free';
+      stopReadingPolling();
+      updateReadingTierToggle();
       setReadingActionVisibility();
       renderAccountPanel(me);
 
@@ -2571,6 +2749,9 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       if (!hasProfile) {
         resetChartOutputs();
         natalProfileCacheKey = null;
+        readingsByTier = { free: null, pro: null };
+        activeReadingTier = currentUserTier === 'pro' ? 'pro' : 'free';
+        updateReadingTierToggle();
         if (onboarding) {
           onboarding.style.display = 'block';
           onboarding.innerHTML = 'Set your birth data in Settings to unlock personalized readings.';
@@ -2660,6 +2841,18 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const viewSettingsBtn = document.getElementById('view-settings-btn');
     bindEventOnce(viewSettingsBtn, 'click', 'view-settings', () => {
       setView('settings');
+    });
+
+    const readingTierDailyBtn = document.getElementById('reading-tier-daily-btn');
+    bindEventOnce(readingTierDailyBtn, 'click', 'reading-tier-daily', () => {
+      if (currentUserTier !== 'pro') return;
+      setActiveReadingTier('pro');
+    });
+
+    const readingTierWeeklyBtn = document.getElementById('reading-tier-weekly-btn');
+    bindEventOnce(readingTierWeeklyBtn, 'click', 'reading-tier-weekly', () => {
+      if (currentUserTier !== 'pro') return;
+      setActiveReadingTier('free');
     });
 
     const toggleBirthFormBtn = document.getElementById('toggle-birth-form');
@@ -3208,6 +3401,38 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     color: var(--text-muted);
     text-align: center;
     margin-bottom: 0.5rem;
+  }
+
+  .reading-tier-toggle {
+    display: none;
+    justify-content: center;
+    gap: 0.5rem;
+    margin: 0 0 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .reading-tier-button {
+    background: transparent;
+    border: 1px solid var(--text-ghost);
+    color: var(--text-muted);
+    font-family: var(--font-sans);
+    font-size: 0.58rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    padding: 0.45rem 0.8rem;
+    cursor: pointer;
+    transition: border-color 0.2s ease, color 0.2s ease, background-color 0.2s ease;
+  }
+
+  .reading-tier-button.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-glow);
+  }
+
+  .reading-tier-button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 
   .reading-content :global(.loading),
@@ -4216,6 +4441,14 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
     .reading-content :global(.reading-meta) {
       margin-bottom: 0.75rem;
+    }
+
+    .reading-tier-toggle {
+      gap: 0.4rem;
+    }
+
+    .reading-tier-button {
+      min-width: 8.5rem;
     }
 
     .reading-content :global(.section-heading) {

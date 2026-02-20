@@ -337,36 +337,58 @@ const trackingBody = sanitizeTrackingSnippet(trackingBodyRaw);
     <script is:inline>
       (() => {
         var _authUser = null;
-        function injectDashboardLink() {
+        function syncAuthNavLinks() {
           var navs = document.querySelectorAll('.site-nav');
           if (!navs.length) return;
+          var path = window.location.pathname || '/';
+          var hideEnter = path === '/login' || path === '/register';
+
+          function ensureLink(nav, href, label, marker) {
+            var link = nav.querySelector('a[' + marker + '="1"]');
+            if (!link) {
+              link = document.createElement('a');
+              link.setAttribute(marker, '1');
+              nav.appendChild(link);
+            }
+            link.href = href;
+            link.textContent = label;
+            if (window.location.pathname === href) {
+              link.setAttribute('aria-current', 'page');
+            } else {
+              link.removeAttribute('aria-current');
+            }
+            return link;
+          }
+
           if (_authUser) {
             navs.forEach(function(nav) {
-              var link = nav.querySelector('a[href="/dashboard"]');
-              if (!link) {
-                link = document.createElement('a');
-                link.href = '/dashboard';
-                link.textContent = 'Dashboard';
-                nav.appendChild(link);
+              var guestLink = nav.querySelector('a[data-auth-guest-link="1"]');
+              if (guestLink) guestLink.remove();
+              ensureLink(nav, '/dashboard', 'Dashboard', 'data-auth-dashboard-link');
+            });
+          } else if (_authUser === false) {
+            navs.forEach(function(nav) {
+              var dashLink = nav.querySelector('a[data-auth-dashboard-link="1"]');
+              if (dashLink) dashLink.remove();
+              var existingGuest = nav.querySelector('a[data-auth-guest-link="1"]');
+              if (hideEnter) {
+                if (existingGuest) existingGuest.remove();
+                return;
               }
-              if (window.location.pathname === '/dashboard') {
-                link.setAttribute('aria-current', 'page');
-              } else {
-                link.removeAttribute('aria-current');
-              }
+              ensureLink(nav, '/login', 'Enter', 'data-auth-guest-link');
             });
           } else if (_authUser === null) {
             fetch('/v1/user/auth/me', { credentials: 'include' })
               .then(function(res) { return res.ok ? res.json() : null; })
               .then(function(me) {
                 _authUser = me?.id ? me : false;
-                if (_authUser) injectDashboardLink();
+                syncAuthNavLinks();
               })
-              .catch(function() { _authUser = false; });
+              .catch(function() { _authUser = false; syncAuthNavLinks(); });
           }
         }
-        injectDashboardLink();
-        document.addEventListener('astro:page-load', injectDashboardLink);
+        syncAuthNavLinks();
+        document.addEventListener('astro:page-load', syncAuthNavLinks);
       })();
     </script>
     {trackingBody && <Fragment set:html={trackingBody} />}

@@ -108,6 +108,13 @@ async def test_enqueue_personal_job_force_refresh_rejected_for_regular_user(
 
 
 @pytest.mark.asyncio
+async def test_enqueue_personal_job_rejects_pro_tier_for_free_user(user_client: AsyncClient):
+    with patch("api.routers.user_readings.get_user_tier", new=AsyncMock(return_value="free")):
+        response = await user_client.post("/v1/user/readings/personal/jobs", json={"tier": "pro"})
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_get_personal_job_invalid_uuid_returns_404(user_client: AsyncClient):
     response = await user_client.get("/v1/user/readings/personal/jobs/not-a-uuid")
     assert response.status_code == 404
@@ -134,6 +141,40 @@ async def test_get_current_personal_reading_returns_404_when_missing(user_client
     with patch("api.routers.user_readings.get_user_tier", new=AsyncMock(return_value="pro")):
         response = await user_client.get("/v1/user/readings/personal/current")
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_current_personal_reading_rejects_pro_tier_for_free_user(user_client: AsyncClient):
+    with patch("api.routers.user_readings.get_user_tier", new=AsyncMock(return_value="free")):
+        response = await user_client.get("/v1/user/readings/personal/current?tier=pro")
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_get_current_personal_reading_allows_weekly_for_pro_user(user_client: AsyncClient, mock_db):
+    today = date.today()
+    fake_reading = SimpleNamespace(
+        id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        tier="free",
+        date_context=today,
+        content={
+            "title": "Weekly",
+            "body": "Body",
+            "sections": [],
+            "word_count": 420,
+            "transit_highlights": [],
+        },
+        house_system_used="placidus",
+        created_at=datetime(2026, 2, 16, tzinfo=UTC),
+    )
+    db_result = MagicMock()
+    db_result.scalars.return_value.all.return_value = [fake_reading]
+    mock_db.execute.return_value = db_result
+    with patch("api.routers.user_readings.get_user_tier", new=AsyncMock(return_value="pro")):
+        response = await user_client.get("/v1/user/readings/personal/current?tier=free")
+    assert response.status_code == 200
+    assert response.json()["tier"] == "free"
 
 
 @pytest.mark.asyncio
