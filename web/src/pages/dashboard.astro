@@ -188,8 +188,9 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
   let chartBrandDomain = 'voidwire.app';
   let natalChartLoaded = false;
   let natalChartLoadPromise: Promise<boolean> | null = null;
-  let natalChartWarmupTimer: number | null = null;
   let transitWheelCtorPromise: Promise<any> | null = null;
+  let currentUserId: string | null = null;
+  let natalProfileCacheKey: string | null = null;
   const SIGN_ORDER = [
     'Aries',
     'Taurus',
@@ -329,6 +330,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     Leo: 'Sun', Virgo: 'Mercury', Libra: 'Venus', Scorpio: 'Pluto',
     Sagittarius: 'Jupiter', Capricorn: 'Saturn', Aquarius: 'Uranus', Pisces: 'Neptune',
   };
+  const NATAL_CACHE_NS = 'voidwire:natal-chart:v1:';
 
   function getDignity(body: string, sign: string): string | null {
     const entry = DIGNITY_TABLE[body];
@@ -649,6 +651,63 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     }
   }
 
+  function natalStorageKey(): string | null {
+    if (!currentUserId) return null;
+    return `${NATAL_CACHE_NS}${currentUserId}`;
+  }
+
+  function buildNatalProfileCacheKey(profile: Record<string, unknown> | null | undefined): string {
+    const p = profile || {};
+    const parts = [
+      String(p.birth_date || ''),
+      String(p.birth_time_known || ''),
+      String(p.birth_time || ''),
+      String(p.birth_city || ''),
+      String(p.birth_latitude || ''),
+      String(p.birth_longitude || ''),
+      String(p.birth_timezone || ''),
+      String(p.house_system || ''),
+      String(p.natal_chart_computed_at || ''),
+    ];
+    return parts.join('|');
+  }
+
+  function readNatalChartFromStorage(): Record<string, unknown> | null {
+    const key = natalStorageKey();
+    if (!key || !natalProfileCacheKey) return null;
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { profile_key?: string; chart?: Record<string, unknown> };
+      if (!parsed || parsed.profile_key !== natalProfileCacheKey || !parsed.chart || typeof parsed.chart !== 'object') {
+        window.localStorage.removeItem(key);
+        return null;
+      }
+      return parsed.chart;
+    } catch {
+      return null;
+    }
+  }
+
+  function hasPartOfFortune(chart: Record<string, unknown>): boolean {
+    const positions = Array.isArray((chart as any)?.positions) ? ((chart as any).positions as any[]) : [];
+    return positions.some((p) => String(p?.body || '').toLowerCase() === 'part_of_fortune');
+  }
+
+  function writeNatalChartToStorage(chart: Record<string, unknown>) {
+    const key = natalStorageKey();
+    if (!key || !natalProfileCacheKey) return;
+    try {
+      const payload = JSON.stringify({
+        profile_key: natalProfileCacheKey,
+        chart,
+      });
+      window.localStorage.setItem(key, payload);
+    } catch {
+      // Best effort: ignore storage write failures.
+    }
+  }
+
   async function loadTransitWheelCtor() {
     if (!transitWheelCtorPromise) {
       transitWheelCtorPromise = import('../components/TransitWheel.svelte').then((mod) => mod.default);
@@ -661,17 +720,9 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     new TransitWheelCtor({ target, props });
   }
 
-  async function ensureNatalChartLoaded(options?: { background?: boolean }) {
+  async function ensureNatalChartLoaded() {
     if (!hasProfile) return false;
     if (natalChartLoaded && cachedChart) return true;
-    if (natalChartWarmupTimer !== null) {
-      if (typeof (window as any).cancelIdleCallback === 'function') {
-        (window as any).cancelIdleCallback(natalChartWarmupTimer);
-      } else {
-        window.clearTimeout(natalChartWarmupTimer);
-      }
-      natalChartWarmupTimer = null;
-    }
     if (!natalChartLoadPromise) {
       natalChartLoadPromise = loadNatalChart()
         .then((loaded) => {
@@ -683,19 +734,6 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
         });
     }
     return await natalChartLoadPromise;
-  }
-
-  function scheduleNatalChartWarmup() {
-    if (!hasProfile || natalChartLoaded || natalChartLoadPromise || natalChartWarmupTimer !== null) return;
-    const warmup = () => {
-      natalChartWarmupTimer = null;
-      void ensureNatalChartLoaded({ background: true });
-    };
-    if (typeof (window as any).requestIdleCallback === 'function') {
-      natalChartWarmupTimer = (window as any).requestIdleCallback(warmup, { timeout: 2500 });
-    } else {
-      natalChartWarmupTimer = window.setTimeout(warmup, 1200);
-    }
   }
 
   function setView(view: 'reading' | 'settings') {
@@ -749,7 +787,6 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const readingContent = document.getElementById('reading-content');
     if (!readingContent) return;
 
-    const tierLabel = reading.tier === 'pro' ? 'Daily Pro Reading' : 'Weekly Reading';
     const bodyHtml = paragraphsToHtml(reading.body);
     const sections = Array.isArray(reading.sections) ? reading.sections : [];
     const sectionsHtml = sections.length > 0 ? sections.map((s) => sectionToHtml(s)).join('') : '';
@@ -767,7 +804,6 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     }
 
     readingContent.innerHTML = `
-      <div class="reading-tier-badge">${escapeHtml(tierLabel)}</div>
       <h2 class="reading-title">${safeTitle}</h2>
       <div class="reading-meta">${safeDateContext}${safeCoverage ? ` · ${safeCoverage}` : ''} · ${safeWordCount} words</div>
       <div class="reading-body">${bodyHtml}</div>
@@ -910,12 +946,21 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     const exportImageButton = document.getElementById('export-chart-image-btn') as HTMLButtonElement | null;
     if (chartStatus) chartStatus.style.display = 'block';
     try {
-      const res = await authFetch('/v1/user/profile/natal-chart');
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.detail || 'Could not load chart');
+      let chart = readNatalChartFromStorage();
+      if (chart && !hasPartOfFortune(chart)) {
+        chart = null;
       }
-      const chart = await res.json();
+      if (!chart) {
+        const res = await authFetch('/v1/user/profile/natal-chart');
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.detail || 'Could not load chart');
+        }
+        chart = await res.json();
+        if (chart && typeof chart === 'object') {
+          writeNatalChartToStorage(chart as Record<string, unknown>);
+        }
+      }
       cachedChart = chart;
       const positions = Array.isArray(chart?.positions) ? chart.positions : [];
       const angles = Array.isArray(chart?.angles) ? chart.angles : [];
@@ -1726,7 +1771,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
   async function loadTransitOverlay() {
     if (!hasProfile) return;
     if (!cachedChart) {
-      const loaded = await ensureNatalChartLoaded({ background: true });
+      const loaded = await ensureNatalChartLoaded();
       if (!loaded || !cachedChart) return;
     }
     const overlay = document.getElementById('transit-overlay');
@@ -2172,6 +2217,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       }
 
       const me = (await meRes.json()) as DashboardUser;
+      currentUserId = me.id;
       void loadBrandDomain();
       hasProfile = !!me.has_profile;
       canManageReadings = Boolean(me.is_admin_user || me.is_test_user);
@@ -2198,6 +2244,9 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       const viewReadingButton = document.getElementById('view-reading-btn') as HTMLButtonElement | null;
 
       if (!hasProfile) {
+        cachedChart = null;
+        natalChartLoaded = false;
+        natalProfileCacheKey = null;
         if (onboarding) {
           onboarding.style.display = 'block';
           onboarding.innerHTML = 'Set your birth data in Settings to unlock personalized readings.';
@@ -2234,6 +2283,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
       const profileRes = await authFetch('/v1/user/profile/');
       if (profileRes.ok) {
         const profile = await profileRes.json();
+        natalProfileCacheKey = buildNatalProfileCacheKey(profile);
         if (profileStatus) {
           profileStatus.innerHTML = `
             <div class="profile-summary">
@@ -2244,13 +2294,14 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
             </div>
           `;
         }
+      } else {
+        natalProfileCacheKey = null;
       }
       if (toggleBirthFormButton) toggleBirthFormButton.style.display = 'inline-flex';
       if (birthFormWrapper) birthFormWrapper.style.display = 'none';
 
       setView('reading');
       await startReadingFlow();
-      scheduleNatalChartWarmup();
     } catch (err) {
       console.error('Dashboard load error:', err);
       renderReadingMessage('Could not load dashboard.');
@@ -2627,16 +2678,6 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     color: var(--text-muted);
     text-align: center;
     padding: 2rem;
-  }
-
-  .reading-content :global(.reading-tier-badge) {
-    font-family: var(--font-sans);
-    font-size: 0.55rem;
-    letter-spacing: 0.3em;
-    text-transform: uppercase;
-    color: var(--accent);
-    text-align: center;
-    margin-bottom: 0.75rem;
   }
 
   .reading-content :global(.reading-title) {

@@ -340,23 +340,20 @@ const trackingBody = sanitizeTrackingSnippet(trackingBodyRaw);
         function injectDashboardLink() {
           var navs = document.querySelectorAll('.site-nav');
           if (!navs.length) return;
-          var onDashboard = window.location.pathname === '/dashboard';
-          if (onDashboard) {
-            navs.forEach(function(nav) {
-              nav.querySelectorAll('a[href="/dashboard"]').forEach(function(link) { link.remove(); });
-            });
-            return;
-          }
           if (_authUser) {
             navs.forEach(function(nav) {
-              if (nav.querySelector('a[href="/dashboard"]')) return;
-              var link = document.createElement('a');
-              link.href = '/dashboard';
-              link.textContent = 'Dashboard';
+              var link = nav.querySelector('a[href="/dashboard"]');
+              if (!link) {
+                link = document.createElement('a');
+                link.href = '/dashboard';
+                link.textContent = 'Dashboard';
+                nav.appendChild(link);
+              }
               if (window.location.pathname === '/dashboard') {
                 link.setAttribute('aria-current', 'page');
+              } else {
+                link.removeAttribute('aria-current');
               }
-              nav.appendChild(link);
             });
           } else if (_authUser === null) {
             fetch('/v1/user/auth/me', { credentials: 'include' })
