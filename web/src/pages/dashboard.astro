@@ -3350,12 +3350,11 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
   .view-toggle {
     display: flex;
-    width: min(100%, 19.5rem);
-    margin: 0.08rem auto 0;
+    width: min(100%, 19rem);
+    margin: 0.06rem auto 0;
     border: 1px solid var(--text-ghost);
     border-radius: 1px;
-    background: rgba(8, 13, 31, 0.38);
-    box-shadow: 0 4px 12px rgba(3, 6, 18, 0.24);
+    background: rgba(8, 13, 31, 0.28);
     overflow: hidden;
   }
 
@@ -3381,7 +3380,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    transition: color 0.2s ease, background-color 0.2s ease, box-shadow 0.22s ease;
+    transition: color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
   }
 
   .view-toggle-button + .view-toggle-button,
@@ -3392,14 +3391,14 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
   .view-toggle-button:hover:not(:disabled):not(.active),
   .reading-tier-button:hover:not(:disabled):not(.active) {
     color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(255, 255, 255, 0.02);
   }
 
   .view-toggle-button.active,
   .reading-tier-button.active {
     color: var(--accent);
-    background: rgba(214, 175, 114, 0.12);
-    box-shadow: inset 0 0 0 1px rgba(214, 175, 114, 0.28);
+    background: rgba(214, 175, 114, 0.1);
+    box-shadow: inset 0 0 0 1px rgba(214, 175, 114, 0.2);
   }
 
   .view-toggle-button:disabled,
@@ -3440,20 +3439,20 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     display: none;
     justify-content: center;
     gap: 0;
-    width: min(100%, 17.5rem);
-    margin: 0.02rem auto 0.78rem;
+    width: min(100%, 15.8rem);
+    margin: 0.01rem auto 0.72rem;
     border: 1px solid var(--text-ghost);
     border-radius: 1px;
-    background: rgba(8, 13, 31, 0.32);
-    box-shadow: 0 3px 10px rgba(3, 6, 18, 0.2);
+    background: rgba(8, 13, 31, 0.24);
     overflow: hidden;
   }
 
   .reading-tier-button {
-    min-height: 1.78rem;
-    padding: 0.42rem 0.5rem;
-    font-size: 0.53rem;
-    letter-spacing: 0.13em;
+    min-height: 1.56rem;
+    padding: 0.3rem 0.42rem;
+    font-size: 0.47rem;
+    letter-spacing: 0.115em;
+    font-weight: 500;
   }
 
   .reading-content :global(.loading),
@@ -4466,7 +4465,7 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
 
     .reading-tier-toggle {
       width: 100%;
-      margin-bottom: 0.68rem;
+      margin-bottom: 0.62rem;
     }
 
     .view-toggle-button {
@@ -4477,10 +4476,10 @@ import SubscriptionManager from '../components/SubscriptionManager.svelte';
     }
 
     .reading-tier-button {
-      padding: 0.4rem 0.45rem;
-      min-height: 1.68rem;
-      letter-spacing: 0.115em;
-      font-size: 0.49rem;
+      padding: 0.28rem 0.38rem;
+      min-height: 1.46rem;
+      letter-spacing: 0.1em;
+      font-size: 0.45rem;
     }
 
     .reading-content :global(.section-heading) {
