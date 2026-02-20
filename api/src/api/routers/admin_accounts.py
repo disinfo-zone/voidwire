@@ -9,10 +9,21 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from voidwire.models import AdminUser, AsyncJob, AuditLog, DiscountCode, Subscription, User
+from voidwire.models import (
+    AdminUser,
+    AsyncJob,
+    AuditLog,
+    DiscountCode,
+    EmailVerificationToken,
+    PasswordResetToken,
+    PersonalReading,
+    Subscription,
+    User,
+    UserProfile,
+)
 
 from api.dependencies import get_db, require_admin
 from api.middleware.auth import hash_password
@@ -452,10 +463,40 @@ async def delete_user(
         persisted = await db.get(User, user_id)
         if not persisted:
             return {"status": "deleted", "user_id": str(user_id)}
-        persisted.is_active = False
-        persisted.token_version = int(persisted.token_version or 0) + 1
         try:
-            await db.flush()
+            # Cleanup dependent rows that may block hard delete on legacy constraints.
+            await db.execute(delete(UserProfile).where(UserProfile.user_id == user_id))
+            await db.execute(delete(Subscription).where(Subscription.user_id == user_id))
+            await db.execute(delete(PersonalReading).where(PersonalReading.user_id == user_id))
+            await db.execute(
+                delete(EmailVerificationToken).where(EmailVerificationToken.user_id == user_id)
+            )
+            await db.execute(delete(PasswordResetToken).where(PasswordResetToken.user_id == user_id))
+            await db.execute(delete(AsyncJob).where(AsyncJob.user_id == user_id))
+
+            # Soft-delete fallback via direct SQL update for maximum resilience.
+            await db.execute(
+                update(User)
+                .where(User.id == user_id)
+                .values(
+                    is_active=False,
+                    token_version=func.coalesce(User.token_version, 0) + 1,
+                    password_hash=None,
+                    google_id=None,
+                    apple_id=None,
+                    display_name=None,
+                    email_verified=False,
+                    pro_override=False,
+                    pro_override_reason=None,
+                    pro_override_until=None,
+                    email=f"deleted+{str(user_id).replace('-', '')}@voidwire.local",
+                )
+            )
+            await db.commit()
+        except Exception as exc:
+            await db.rollback()
+            raise HTTPException(status_code=500, detail="Failed to delete or deactivate user") from exc
+        try:
             db.add(
                 AuditLog(
                     user_id=admin.id,
@@ -465,12 +506,11 @@ async def delete_user(
                     detail={"reason": "delete_integrity_fallback"},
                 )
             )
-            await db.flush()
             await db.commit()
-            return {"status": "deactivated", "user_id": str(user_id)}
-        except Exception as exc:
+        except Exception:
+            # Audit failures should never fail account deletion flows.
             await db.rollback()
-            raise HTTPException(status_code=500, detail="Failed to delete or deactivate user") from exc
+        return {"status": "deactivated", "user_id": str(user_id)}
 
 
 @router.get("/admin-users")

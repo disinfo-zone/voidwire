@@ -1028,22 +1028,15 @@ class TestAccountsAPI:
         fake_user = MagicMock()
         fake_user.id = uuid.uuid4()
         fake_user.email = "delete-fallback@test.local"
-        fake_user.is_active = True
-        fake_user.token_version = 2
         mock_db.get.side_effect = [fake_user, fake_user]
-        mock_db.flush.side_effect = [
-            IntegrityError("DELETE FROM users", {}, Exception("fk violation")),
-            None,
-            None,
-        ]
+        mock_db.flush.side_effect = [IntegrityError("DELETE FROM users", {}, Exception("fk violation"))]
 
         resp = await client.delete(f"/admin/accounts/users/{fake_user.id}")
         assert resp.status_code == 200
         assert resp.json()["status"] == "deactivated"
-        assert fake_user.is_active is False
-        assert fake_user.token_version == 3
         mock_db.rollback.assert_awaited_once()
-        mock_db.commit.assert_awaited()
+        assert mock_db.execute.await_count >= 6
+        assert mock_db.commit.await_count >= 2
 
     async def test_delete_user_falls_back_to_deactivation_when_commit_deferred_constraint_fails(
         self, client: AsyncClient, mock_db
@@ -1051,21 +1044,19 @@ class TestAccountsAPI:
         fake_user = MagicMock()
         fake_user.id = uuid.uuid4()
         fake_user.email = "delete-commit-fallback@test.local"
-        fake_user.is_active = True
-        fake_user.token_version = 5
         mock_db.get.side_effect = [fake_user, fake_user]
         mock_db.commit.side_effect = [
             IntegrityError("COMMIT", {}, Exception("deferred fk violation")),
+            None,
             None,
         ]
 
         resp = await client.delete(f"/admin/accounts/users/{fake_user.id}")
         assert resp.status_code == 200
         assert resp.json()["status"] == "deactivated"
-        assert fake_user.is_active is False
-        assert fake_user.token_version == 6
         mock_db.rollback.assert_awaited_once()
-        assert mock_db.commit.await_count == 2
+        assert mock_db.execute.await_count >= 6
+        assert mock_db.commit.await_count >= 3
 
     async def test_list_personal_reading_jobs(self, client: AsyncClient, mock_db):
         job = MagicMock()
