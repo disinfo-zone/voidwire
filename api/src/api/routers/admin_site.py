@@ -12,6 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from voidwire.models import AdminUser, AuditLog
 
 from api.dependencies import get_db, require_admin
+from api.services.email_template_service import (
+    load_email_templates,
+    load_rendered_email_template,
+    save_email_templates,
+)
 from api.services.email_service import (
     load_smtp_config,
     save_smtp_config,
@@ -48,10 +53,13 @@ class SiteAssetUploadRequest(BaseModel):
 
 class SMTPConfigUpdateRequest(BaseModel):
     enabled: bool | None = None
+    provider: Literal["smtp", "resend"] | None = None
     host: str | None = Field(default=None, max_length=255)
     port: int | None = Field(default=None, ge=1, le=65535)
     username: str | None = Field(default=None, max_length=320)
     password: str | None = Field(default=None, max_length=512)
+    resend_api_key: str | None = Field(default=None, max_length=4096)
+    resend_api_base_url: str | None = Field(default=None, max_length=512)
     from_email: str | None = Field(default=None, max_length=320)
     from_name: str | None = Field(default=None, max_length=160)
     reply_to: str | None = Field(default=None, max_length=320)
@@ -61,6 +69,18 @@ class SMTPConfigUpdateRequest(BaseModel):
 
 class SMTPTestRequest(BaseModel):
     to_email: str = Field(min_length=3, max_length=320)
+
+
+class EmailTemplateContentUpdateRequest(BaseModel):
+    subject: str | None = Field(default=None, min_length=1, max_length=5000)
+    text_body: str | None = Field(default=None, min_length=1, max_length=50000)
+    html_body: str | None = Field(default=None, min_length=1, max_length=100000)
+
+
+class EmailTemplatesUpdateRequest(BaseModel):
+    verification: EmailTemplateContentUpdateRequest | None = None
+    password_reset: EmailTemplateContentUpdateRequest | None = None
+    test_email: EmailTemplateContentUpdateRequest | None = None
 
 
 class OAuthGoogleConfigUpdateRequest(BaseModel):
@@ -166,21 +186,20 @@ async def send_test_email(
     db: AsyncSession = Depends(get_db),
     user: AdminUser = Depends(require_admin),
 ):
+    subject, text_body, html_body = await load_rendered_email_template(
+        db,
+        template_key="test_email",
+        context={"site_name": "Voidwire"},
+    )
     delivered = await send_transactional_email(
         db,
         to_email=req.to_email,
-        subject="Voidwire SMTP Test",
-        text_body=(
-            "This is a test email from Voidwire.\n\n"
-            "If you received this message, SMTP settings are working."
-        ),
-        html_body=(
-            "<p>This is a test email from <strong>Voidwire</strong>.</p>"
-            "<p>If you received this message, SMTP settings are working.</p>"
-        ),
+        subject=subject,
+        text_body=text_body,
+        html_body=html_body,
     )
     if not delivered:
-        raise HTTPException(status_code=400, detail="SMTP test email failed to send")
+        raise HTTPException(status_code=400, detail="Test email failed to send")
     db.add(
         AuditLog(
             user_id=user.id,
@@ -191,6 +210,35 @@ async def send_test_email(
         )
     )
     return {"status": "sent"}
+
+
+@router.get("/email/templates")
+async def get_email_templates(
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(require_admin),
+):
+    _ = user
+    return await load_email_templates(db)
+
+
+@router.put("/email/templates")
+async def update_email_templates(
+    req: EmailTemplatesUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(require_admin),
+):
+    payload = req.model_dump(exclude_none=True)
+    updated = await save_email_templates(db, payload)
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            action="email.templates.update",
+            target_type="site",
+            target_id="email.templates",
+            detail={"updated_fields": list(payload.keys())},
+        )
+    )
+    return updated
 
 
 @router.get("/auth/oauth")

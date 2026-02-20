@@ -34,6 +34,7 @@ from api.services.auth_lockout import (
     is_login_blocked,
     record_login_failure,
 )
+from api.services.email_template_service import load_rendered_email_template
 from api.services.email_service import send_transactional_email
 from api.services.oauth_config import (
     load_public_oauth_providers,
@@ -287,22 +288,21 @@ async def _public_base_url(db: AsyncSession) -> str:
 async def _send_verification_email(db: AsyncSession, user: User, raw_token: str) -> None:
     base_url = await _public_base_url(db)
     verify_link = f"{base_url}/login?verify_token={quote(raw_token)}"
+    subject, text_body, html_body = await load_rendered_email_template(
+        db,
+        template_key="verification",
+        context={
+            "site_name": "Voidwire",
+            "verify_link": verify_link,
+            "token": raw_token,
+        },
+    )
     delivered = await send_transactional_email(
         db,
         to_email=user.email,
-        subject="Verify your Voidwire account",
-        text_body=(
-            "Welcome to Voidwire.\n\n"
-            f"Verify your email by opening this link:\n{verify_link}\n\n"
-            "If the link does not work, submit this token via the verify-email API endpoint:\n"
-            f"{raw_token}\n"
-        ),
-        html_body=(
-            "<p>Welcome to Voidwire.</p>"
-            f'<p>Verify your email: <a href="{verify_link}">{verify_link}</a></p>'
-            "<p>If the link does not work, use the provided token "
-            "in the verify-email API endpoint.</p>"
-        ),
+        subject=subject,
+        text_body=text_body,
+        html_body=html_body,
     )
     if not delivered:
         logger.warning(
@@ -315,20 +315,21 @@ async def _send_verification_email(db: AsyncSession, user: User, raw_token: str)
 async def _send_password_reset_email(db: AsyncSession, user: User, raw_token: str) -> None:
     base_url = await _public_base_url(db)
     reset_link = f"{base_url}/login?reset_token={quote(raw_token)}"
+    subject, text_body, html_body = await load_rendered_email_template(
+        db,
+        template_key="password_reset",
+        context={
+            "site_name": "Voidwire",
+            "reset_link": reset_link,
+            "token": raw_token,
+        },
+    )
     delivered = await send_transactional_email(
         db,
         to_email=user.email,
-        subject="Reset your Voidwire password",
-        text_body=(
-            "We received a request to reset your Voidwire password.\n\n"
-            f"Reset link:\n{reset_link}\n\n"
-            "If you did not request this, you can ignore this email."
-        ),
-        html_body=(
-            "<p>We received a request to reset your Voidwire password.</p>"
-            f'<p><a href="{reset_link}">Reset your password</a></p>'
-            "<p>If you did not request this, you can ignore this email.</p>"
-        ),
+        subject=subject,
+        text_body=text_body,
+        html_body=html_body,
     )
     if not delivered:
         logger.warning(

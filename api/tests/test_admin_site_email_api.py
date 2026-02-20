@@ -12,10 +12,13 @@ from httpx import AsyncClient
 async def test_get_smtp_config(client: AsyncClient):
     payload = {
         "enabled": True,
+        "provider": "smtp",
         "host": "smtp.example.com",
         "port": 587,
         "username": "mailer",
         "password_masked": "****1234",
+        "resend_api_key_masked": "",
+        "resend_api_base_url": "https://api.resend.com",
         "from_email": "noreply@example.com",
         "from_name": "Voidwire",
         "reply_to": "",
@@ -39,6 +42,7 @@ async def test_update_smtp_config(client: AsyncClient):
             "/admin/site/email/smtp",
             json={
                 "enabled": True,
+                "provider": "smtp",
                 "host": "smtp.example.com",
                 "port": 587,
                 "username": "mailer",
@@ -48,6 +52,65 @@ async def test_update_smtp_config(client: AsyncClient):
         )
     assert response.status_code == 200
     assert response.json()["enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_get_email_templates(client: AsyncClient):
+    payload = {
+        "verification": {
+            "subject": "Verify account",
+            "text_body": "Verify at {{verify_link}}",
+            "html_body": "<p>Verify</p>",
+        },
+        "password_reset": {
+            "subject": "Reset password",
+            "text_body": "Reset at {{reset_link}}",
+            "html_body": "<p>Reset</p>",
+        },
+        "test_email": {
+            "subject": "Test",
+            "text_body": "Test body",
+            "html_body": "<p>Test</p>",
+        },
+    }
+    with patch("api.routers.admin_site.load_email_templates", new=AsyncMock(return_value=payload)):
+        response = await client.get("/admin/site/email/templates")
+    assert response.status_code == 200
+    assert response.json()["verification"]["subject"] == "Verify account"
+
+
+@pytest.mark.asyncio
+async def test_update_email_templates(client: AsyncClient):
+    payload = {
+        "verification": {
+            "subject": "Verify account",
+            "text_body": "Verify at {{verify_link}}",
+            "html_body": "<p>Verify</p>",
+        },
+        "password_reset": {
+            "subject": "Reset password",
+            "text_body": "Reset at {{reset_link}}",
+            "html_body": "<p>Reset</p>",
+        },
+        "test_email": {
+            "subject": "Test",
+            "text_body": "Test body",
+            "html_body": "<p>Test</p>",
+        },
+    }
+    with patch("api.routers.admin_site.save_email_templates", new=AsyncMock(return_value=payload)):
+        response = await client.put(
+            "/admin/site/email/templates",
+            json={
+                "verification": {
+                    "subject": "Verify account",
+                    "text_body": "Verify at {{verify_link}}",
+                    "html_body": "<p>Verify</p>",
+                }
+            },
+        )
+    assert response.status_code == 200
+    assert response.json()["verification"]["subject"] == "Verify account"
 
 
 @pytest.mark.asyncio
