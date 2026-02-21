@@ -1,5 +1,6 @@
 """Tests for pipeline orchestrator."""
 
+import asyncio
 import uuid
 from datetime import date
 
@@ -11,6 +12,8 @@ from pipeline.orchestrator import (
     _generate_seed,
     _is_duplicate_title,
     _regenerate_title,
+    _attempt_auto_prose_recovery,
+    _attach_auto_prose_recovery_meta,
     _strip_signal_embeddings,
 )
 
@@ -90,3 +93,100 @@ async def test_regenerate_title_retries_until_unique(monkeypatch):
         date_context=date(2026, 2, 20),
     )
     assert title == "Ledger Under Iron Rain"
+
+
+def test_attach_auto_prose_recovery_meta_adds_metadata():
+    payloads = _attach_auto_prose_recovery_meta({"pass_b": "prompt"}, {"status": "succeeded"})
+    assert payloads["pass_b"] == "prompt"
+    assert payloads["_auto_prose_regeneration"]["status"] == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_attempt_auto_prose_recovery_success(monkeypatch):
+    async def fake_synthesis_stage(*_args, **_kwargs):
+        return {
+            "generated_output": {"ok": True},
+            "standard_reading": {"title": "Recovered", "body": "Body"},
+            "extended_reading": {"title": "", "subtitle": "", "sections": [], "word_count": 0},
+            "annotations": [],
+            "prompt_payloads": {},
+            "template_versions": {},
+        }
+
+    monkeypatch.setattr(orchestrator, "run_synthesis_stage", fake_synthesis_stage)
+
+    result, meta = await _attempt_auto_prose_recovery(
+        run_id=uuid.uuid4(),
+        date_context=date(2026, 2, 20),
+        trigger_source="scheduler",
+        reason="exception",
+        reason_detail="boom",
+        synthesis_timeout_seconds=180,
+        ephemeris_data={},
+        selected=[],
+        thread_snapshot=[],
+        sky_only=True,
+        event_context=None,
+        session=None,
+        synthesis_settings=None,
+    )
+    assert result is not None
+    assert meta["status"] == "succeeded"
+    assert meta["mode"] == "prose_only"
+
+
+@pytest.mark.asyncio
+async def test_attempt_auto_prose_recovery_silence(monkeypatch):
+    async def fake_synthesis_stage(*_args, **_kwargs):
+        return {
+            "generated_output": None,
+            "standard_reading": {"title": "The Signal Obscured", "body": "Silent"},
+            "prompt_payloads": {},
+            "template_versions": {},
+        }
+
+    monkeypatch.setattr(orchestrator, "run_synthesis_stage", fake_synthesis_stage)
+
+    result, meta = await _attempt_auto_prose_recovery(
+        run_id=uuid.uuid4(),
+        date_context=date(2026, 2, 20),
+        trigger_source="scheduler",
+        reason="silence_fallback",
+        reason_detail="silence",
+        synthesis_timeout_seconds=180,
+        ephemeris_data={},
+        selected=[],
+        thread_snapshot=[],
+        sky_only=True,
+        event_context=None,
+        session=None,
+        synthesis_settings=None,
+    )
+    assert result is None
+    assert meta["status"] == "silence_fallback"
+
+
+@pytest.mark.asyncio
+async def test_attempt_auto_prose_recovery_timeout(monkeypatch):
+    async def fake_synthesis_stage(*_args, **_kwargs):
+        raise asyncio.TimeoutError()
+
+    monkeypatch.setattr(orchestrator, "run_synthesis_stage", fake_synthesis_stage)
+
+    result, meta = await _attempt_auto_prose_recovery(
+        run_id=uuid.uuid4(),
+        date_context=date(2026, 2, 20),
+        trigger_source="scheduler",
+        reason="timeout",
+        reason_detail="timed out",
+        synthesis_timeout_seconds=180,
+        ephemeris_data={},
+        selected=[],
+        thread_snapshot=[],
+        sky_only=True,
+        event_context=None,
+        session=None,
+        synthesis_settings=None,
+    )
+    assert result is None
+    assert meta["status"] == "timed_out"

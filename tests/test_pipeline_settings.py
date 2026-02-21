@@ -65,6 +65,7 @@ class TestSynthesisSettingsDefaults:
         assert s.prose_temp_step == 0.1
         assert s.prose_temp_min == 0.5
         assert s.fallback_temp == 0.6
+        assert s.max_stage_seconds == 480
 
     def test_word_ranges(self):
         s = SynthesisSettings()

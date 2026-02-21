@@ -48,7 +48,7 @@ class SynthesisSettings(BaseModel):
     signal_display_limit: int = Field(default=12, ge=1, le=40)
     standard_word_range: list[int] = Field(default=[400, 600])
     extended_word_range: list[int] = Field(default=[1200, 1800])
-    max_stage_seconds: int = 600
+    max_stage_seconds: int = 480
     banned_phrases: list[str] = Field(
         default=[
             "buckle up",

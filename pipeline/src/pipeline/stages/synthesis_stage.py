@@ -591,8 +591,8 @@ async def run_synthesis_stage(
     from pipeline.stages.distillation_stage import _get_llm_client
 
     fast_mode = allow_guard_relaxation
-    # Event-linked runs should resolve quickly and avoid expensive repair loops.
-    llm_timeout = 90.0 if fast_mode else 120.0
+    # Keep synthesis request timeout high enough for slower models while still bounded.
+    llm_timeout = 120.0 if fast_mode else 180.0
     client = await _get_llm_client(session, "synthesis", timeout=llm_timeout)
 
     prompt_payloads = {}

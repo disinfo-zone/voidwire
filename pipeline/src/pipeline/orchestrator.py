@@ -420,6 +420,116 @@ async def _regenerate_title(
         await client.close()
 
 
+def _apply_synthesis_result_to_run(run: PipelineRun, synthesis_result: dict[str, Any]) -> None:
+    run.interpretive_plan = synthesis_result.get("interpretive_plan")
+    run.generated_output = synthesis_result.get("generated_output")
+    run.prompt_payloads = synthesis_result.get("prompt_payloads", {})
+    run.template_versions = synthesis_result.get("template_versions", {})
+
+
+def _attach_auto_prose_recovery_meta(
+    prompt_payloads: Any, recovery_meta: dict[str, Any] | None
+) -> dict[str, Any]:
+    payloads = dict(prompt_payloads) if isinstance(prompt_payloads, dict) else {}
+    if isinstance(recovery_meta, dict) and recovery_meta:
+        payloads["_auto_prose_regeneration"] = recovery_meta
+    return payloads
+
+
+async def _attempt_auto_prose_recovery(
+    *,
+    run_id: uuid.UUID,
+    date_context: date,
+    trigger_source: str,
+    reason: str,
+    reason_detail: str,
+    synthesis_timeout_seconds: int,
+    ephemeris_data: dict[str, Any],
+    selected: list[dict[str, Any]],
+    thread_snapshot: list[dict[str, Any]],
+    sky_only: bool,
+    event_context: dict[str, Any] | None,
+    session: AsyncSession,
+    synthesis_settings: Any,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    recovery_timeout_seconds = min(
+        240,
+        max(90, int(max(60, synthesis_timeout_seconds) * 0.5)),
+    )
+    logger.warning(
+        "Attempting automatic prose-only recovery run_id=%s reason=%s timeout=%ss",
+        run_id,
+        reason,
+        recovery_timeout_seconds,
+    )
+    recovery_started_at = datetime.now(UTC)
+    recovery_meta: dict[str, Any] = {
+        "mode": "prose_only",
+        "status": "running",
+        "reason": reason,
+        "reason_detail": reason_detail,
+        "timeout_seconds": recovery_timeout_seconds,
+        "trigger_source": trigger_source,
+    }
+    try:
+        recovery_result = await asyncio.wait_for(
+            run_synthesis_stage(
+                ephemeris_data,
+                selected,
+                thread_snapshot,
+                date_context,
+                sky_only,
+                session,
+                settings=synthesis_settings,
+                allow_guard_relaxation=True,
+                event_context=event_context,
+            ),
+            timeout=recovery_timeout_seconds,
+        )
+        elapsed = int((datetime.now(UTC) - recovery_started_at).total_seconds())
+        recovery_meta["elapsed_seconds"] = elapsed
+        if isinstance(recovery_result, dict) and recovery_result.get("generated_output") is not None:
+            recovery_meta["status"] = "succeeded"
+            logger.info(
+                "Automatic prose-only recovery succeeded run_id=%s elapsed=%ss",
+                run_id,
+                elapsed,
+            )
+            return recovery_result, recovery_meta
+
+        recovery_meta["status"] = "silence_fallback"
+        recovery_meta["error"] = "Recovery returned silence output."
+        logger.warning(
+            "Automatic prose-only recovery returned silence output run_id=%s elapsed=%ss",
+            run_id,
+            elapsed,
+        )
+        return None, recovery_meta
+    except Exception as exc:
+        elapsed = int((datetime.now(UTC) - recovery_started_at).total_seconds())
+        recovery_meta["elapsed_seconds"] = elapsed
+        if isinstance(exc, asyncio.TimeoutError):
+            recovery_meta["status"] = "timed_out"
+            recovery_meta["error"] = (
+                f"Recovery exceeded {recovery_timeout_seconds} seconds and was aborted."
+            )
+            logger.error(
+                "Automatic prose-only recovery timed out run_id=%s elapsed=%ss timeout=%ss",
+                run_id,
+                elapsed,
+                recovery_timeout_seconds,
+            )
+        else:
+            recovery_meta["status"] = "failed"
+            recovery_meta["error"] = str(exc).strip() or "Recovery failed unexpectedly."
+            logger.exception(
+                "Automatic prose-only recovery failed run_id=%s elapsed=%ss",
+                run_id,
+                elapsed,
+            )
+        return None, recovery_meta
+
+
 async def run_pipeline(
     date_context: date | None = None,
     regeneration_mode: RegenerationMode | None = None,
@@ -731,6 +841,9 @@ async def run_pipeline(
                         len(selected),
                         len(thread_snapshot),
                     )
+                    synthesis_result: dict[str, Any] | None = None
+                    synthesis_error: Exception | None = None
+                    auto_prose_recovery_meta: dict[str, Any] | None = None
                     try:
                         synthesis_result = await asyncio.wait_for(
                             run_synthesis_stage(
@@ -746,9 +859,58 @@ async def run_pipeline(
                             ),
                             timeout=synthesis_timeout_seconds,
                         )
-                        run.interpretive_plan = synthesis_result.get("interpretive_plan")
-                        run.generated_output = synthesis_result.get("generated_output")
-                        run.prompt_payloads = synthesis_result.get("prompt_payloads", {})
+                    except Exception as exc:
+                        synthesis_error = exc
+
+                    if synthesis_result is None and synthesis_error is not None:
+                        initial_elapsed = int((datetime.now(UTC) - synthesis_started_at).total_seconds())
+                        reason = "timeout" if isinstance(synthesis_error, asyncio.TimeoutError) else "exception"
+                        detail = str(synthesis_error).strip() or "Synthesis stage failed unexpectedly."
+                        recovery_result, auto_prose_recovery_meta = await _attempt_auto_prose_recovery(
+                            run_id=run_id,
+                            date_context=date_context,
+                            trigger_source=trigger_source,
+                            reason=reason,
+                            reason_detail=detail,
+                            synthesis_timeout_seconds=synthesis_timeout_seconds,
+                            ephemeris_data=ephemeris_data,
+                            selected=selected,
+                            thread_snapshot=thread_snapshot,
+                            sky_only=synthesis_sky_only,
+                            event_context=event_context,
+                            session=session,
+                            synthesis_settings=ps.synthesis,
+                        )
+                        auto_prose_recovery_meta["initial_elapsed_seconds"] = initial_elapsed
+                        auto_prose_recovery_meta["initial_error_type"] = type(synthesis_error).__name__
+                        if recovery_result is not None:
+                            synthesis_result = recovery_result
+
+                    if synthesis_result is not None and synthesis_result.get("generated_output") is None:
+                        recovery_result, auto_prose_recovery_meta = await _attempt_auto_prose_recovery(
+                            run_id=run_id,
+                            date_context=date_context,
+                            trigger_source=trigger_source,
+                            reason="silence_fallback",
+                            reason_detail="Initial synthesis returned silence fallback output.",
+                            synthesis_timeout_seconds=synthesis_timeout_seconds,
+                            ephemeris_data=ephemeris_data,
+                            selected=selected,
+                            thread_snapshot=thread_snapshot,
+                            sky_only=synthesis_sky_only,
+                            event_context=event_context,
+                            session=session,
+                            synthesis_settings=ps.synthesis,
+                        )
+                        if recovery_result is not None:
+                            synthesis_result = recovery_result
+
+                    elapsed = int((datetime.now(UTC) - synthesis_started_at).total_seconds())
+                    if synthesis_result is not None:
+                        _apply_synthesis_result_to_run(run, synthesis_result)
+                        run.prompt_payloads = _attach_auto_prose_recovery_meta(
+                            run.prompt_payloads, auto_prose_recovery_meta
+                        )
                         telemetry = run.prompt_payloads.get("_telemetry")
                         if not isinstance(telemetry, dict):
                             telemetry = {}
@@ -759,9 +921,10 @@ async def run_pipeline(
                         if trigger_source == "manual_event":
                             telemetry.setdefault("event_mode", event_mode)
                             telemetry.setdefault("event_days_out", event_days_out)
-                        run.template_versions = synthesis_result.get("template_versions", {})
                         if run.generated_output is None and not run.error_detail:
                             run.error_detail = "Synthesis fell back to silence output after retries."
+                        elif run.generated_output is not None:
+                            run.error_detail = None
 
                         # Check for duplicate title and regenerate if needed
                         standard_reading = synthesis_result.get("standard_reading", SILENCE_READING)
@@ -811,7 +974,6 @@ async def run_pipeline(
                             generated_annotations=synthesis_result.get("annotations", []),
                         )
                         session.add(reading)
-                        elapsed = int((datetime.now(UTC) - synthesis_started_at).total_seconds())
                         logger.info(
                             "Synthesis finished run_id=%s elapsed=%ss generated_output=%s",
                             run_id,
@@ -819,8 +981,7 @@ async def run_pipeline(
                             run.generated_output is not None,
                         )
                         await session.commit()
-                    except Exception as e:
-                        elapsed = int((datetime.now(UTC) - synthesis_started_at).total_seconds())
+                    else:
                         reading = Reading(
                             run_id=run_id,
                             date_context=date_context,
@@ -835,7 +996,7 @@ async def run_pipeline(
                             generated_annotations=[],
                         )
                         session.add(reading)
-                        if isinstance(e, asyncio.TimeoutError):
+                        if isinstance(synthesis_error, asyncio.TimeoutError):
                             logger.error(
                                 "Synthesis timed out run_id=%s source=%s elapsed=%ss timeout=%ss",
                                 run_id,
@@ -861,13 +1022,18 @@ async def run_pipeline(
                                 },
                             }
                         else:
-                            logger.exception(
-                                "Synthesis failed run_id=%s source=%s elapsed=%ss",
+                            logger.error(
+                                "Synthesis failed run_id=%s source=%s elapsed=%ss error=%s",
                                 run_id,
                                 trigger_source,
                                 elapsed,
+                                str(synthesis_error) if synthesis_error is not None else "unknown",
                             )
-                            run.error_detail = str(e).strip() or "Synthesis stage failed unexpectedly."
+                            run.error_detail = (
+                                str(synthesis_error).strip()
+                                if synthesis_error is not None
+                                else "Synthesis stage failed unexpectedly."
+                            )
                             run.prompt_payloads = {
                                 "_status": "synthesis_failed",
                                 "_telemetry": {
@@ -883,6 +1049,9 @@ async def run_pipeline(
                                 },
                                 "_error": run.error_detail,
                             }
+                        run.prompt_payloads = _attach_auto_prose_recovery_meta(
+                            run.prompt_payloads, auto_prose_recovery_meta
+                        )
                         await session.commit()
 
                     # Stage 8: Publish
